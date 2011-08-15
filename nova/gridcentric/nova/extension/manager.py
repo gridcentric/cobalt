@@ -1,53 +1,45 @@
+"""
+Handles all processes relating to GridCentric functionality
 
+The :py:class:`GridCentricManager` class is a :py:class:`nova.manager.Manager` that
+handles RPC calls relating to GridCentric functionalitycreating instances.
+"""
 
+import datetime
+import os
+import random
+import string
+import socket
+import sys
+import tempfile
+import functools
 
+from eventlet import greenthread
 
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
-# Copyright 2011 OpenStack LLC.
-# All Rights Reserved.
-#
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
-
-import json
-
-from nova import wsgi
-
+from nova import exception
 from nova import flags
 from nova import log as logging
+from nova import manager
+from nova import rpc
 from nova import utils
+from nova.compute import power_state
+from nova.virt import xenapi_conn
 
-from nova import db
-from nova.db import base
-from nova.api.openstack import extensions
-from nova.virt.xenapi_conn import XenAPISession
-
-
-LOG = logging.getLogger("nova.api.extensions.gridcentric")
+LOG = logging.getLogger('gridcentric.nova.manager')
 FLAGS = flags.FLAGS
 
-class GridCentricAPI(base.Base):
-
-    def __init__(self, **kwargs):
-
+class GridCentricManager(manager.SchedulerDependentManager):
+    
+    def __init__(self, *args, **kwargs):
+        
         url = FLAGS.xenapi_connection_url
         username = FLAGS.xenapi_connection_username
         password = FLAGS.xenapi_connection_password
 
-        self.xen_session = XenAPISession(url,username,password)
-
-        super(GridCentricAPI, self).__init__(**kwargs)
-
+        self.xen_session = xenapi_conn.XenAPISession(url,username,password)
+        
+        super(GridCentricManager, self).__init__(service_name="gridcentric",
+                                             *args, **kwargs)
 
     def _copy_instance(self, context, instance_id):
 
@@ -83,10 +75,10 @@ class GridCentricAPI(base.Base):
         return suspend_instance_ref['id']
 
 
-
     def suspend_instance(self, context, instance_id):
-
-	context.elevated()
+        LOG.debug(_("suspend instance called: instance_id=%s"), instance_id)
+        
+        context.elevated()
         # Setup the DB representation for the new VM
         self._copy_instance(context, instance_id)
         instance_ref = self.db.instance_get(context, instance_id)
@@ -103,51 +95,3 @@ class GridCentricAPI(base.Base):
         # Communicate with XEN to create the new "gridcentric-ified" vm
         task = self.xen_session.async_call_plugin('gridcentric','suspend_vms',{'uuid':uuid,'path':'/some/path','name':'some-name'})
         self.xen_session.wait_for_task(task, instance_id)
-
-
-class Gridcentric(object):
-
-    """ 
-    The Openstack Extension definition for the GridCentric capabilities. Currently this includes:
-        * Cloning an existing virtual machine
-    """
-
-    def __init__(self):
-        self.api = GridCentricAPI()
-        pass
-
-    def get_name(self):
-        return "GridCentric"
-
-    def get_alias(self):
-        return "GC"
-
-    def get_description(self):
-        return "The GridCentric extension"
-
-    def get_namespace(self):
-        return "http://www.gridcentric.com"
-
-    def get_updated(self):
-        # (dscannell) TODO: 
-        # This should be injected by the build system once on is established.
-        return "2011-01-22T13:25:27-06:00"
-
-    def get_actions(self):
-        actions = []
-
-        actions.append(extensions.ActionExtension('servers', 'gc_suspend',
-                                                    self._suspend_instance))
-
-
-        return actions
-
-    def _suspend_instance(self, input_dict, req, id):
-
-        # (dscannel) TODO:
-        # For now assume a xenapi connection. We should check this eventually and 
-        # produce a good error message.
-        api = GridCentricAPI()
-        api.suspend_instance(req.environ["nova.context"], id)
-
-        return id
