@@ -1,0 +1,29 @@
+#!/usr/bin/env python
+
+# A simple script that uses the novaclient to communicate with Openstack to provide the gridcentric
+# specific functionality.
+
+import sys
+import novaclient
+
+
+
+def usage():
+    sys.stderr.write("usage: gc-nova <command>\n")
+    sys.stderr.write("where command is one of the following:\n")
+    sys.stderr.write("    suspend <instance id>\n")
+    sys.stderr.write("        Creates a new clone instance based off of the instance with the given id.")
+    sys.stderr.write("\n")
+    sys.stderr.flush()
+
+if len(sys.argv) < 2:
+    usage()
+    exit()
+ 
+command = sys.argv[1]
+
+if command == 'suspend':
+    instance_id = sys.argv[2]
+    
+    client = novaclient.OpenStackClient('admin','admin','','http://localhost:8774/v1.1')
+    client.post('/servers/%s/action' % instance_id,body={'gc_suspend':{}})
