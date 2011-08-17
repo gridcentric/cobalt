@@ -12,7 +12,10 @@ def usage():
     sys.stderr.write("usage: gc-nova <command>\n")
     sys.stderr.write("where command is one of the following:\n")
     sys.stderr.write("    suspend <instance id>\n")
-    sys.stderr.write("        Creates a new clone instance based off of the instance with the given id.")
+    sys.stderr.write("        Creates a new clone base instance based off of the instance with the given id.")
+    sys.stderr.write("\n")
+    sys.stderr.write("    launch <instance id>\n")
+    sys.stderr.write("        Launches a new clone instance based off of the base instance with the given id.")
     sys.stderr.write("\n")
     sys.stderr.flush()
 
@@ -27,3 +30,9 @@ if command == 'suspend':
     
     client = novaclient.OpenStackClient('admin','admin','','http://localhost:8774/v1.1')
     client.post('/servers/%s/action' % instance_id,body={'gc_suspend':{}})
+    
+elif command == 'launch':
+    instance_id = sys.argv[2]   
+    
+    client = novaclient.OpenStackClient('admin','admin','','http://localhost:8774/v1.1')
+    client.post('/servers/%s/action' % instance_id,body={'gc_launch':{}})

@@ -70,6 +70,9 @@ class Gridcentric_extension(object):
 
         actions.append(extensions.ActionExtension('servers', 'gc_suspend',
                                                     self._suspend_instance))
+        
+        actions.append(extensions.ActionExtension('servers', 'gc_launch',
+                                                    self._launch_instance))
 
 
         return actions
@@ -83,3 +86,27 @@ class Gridcentric_extension(object):
         self.gridcentric_api.suspend_instance(context, id)
 
         return id
+
+    def _launch_instance(self, input_dict, req, id):
+        # (dscannel) TODO:
+        # For now assume a xenapi connection. We should check this eventually and 
+        # produce a good error message.
+        context = req.environ["nova.context"]
+        self.gridcentric_api.launch_instance(context, id)
+
+    def get_response_extensions(self):
+        response_exts = []
+
+        def _show_servers(res):
+            #NOTE: This only handles JSON responses.
+            # You can use content type header to test for XML.
+            data = json.loads(res.body)
+            LOG.debug(_("RESPONDING to /servers/detail: data=%s"), data)
+            return data
+
+        resp_ext = extensions.ResponseExtension('GET', '/servers/detail',
+                                                _show_servers)
+        response_exts.append(resp_ext)
+
+        return response_exts
+

@@ -58,3 +58,18 @@ class API(base.Base):
     def suspend_instance(self, context, instance_id):
         LOG.debug(_("Casting gridcentric message for suspend_instance") % locals())
         self._cast_gridcentric_message('suspend_instance', context, instance_id)
+        
+    def launch_instance(self, context, instance_id):
+        
+        
+        pid = context.project_id
+        uid = context.user_id
+        LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
+                    " instance %(instance_id)s") % locals())
+        rpc.cast(context,
+                     FLAGS.scheduler_topic,
+                     {"method": "launch_instance",
+                      "args": {"topic": FLAGS.gridcentric_topic,
+                               "instance_id": instance_id}})
+        
+        #self._cast_gridcentric_message('launch_instance', context, instance_id)

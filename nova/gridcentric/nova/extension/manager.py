@@ -41,7 +41,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         super(GridCentricManager, self).__init__(service_name="gridcentric",
                                              *args, **kwargs)
 
-    def _copy_instance(self, context, instance_id):
+    def _copy_instance(self, context, instance_id, new_suffix):
 
         # (dscannell): Basically we wnt to copy all of the information from instance with id=instance_id
         # into a new instance. This is because we are basically "cloning" the vm as far as all the properties
@@ -61,7 +61,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'memory_mb': instance_ref['memory_mb'],
            'vcpus': instance_ref['vcpus'],
            'local_gb': instance_ref['local_gb'],
-           'display_name': instance_ref['display_name'] + "-clone",
+           'display_name': "%s-%s" % (instance_ref['display_name'], new_suffix),
            'display_description': instance_ref['display_description'],
            'user_data': instance_ref.get('user_data',''),
            'key_name': instance_ref.get('key_name',''),
@@ -69,10 +69,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'locked': False,
            'metadata': instance_ref['metadata'],
            'availability_zone': instance_ref['availability_zone'],
-           'os_type': instance_ref['os_type'] 
+           'os_type': instance_ref['os_type'],
+           'host': instance_ref['host']
         }
-        suspend_instance_ref = self.db.instance_create(context, instance)
-        return suspend_instance_ref['id']
+        new_instance_ref = self.db.instance_create(context, instance)
+        return new_instance_ref
 
 
     def suspend_instance(self, context, instance_id):
@@ -80,18 +81,51 @@ class GridCentricManager(manager.SchedulerDependentManager):
         
         context.elevated()
         # Setup the DB representation for the new VM
-        self._copy_instance(context, instance_id)
+        new_instance_ref = self._copy_instance(context, instance_id, "base")
         instance_ref = self.db.instance_get(context, instance_id)
 
         # Figure out these required parameters:
         # uuid : The xen uuid of the vm that refer's to your instance_id
-        LOG.debug(_('DS_DEBUG determing cloning vm uuid: instance_id=%s, display_name=%s, name=%s'), instance_id, instance_ref['display_name'], instance_ref.name)
+        LOG.debug(_('DS_DEBUG determing cloning vm uuid: instance_id=%s, display_name=%s, name=%s'), 
+                  instance_id, instance_ref['display_name'], instance_ref.name)
         vm_ref = self.xen_session.get_xenapi().VM.get_by_name_label(instance_ref.name)[0]
         vm_rec = self.xen_session.get_xenapi().VM.get_record(vm_ref)
         uuid = vm_rec['uuid']
         # path : The path (that is accessible to dom0) where they clone descriptor will be saved
+        path = "/tmp"
         # name : A label name to mark this generation of clones.
+        name = "clones"
+        name_label = new_instance_ref.name
 
         # Communicate with XEN to create the new "gridcentric-ified" vm
-        task = self.xen_session.async_call_plugin('gridcentric','suspend_vms',{'uuid':uuid,'path':'/some/path','name':'some-name'})
+        task = self.xen_session.async_call_plugin('gridcentric','suspend_vms',
+                                                  {'uuid':uuid,
+                                                   'path':path,
+                                                   'name':name,
+                                                   'name-label':name_label})
+        newuuid = self.xen_session.wait_for_task(task, instance_id)
+        
+    def launch_instance(self, context, instance_id):
+        """ 
+        Launches a new virtual machine instance that is based off of the instance refered
+        by base_instance_id.
+        """
+
+        LOG.debug(_("Launching new instance: instance_id=%s"), instance_id)
+        
+        new_instance_ref = self._copy_instance(context, instance_id, "clone")
+        instance_ref = self.db.instance_get(context, instance_id)
+        
+        LOG.debug(_('DS_DEBUG determing launching vm uuid: instance_id=%s, display_name=%s, name=%s'), 
+                  instance_id, instance_ref['display_name'], instance_ref.name)
+        vm_ref = self.xen_session.get_xenapi().VM.get_by_name_label(instance_ref.name)[0]
+        vm_rec = self.xen_session.get_xenapi().VM.get_record(vm_ref)
+        uuid = vm_rec['uuid']
+        
+        # The name of the new instance
+        name = new_instance_ref.name
+
+        # Communicate with XEN to create the new "gridcentric-ified" vm
+        task = self.xen_session.async_call_plugin('gridcentric','launch_vms', {'uuid':uuid, 'name':name})
+
         self.xen_session.wait_for_task(task, instance_id)
