@@ -1,0 +1,32 @@
+#!/bin/bash
+
+### 
+# THIS IS A MOCK IMPLEMENTATION OF SUSPEND.VMS THAT DOES NOT USE
+# ANY OF THE FUNCTIONALITY. IT IS PRIMARILY USED TO TEST THE OPENSTACK
+# INTEGRATION IN ISOLATION OF VMS CHANGES. TO USE THIS, SIMPLY SYMLINK
+# /usr/sbin/launch.vms TO THIS FILE. 
+#
+
+if [ "$#" -ne "2" ]; then
+    echo "usage: $0 <uuid> <name>"
+    exit 0
+fi
+
+uuid=$1
+name=$2
+
+# Clone the VM with the given UUID
+newuuid=`xe vm-clone uuid=$uuid new-name-label=$name`
+
+# Start this clone VM
+xe vm-start uuid=$newuuid
+
+# Hoard the new VM.
+# THERE IS NO HOARDING
+#    host=`xe vm-param-get uuid=$uuid param-name=resident-on`
+#    address=`xe host-param-get uuid=$host param-name=address`
+#    domid=`xe vm-param-get uuid=$newuuid param-name=dom-id`
+#    vmsctl vmshoard $domid
+
+# Print the new uuid.
+echo $newuuid
