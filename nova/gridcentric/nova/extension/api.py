@@ -21,15 +21,11 @@ import re
 import time
 
 from nova import db
-from nova import exception
 from nova import flags
 from nova import log as logging
-from nova import network
-from nova import quota
 from nova import rpc
 from nova import utils
 from nova import volume
-from nova.compute import instance_types
 from nova.scheduler import api as scheduler_api
 from nova.db import base
 
@@ -86,5 +82,3 @@ class API(base.Base):
                      {"method": "launch_instance",
                       "args": {"topic": FLAGS.gridcentric_topic,
                                "instance_id": instance_id}})
-        
-        #self._cast_gridcentric_message('launch_instance', context, instance_id)

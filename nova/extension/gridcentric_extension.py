@@ -18,8 +18,6 @@
 
 import json
 
-from nova import wsgi
-
 from nova import flags
 from nova import log as logging
 from nova import utils
@@ -27,7 +25,6 @@ from nova import utils
 from nova import db
 from nova.db import base
 from nova.api.openstack import extensions
-from nova.virt.xenapi_conn import XenAPISession
 from gridcentric.nova import extension
 
 
@@ -59,7 +56,7 @@ class Gridcentric_extension(object):
 
     def get_updated(self):
         # (dscannell) TODO: 
-        # This should be injected by the build system once on is established.
+        # This should be injected by the build system once one is established.
         return "2011-01-22T13:25:27-06:00"
 
     def get_actions(self):
@@ -76,18 +73,13 @@ class Gridcentric_extension(object):
 
     def _suspend_instance(self, input_dict, req, id):
 
-        # (dscannel) TODO:
-        # For now assume a xenapi connection. We should check this eventually and 
-        # produce a good error message.
         context = req.environ["nova.context"]
         self.gridcentric_api.suspend_instance(context, id)
 
         return id
 
     def _launch_instance(self, input_dict, req, id):
-        # (dscannel) TODO:
-        # For now assume a xenapi connection. We should check this eventually and 
-        # produce a good error message.
+
         context = req.environ["nova.context"]
         self.gridcentric_api.launch_instance(context, id)
 

@@ -47,6 +47,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
     
     def __init__(self, *args, **kwargs):
         
+        if FLAGS.connection_type != "xenapi":
+            raise exception.Error("The GridCentric extension only works with the xenapi connection type.\n" + \
+                    "Please set --connection_type=xenapi in the nova.conf flag file.")
+            
+        
         url = FLAGS.xenapi_connection_url
         username = FLAGS.xenapi_connection_username
         password = FLAGS.xenapi_connection_password
