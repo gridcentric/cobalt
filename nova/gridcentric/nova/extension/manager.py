@@ -43,6 +43,9 @@ from nova.virt import xenapi_conn
 LOG = logging.getLogger('gridcentric.nova.manager')
 FLAGS = flags.FLAGS
 
+flags.DEFINE_string('gridcentric_datastore', '/tmp', 
+                    'A directory on dom0 that GridCentric will used to save the clone descriptors.')
+
 class GridCentricManager(manager.SchedulerDependentManager):
     
     def __init__(self, *args, **kwargs):
@@ -63,7 +66,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def _copy_instance(self, context, instance_id, new_suffix):
 
-        # (dscannell): Basically we wnt to copy all of the information from instance with id=instance_id
+        # (dscannell): Basically we want to copy all of the information from instance with id=instance_id
         # into a new instance. This is because we are basically "cloning" the vm as far as all the properties
         # are concerned.
         instance_ref = self.db.instance_get(context, instance_id)
@@ -87,7 +90,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'key_name': instance_ref.get('key_name',''),
            'key_data': instance_ref.get('key_data',''),
            'locked': False,
-           'metadata': instance_ref['metadata'],
+           'metadata': {},
            'availability_zone': instance_ref['availability_zone'],
            'os_type': instance_ref['os_type'],
            'host': instance_ref['host']
@@ -95,26 +98,46 @@ class GridCentricManager(manager.SchedulerDependentManager):
         new_instance_ref = self.db.instance_create(context, instance)
         return new_instance_ref
 
+    def _next_generation_id(self, context, instance_id):
+        
+        # The generation of clones that is being created from this instance. This is an increasing
+        # number that increments for each suspend on the instance.
+        
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        generation_id = int(metadata.get('generation_id',-1)) + 1
+        metadata['generation_id'] = generation_id
+        self.db.instance_metadata_update_or_create(context, instance_id, metadata)
+        
+        LOG.debug(_("Instance has new generation id=%s"), generation_id)
+        return generation_id
 
     def suspend_instance(self, context, instance_id):
         LOG.debug(_("suspend instance called: instance_id=%s"), instance_id)
         
         context.elevated()
         # Setup the DB representation for the new VM
-        new_instance_ref = self._copy_instance(context, instance_id, "base")
         instance_ref = self.db.instance_get(context, instance_id)
+        generation_id = self._next_generation_id(context, instance_id)
+        new_instance_ref = self._copy_instance(context, instance_id, "base-%s" % (generation_id))
+        
 
-        # Figure out these required parameters:
-        # uuid : The xen uuid of the vm that refer's to your instance_id
         LOG.debug(_('DS_DEBUG determing cloning vm uuid: instance_id=%s, display_name=%s, name=%s'), 
                   instance_id, instance_ref['display_name'], instance_ref.name)
         vm_ref = self.xen_session.get_xenapi().VM.get_by_name_label(instance_ref.name)[0]
         vm_rec = self.xen_session.get_xenapi().VM.get_record(vm_ref)
+        # uuid : The xen uuid of the vm that refer's to your instance_id
         uuid = vm_rec['uuid']
+        
         # path : The path (that is accessible to dom0) where they clone descriptor will be saved
-        path = "/tmp"
+        path = FLAGS.gridcentric_datastore
+        
+        # (dscannell) TODO:
+        # This name needs to be autodetermined somehow so that when the virtual machine is suspended
+        # more than once, it doesn't clobber existing clone descriptors. Perhaps we can use the
+        # metadata field to store information. It appears to just be key-values associated to an
+        # instance.
         # name : A label name to mark this generation of clones.
-        name = "clones"
+        name = "gen-%s" % (generation_id)
         name_label = new_instance_ref.name
 
         # Communicate with XEN to create the new "gridcentric-ified" vm
@@ -145,7 +168,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # The name of the new instance
         name = new_instance_ref.name
 
-        # Communicate with XEN to create the new "gridcentric-ified" vm
+        # Communicate with XEN to launch the new "gridcentric-ified" vm
         task = self.xen_session.async_call_plugin('gridcentric','launch_vms', {'uuid':uuid, 'name':name})
 
         self.xen_session.wait_for_task(task, instance_id)
