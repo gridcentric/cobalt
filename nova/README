@@ -1,0 +1,39 @@
+== Installation Instructions ==
+
+1. Ensure that OpenStack-compute is installed (http://www.openstack.org/projects/compute/). Note
+that this is currently for Xen-only hypervisor installations. To setup OpenStack compute for xen
+follow these instructions: http://wiki.openstack.org/XenServerDevelopment
+
+2. Copy the extension definition (extension/gridcentric_extension.py) to the OpenStack extension
+directory (default is /var/lib/nova/extensions and can be overriden using the osapi_extensions_path
+flag).
+
+3. Install the Xen API plugins on dom0 of the compute node 
+(e.g. scp -r plugins/xenserver/xenapi root@<xenserver-domain>:/)
+
+4. Install the nova-gridentric management component
+
+==Project Contents==
+
+bin
+    nova-gridcentric
+        Contains the nova-gridcentric script that is used to start the GridCentric-nova manager. 
+
+extension
+    Container the source for the OpenStack API extension. This should be copied to the OpenStack
+    extension directory (defaults to /var/lib/nova/extensions or can be set using the 
+    osapi_extensions_path flag in the nova.conf flag file).
+
+gridcentric
+    Contains the source for the gridcentric manager that does the actual work to enable the 
+    GridCentric functionality
+
+plugins
+    Contains plugins for xenapi that need to be installed in dom0 of each compute host:
+        scp -r plugins/xenserver/xenapi root@<xenserver-domain>:/
+    
+    
+tools
+    gc-nova
+        A management tool that uses the python novaclient to provide a cli to the extended 
+        functionality.
