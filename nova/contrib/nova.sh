@@ -130,6 +130,7 @@ if [ "$CMD" == "run" ] || [ "$CMD" == "run_detached" ]; then
 --nodaemon
 --dhcpbridge_flagfile=$NOVA_DIR/bin/nova.conf
 --network_manager=nova.network.manager.$NET_MAN
+--flat_network_bridge=xenbr1
 --my_ip=$HOST_IP
 --public_interface=$INTERFACE
 --vlan_interface=$INTERFACE
@@ -142,7 +143,7 @@ if [ "$CMD" == "run" ] || [ "$CMD" == "run_detached" ]; then
 --xenapi_connection_password=$XEN_CONN_PASS
 --image_service=nova.image.glance.GlanceImageService
 --glance_api_servers=localhost:9292
---osap_extensions_path=../extension/
+--osapi_extensions_path=$GC_EXT_DIR/extension/
 --gridcentric_manager=gridcentric.nova.extension.manager.GridCentricManager
 NOVA_CONF_EOF
 
@@ -207,6 +208,11 @@ update fixed_ips set reserved = 1 where address in ('10.0.0.1','10.0.0.2','10.0.
 .quit
 VLAN_CONFIG_EOF
 
+    else
+        sqlite3 $NOVA_DIR/nova.sqlite << NETWORK_CONFIG_EOF
+update networks set bridge = 'xenbr1' where id = 1;
+.quit
+NETWORK_CONFIG_EOF
     fi
 
 
@@ -230,7 +236,7 @@ VLAN_CONFIG_EOF
     SET_PYTHONPATH="export PYTHONPATH=$NOVA_DIR:$GC_EXT_DIR"
     screen_it api "$SET_PYTHONPATH; $NOVA_DIR/bin/nova-api"
     screen_it objectstore "$NOVA_DIR/bin/nova-objectstore"
-    screen_it compute "$NOVA_DIR/bin/nova-compute"
+    screen_it compute "$NOVA_DIR/bin/nova-compute --network_driver=nova.network.xenapi_net"
     screen_it network "$NOVA_DIR/bin/nova-network"
     screen_it scheduler "$NOVA_DIR/bin/nova-scheduler"
     screen_it volume "$NOVA_DIR/bin/nova-volume"

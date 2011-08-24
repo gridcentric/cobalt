@@ -65,9 +65,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # into a new instance. This is because we are basically "cloning" the vm as far as all the properties
         # are concerned.
         instance_ref = self.db.instance_get(context, instance_id)
+        image_id = instance_ref.get('image_id','')
+        if image_id == '':
+            image_id = instance_ref.get('image_ref','')
         instance = {
            'reservation_id': utils.generate_uid('r'),
-           'image_id': instance_ref.get('image_id', instance_ref['image_ref']),
+           'image_id': image_id,
            'kernel_id': instance_ref.get('kernel_id',''),
            'ramdisk_id': instance_ref.get('ramdisk_id',''),
            'state': 0,

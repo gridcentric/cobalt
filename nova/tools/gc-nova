@@ -19,7 +19,7 @@
 # specific functionality.
 
 import sys
-import novaclient
+import novaclient.client as novaclient
 
 
 
@@ -43,7 +43,7 @@ command = sys.argv[1]
 if command == 'suspend':
     instance_id = sys.argv[2]
     
-    client = novaclient.OpenStackClient('admin','admin','','http://localhost:8774/v1.1')
+    client = novaclient.HTTPClient('admin','admin','','http://localhost:8774/v1.1')
     client.post('/servers/%s/action' % instance_id,body={'gc_suspend':{}})
     
 elif command == 'launch':
