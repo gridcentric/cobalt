@@ -53,13 +53,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
         if FLAGS.connection_type != "xenapi":
             raise exception.Error("The GridCentric extension only works with the xenapi connection type.\n" + \
                     "Please set --connection_type=xenapi in the nova.conf flag file.")
-            
-        
-        url = FLAGS.xenapi_connection_url
-        username = FLAGS.xenapi_connection_username
-        password = FLAGS.xenapi_connection_password
 
-        self.xen_session = xenapi_conn.XenAPISession(url,username,password)
+        self.xen_session = None
         
         super(GridCentricManager, self).__init__(service_name="gridcentric",
                                              *args, **kwargs)
@@ -72,7 +67,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         instance_ref = self.db.instance_get(context, instance_id)
         instance = {
            'reservation_id': utils.generate_uid('r'),
-           'image_id': instance_ref['image_id'],
+           'image_id': instance_ref.get('image_id', instance_ref['image_ref']),
            'kernel_id': instance_ref.get('kernel_id',''),
            'ramdisk_id': instance_ref.get('ramdisk_id',''),
            'state': 0,
@@ -111,6 +106,35 @@ class GridCentricManager(manager.SchedulerDependentManager):
         LOG.debug(_("Instance has new generation id=%s"), generation_id)
         return generation_id
 
+    def _get_xen_session(self):
+        
+        if not self.xen_session:
+            # (dscannell) Lazy load the xen session.
+            url = FLAGS.xenapi_connection_url
+            username = FLAGS.xenapi_connection_username
+            password = FLAGS.xenapi_connection_password
+
+            self.xen_session = xenapi_conn.XenAPISession(url,username,password)
+
+        return self.xen_session
+
+    def _call_xen_plugin(self, instance_id, method, args, plugin='gridcentric'):
+        
+        xen_session = self._get_xen_session()
+        task = xen_session.async_call_plugin(plugin, method, args)
+        return xen_session.wait_for_task(task, instance_id)
+
+    def _get_xen_vm_rec(self, instance_ref):
+        
+        xen_session = self._get_xen_session()
+        
+        LOG.debug(_('DS_DEBUG determing cloning vm uuid: instance_id=%s, display_name=%s, name=%s'), 
+                  instance_ref['id'], instance_ref['display_name'], instance_ref.name)
+        vm_ref = xen_session.get_xenapi().VM.get_by_name_label(instance_ref.name)[0]
+        vm_rec = xen_session.get_xenapi().VM.get_record(vm_ref)
+        
+        return vm_rec
+
     def suspend_instance(self, context, instance_id):
         LOG.debug(_("suspend instance called: instance_id=%s"), instance_id)
         
@@ -121,32 +145,22 @@ class GridCentricManager(manager.SchedulerDependentManager):
         new_instance_ref = self._copy_instance(context, instance_id, "base-%s" % (generation_id))
         
 
-        LOG.debug(_('DS_DEBUG determing cloning vm uuid: instance_id=%s, display_name=%s, name=%s'), 
-                  instance_id, instance_ref['display_name'], instance_ref.name)
-        vm_ref = self.xen_session.get_xenapi().VM.get_by_name_label(instance_ref.name)[0]
-        vm_rec = self.xen_session.get_xenapi().VM.get_record(vm_ref)
+        vm_rec = self._get_xen_vm_rec(instance_ref)
         # uuid : The xen uuid of the vm that refer's to your instance_id
         uuid = vm_rec['uuid']
         
         # path : The path (that is accessible to dom0) where they clone descriptor will be saved
         path = FLAGS.gridcentric_datastore
         
-        # (dscannell) TODO:
-        # This name needs to be autodetermined somehow so that when the virtual machine is suspended
-        # more than once, it doesn't clobber existing clone descriptors. Perhaps we can use the
-        # metadata field to store information. It appears to just be key-values associated to an
-        # instance.
         # name : A label name to mark this generation of clones.
         name = "gen-%s" % (generation_id)
         name_label = new_instance_ref.name
 
         # Communicate with XEN to create the new "gridcentric-ified" vm
-        task = self.xen_session.async_call_plugin('gridcentric','suspend_vms',
-                                                  {'uuid':uuid,
+        newuuid = self._call_xen_plugin(instance_id, 'suspend_vms', {'uuid':uuid,
                                                    'path':path,
                                                    'name':name,
                                                    'name-label':name_label})
-        newuuid = self.xen_session.wait_for_task(task, instance_id)
         
     def launch_instance(self, context, instance_id):
         """ 
