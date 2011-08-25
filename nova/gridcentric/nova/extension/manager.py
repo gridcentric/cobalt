@@ -27,7 +27,9 @@ from nova import manager
 from nova import utils
 from nova.virt import xenapi_conn
 
+import vms.virt as virt
 import vms.commands as vms
+import vms.hypervisor as hypervisor
 
 LOG = logging.getLogger('gridcentric.nova.manager')
 FLAGS = flags.FLAGS
@@ -41,8 +43,15 @@ class GridCentricManager(manager.SchedulerDependentManager):
         
         # TODO(dscannell):
         # Figure out how to configure the vms with proper credentials (e.g. XAPI user name, password,
-        # server address).
+        # server address). This needs to be extracted and parsed differently depending on the type
+        # of hypervisor connection being used.
+        hypervisor.options['connection_url'] = FLAGS.xenapi_connection_url
+        hypervisor.options['connection_username'] = FLAGS.xenapi_connection_username
+        hypervisor.options['connection_password'] = FLAGS.xenapi_connection_password
         
+        virt.init()
+        LOG.debug(_("Virt initialized. auto=%s"), virt.auto)
+
         super(GridCentricManager, self).__init__(service_name="gridcentric",
                                              *args, **kwargs)
 

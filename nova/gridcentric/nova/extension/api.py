@@ -19,7 +19,7 @@
 from nova import flags
 from nova import log as logging
 from nova.db import base
-
+from nova import rpc
 
 LOG = logging.getLogger('gridcentric.nova.api')
 FLAGS = flags.FLAGS
