@@ -18,6 +18,8 @@ e.g. $ scp -r nova/plugins/xenserver/xenapi/etc root@<xenserver domain>:/
 4. Install the glance packages (TODO: This should be rolled into step2 and installed with everything else)
 e.g. $ sudo apt-get install glance
 
+5. Install the vms packages (TODO: This should be rolled into step2 and installed with everything else)
+
 5. Execute contrib/nova.sh run to execute all the nova processes (including the gridcentric extesions)
 Note: this should be executed as root, and it will create a new screen session for each nova process.
 e.g. $ sudo XEN_CONN_PASS=<xen api password> contrib/nova.sh run
