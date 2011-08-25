@@ -27,6 +27,8 @@ from nova import manager
 from nova import utils
 from nova.virt import xenapi_conn
 
+import vms.commands as vms
+
 LOG = logging.getLogger('gridcentric.nova.manager')
 FLAGS = flags.FLAGS
 
@@ -37,11 +39,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
     
     def __init__(self, *args, **kwargs):
         
-        if FLAGS.connection_type != "xenapi":
-            raise exception.Error("The GridCentric extension only works with the xenapi connection type.\n" + \
-                    "Please set --connection_type=xenapi in the nova.conf flag file.")
-
-        self.xen_session = None
+        # TODO(dscannell):
+        # Figure out how to configure the vms with proper credentials (e.g. XAPI user name, password,
+        # server address).
         
         super(GridCentricManager, self).__init__(service_name="gridcentric",
                                              *args, **kwargs)
@@ -84,78 +84,47 @@ class GridCentricManager(manager.SchedulerDependentManager):
         new_instance_ref = self.db.instance_create(context, instance)
         return new_instance_ref
 
-    def _next_generation_id(self, context, instance_id):
-        
-        # The generation of clones that is being created from this instance. This is an increasing
-        # number that increments for each suspend on the instance.
+    def _next_clone_num(self, context, instance_id):
+        """ Returns the next clone number for the instance_id """
         
         metadata = self.db.instance_metadata_get(context, instance_id)
-        generation_id = int(metadata.get('generation_id',-1)) + 1
-        metadata['generation_id'] = generation_id
+        clone_num = int(metadata.get('last_clone_num',-1)) + 1
+        metadata['last_clone_num'] = clone_num
         self.db.instance_metadata_update_or_create(context, instance_id, metadata)
         
-        LOG.debug(_("Instance has new generation id=%s"), generation_id)
-        return generation_id
+        LOG.debug(_("Instance %s has new clone num=%s"), instance_id, clone_num)
+        return clone_num
 
-    def _get_xen_session(self):
-        
-        if not self.xen_session:
-            # (dscannell) Lazy load the xen session.
-            url = FLAGS.xenapi_connection_url
-            username = FLAGS.xenapi_connection_username
-            password = FLAGS.xenapi_connection_password
-
-            self.xen_session = xenapi_conn.XenAPISession(url,username,password)
-
-        return self.xen_session
-
-    def _call_xen_plugin(self, instance_id, method, args, plugin='gridcentric'):
-        
-        xen_session = self._get_xen_session()
-        task = xen_session.async_call_plugin(plugin, method, args)
-        return xen_session.wait_for_task(task, instance_id)
-
-    def _get_xen_vm_rec(self, instance_ref):
-        
-        xen_session = self._get_xen_session()
-        
-        LOG.debug(_('DS_DEBUG determing cloning vm uuid: instance_id=%s, display_name=%s, name=%s'), 
-                  instance_ref['id'], instance_ref['display_name'], instance_ref.name)
-        vm_ref = xen_session.get_xenapi().VM.get_by_name_label(instance_ref.name)[0]
-        vm_rec = xen_session.get_xenapi().VM.get_record(vm_ref)
-        
-        return vm_rec
+    def _is_instance_blessed(self, context, instance_id):
+        """ Returns True if this instance is blessed, False otherwise. """
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        return metadata.get('blessed', False)
 
     def bless_instance(self, context, instance_id):
+        """ Blesses an instance so that further instances maybe be launched from it. """
+        
         LOG.debug(_("bless instance called: instance_id=%s"), instance_id)
+
+        if self._is_instance_blessed(context, instance_id):
+            # The instance is already blessed. We can't rebless it.
+            raise exception.Error(_("Instance %s is already blessed. Cannot rebless an instance." % instance_id))
         
         context.elevated()
         # Setup the DB representation for the new VM
         instance_ref = self.db.instance_get(context, instance_id)
-        generation_id = self._next_generation_id(context, instance_id)
-        new_instance_ref = self._copy_instance(context, instance_id, "base-%s" % (generation_id))
-        
 
-        vm_rec = self._get_xen_vm_rec(instance_ref)
-        # uuid : The xen uuid of the vm that refer's to your instance_id
-        uuid = vm_rec['uuid']
-        
         # path : The path (that is accessible to dom0) where they clone descriptor will be saved
         path = FLAGS.gridcentric_datastore
+        LOG.debug(_("Calling vms.bless with name=%s and path=%s"), instance_ref.name, path)
+        vms.bless(instance_ref.name, path)
         
-        # name : A label name to mark this generation of clones.
-        name = "gen-%s" % (generation_id)
-        name_label = new_instance_ref.name
-
-        # Communicate with XEN to create the new "gridcentric-ified" vm
-        newuuid = self._call_xen_plugin(instance_id, 'suspend_vms', {'uuid':uuid,
-                                                   'path':path,
-                                                   'name':name,
-                                                   'name-label':name_label})
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        metadata['blessed'] = True
+        self.db.instance_metadata_update_or_create(context, instance_id, metadata)
         
     def launch_instance(self, context, instance_id):
         """ 
-        Launches a new virtual machine instance that is based off of the instance refered
+        Launches a new virtual machine instance that is based off of the instance referred
         by base_instance_id.
         """
 
@@ -163,17 +132,16 @@ class GridCentricManager(manager.SchedulerDependentManager):
         
         new_instance_ref = self._copy_instance(context, instance_id, "clone")
         instance_ref = self.db.instance_get(context, instance_id)
-        
-        LOG.debug(_('DS_DEBUG determing launching vm uuid: instance_id=%s, display_name=%s, name=%s'), 
-                  instance_id, instance_ref['display_name'], instance_ref.name)
-        vm_ref = self.xen_session.get_xenapi().VM.get_by_name_label(instance_ref.name)[0]
-        vm_rec = self.xen_session.get_xenapi().VM.get_record(vm_ref)
-        uuid = vm_rec['uuid']
-        
-        # The name of the new instance
-        name = new_instance_ref.name
 
-        # Communicate with XEN to launch the new "gridcentric-ified" vm
-        task = self.xen_session.async_call_plugin('gridcentric','launch_vms', {'uuid':uuid, 'name':name})
-
-        self.xen_session.wait_for_task(task, instance_id)
+        # A number to indicate with instantiation is to be launched. Basically this is just an
+        # incrementing number.
+        clonenum = self._next_clone_num(context, instance_id)
+        
+        # TODO(dscannell): Need to figure out what the units of measurement for the target should
+        # be (megabytes, kilobytes, bytes, etc). Also, target should probably be an optional parameter
+        # that the user can pass down.
+        # The target memory settings for the launch virtual machine.
+        target = new_instance_ref['memory_mb']
+        LOG.debug(_("Calling vms.bless with name=%s, new_name=%s, clonenum=%s and target=%s"), 
+                  instance_ref.name, new_instance_ref.name, clonenum, target)
+        vms.launch(instance_ref.name, new_instance_ref.name, clonenum, target)
