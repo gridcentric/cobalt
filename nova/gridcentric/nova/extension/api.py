@@ -16,17 +16,8 @@
 
 """Handles all requests relating to GridCentric functionality."""
 
-import datetime
-import re
-import time
-
-from nova import db
 from nova import flags
 from nova import log as logging
-from nova import rpc
-from nova import utils
-from nova import volume
-from nova.scheduler import api as scheduler_api
 from nova.db import base
 
 

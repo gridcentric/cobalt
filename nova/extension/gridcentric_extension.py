@@ -18,18 +18,13 @@
 
 import json
 
-from nova import flags
 from nova import log as logging
-from nova import utils
 
-from nova import db
-from nova.db import base
 from nova.api.openstack import extensions
 from gridcentric.nova import extension
 
 
 LOG = logging.getLogger("nova.api.extensions.gridcentric")
-FLAGS = flags.FLAGS
 
 class Gridcentric_extension(object):
 
@@ -67,7 +62,6 @@ class Gridcentric_extension(object):
         
         actions.append(extensions.ActionExtension('servers', 'gc_launch',
                                                     self._launch_instance))
-
 
         return actions
 

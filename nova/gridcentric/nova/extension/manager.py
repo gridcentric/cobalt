@@ -20,24 +20,11 @@ The :py:class:`GridCentricManager` class is a :py:class:`nova.manager.Manager` t
 handles RPC calls relating to GridCentric functionalitycreating instances.
 """
 
-import datetime
-import os
-import random
-import string
-import socket
-import sys
-import tempfile
-import functools
-
-from eventlet import greenthread
-
 from nova import exception
 from nova import flags
 from nova import log as logging
 from nova import manager
-from nova import rpc
 from nova import utils
-from nova.compute import power_state
 from nova.virt import xenapi_conn
 
 LOG = logging.getLogger('gridcentric.nova.manager')
@@ -68,6 +55,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         image_id = instance_ref.get('image_id','')
         if image_id == '':
             image_id = instance_ref.get('image_ref','')
+            
         instance = {
            'reservation_id': utils.generate_uid('r'),
            'image_id': image_id,
