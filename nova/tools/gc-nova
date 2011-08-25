@@ -26,7 +26,7 @@ import novaclient.client as novaclient
 def usage():
     sys.stderr.write("usage: gc-nova <command>\n")
     sys.stderr.write("where command is one of the following:\n")
-    sys.stderr.write("    suspend <instance id>\n")
+    sys.stderr.write("    bless <instance id>\n")
     sys.stderr.write("        Creates a new clone base instance based off of the instance with the given id.")
     sys.stderr.write("\n")
     sys.stderr.write("    launch <instance id>\n")
@@ -40,11 +40,11 @@ if len(sys.argv) < 2:
  
 command = sys.argv[1]
 
-if command == 'suspend':
+if command == 'bless':
     instance_id = sys.argv[2]
     
     client = novaclient.HTTPClient('admin','admin','','http://localhost:8774/v1.1')
-    client.post('/servers/%s/action' % instance_id,body={'gc_suspend':{}})
+    client.post('/servers/%s/action' % instance_id,body={'gc_bless':{}})
     
 elif command == 'launch':
     instance_id = sys.argv[2]   

@@ -55,62 +55,62 @@ class GridCentricTestCase(unittest.TestCase):
     def _returnMock(self):
             return self.mockXenSession
 
-    def test_suspend_instance(self):
+    def test_bless_instance(self):
         
         instance_id = utils.create_instance(self.context)
         
         num_instance_before = len( db.instance_get_all(self.context) )
-        self.gridcentric.suspend_instance(self.context, instance_id)
+        self.gridcentric.bless_instance(self.context, instance_id)
         
         # Ensure that we have a 2nd instance in the database that is a "clone" of our
         # original instance.
         instances = db.instance_get_all(self.context)
         self.assertTrue(len(instances) == num_instance_before + 1, 
-                        "There should be a single new instance after suspending.")
+                        "There should be a single new instance after blessing.")
         # Ensure that we have correctly setup the meta-data on our instance to reflect
         # the generation id (e.g. incremented it)
         metadata = db.instance_metadata_get(self.context, instance_id)
         self.assertEquals(metadata['generation_id'], '0',
                           "The generation id should be 0 because this is the first time the instance " \
-                          "was suspended.")
+                          "was blessed.")
         
     
-    def test_suspend_instance_twice(self):
+    def test_bless_instance_twice(self):
         
         instance_id = utils.create_instance(self.context)
         
         num_instance_before = len( db.instance_get_all(self.context) )
-        self.gridcentric.suspend_instance(self.context, instance_id)
+        self.gridcentric.bless_instance(self.context, instance_id)
         
         # Ensure that we have a 2nd instance in the database that is a "clone" of our
         # original instance.
         instances = db.instance_get_all(self.context)
         self.assertTrue(len(instances) == num_instance_before + 1, 
-                        "There should be a single new instance after suspending.")
+                        "There should be a single new instance after blessing.")
         # Ensure that we have correctly setup the meta-data on our instance to reflect
         # the generation id (e.g. incremented it)
         metadata = db.instance_metadata_get(self.context, instance_id)
         self.assertEquals(metadata['generation_id'], '0',
                           "The generation id should be 0 because this is the first time the instance " \
-                          "was suspended.")
+                          "was blessed.")
         
-        self.gridcentric.suspend_instance(self.context, instance_id)
+        self.gridcentric.bless_instance(self.context, instance_id)
         
         # Ensure that we have a 2nd instance in the database that is a "clone" of our
         # original instance.
         instances = db.instance_get_all(self.context)
         self.assertTrue(len(instances) == num_instance_before + 2, 
-                        "There should be two new instance after suspending twice.")
+                        "There should be two new instance after blessing twice.")
         # Ensure that we have correctly setup the meta-data on our instnace to reflect
         # the generation id (e.g. incremented it)
         metadata = db.instance_metadata_get(self.context, instance_id)
         self.assertEquals(metadata['generation_id'], '1',
                           "The generation id should be 1 because this is the second time the instance " \
-                          "was suspended.")
+                          "was blessed.")
     
-    def test_suspend_nonexisting_instance(self):
+    def test_bless_nonexisting_instance(self):
         try:
-            self.gridcentric.suspend_instance(self.context, 1500)
+            self.gridcentric.bless_instance(self.context, 1500)
             self.fail("Suspending a non-existing instance should fail.")
         except Exception, e:
             pass # Success

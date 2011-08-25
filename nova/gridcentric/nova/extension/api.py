@@ -57,9 +57,9 @@ class API(base.Base):
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
         
-    def suspend_instance(self, context, instance_id):
-        LOG.debug(_("Casting gridcentric message for suspend_instance") % locals())
-        self._cast_gridcentric_message('suspend_instance', context, instance_id)
+    def bless_instance(self, context, instance_id):
+        LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
+        self._cast_gridcentric_message('bless_instance', context, instance_id)
         
     def launch_instance(self, context, instance_id):
         

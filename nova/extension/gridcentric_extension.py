@@ -30,7 +30,11 @@ class Gridcentric_extension(object):
 
     """ 
     The Openstack Extension definition for the GridCentric capabilities. Currently this includes:
-        * Cloning an existing virtual machine
+        
+        * Bless an existing virtual machine (basically this suspends the virtual machine and enables
+        it to participate in launching new virtual machines using vms).
+        
+        * Launch new virtual machines from a blessed one
     """
 
     def __init__(self):
@@ -57,18 +61,18 @@ class Gridcentric_extension(object):
     def get_actions(self):
         actions = []
 
-        actions.append(extensions.ActionExtension('servers', 'gc_suspend',
-                                                    self._suspend_instance))
+        actions.append(extensions.ActionExtension('servers', 'gc_bless',
+                                                    self._bless_instance))
         
         actions.append(extensions.ActionExtension('servers', 'gc_launch',
                                                     self._launch_instance))
 
         return actions
 
-    def _suspend_instance(self, input_dict, req, id):
+    def _bless_instance(self, input_dict, req, id):
 
         context = req.environ["nova.context"]
-        self.gridcentric_api.suspend_instance(context, id)
+        self.gridcentric_api.bless_instance(context, id)
 
         return id
 

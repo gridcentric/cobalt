@@ -17,7 +17,7 @@
 Handles all processes relating to GridCentric functionality
 
 The :py:class:`GridCentricManager` class is a :py:class:`nova.manager.Manager` that
-handles RPC calls relating to GridCentric functionalitycreating instances.
+handles RPC calls relating to GridCentric functionality creating instances.
 """
 
 from nova import exception
@@ -126,8 +126,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
         
         return vm_rec
 
-    def suspend_instance(self, context, instance_id):
-        LOG.debug(_("suspend instance called: instance_id=%s"), instance_id)
+    def bless_instance(self, context, instance_id):
+        LOG.debug(_("bless instance called: instance_id=%s"), instance_id)
         
         context.elevated()
         # Setup the DB representation for the new VM
