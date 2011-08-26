@@ -41,19 +41,31 @@ class GridCentricManager(manager.SchedulerDependentManager):
     
     def __init__(self, *args, **kwargs):
         
-        # TODO(dscannell):
-        # Figure out how to configure the vms with proper credentials (e.g. XAPI user name, password,
-        # server address). This needs to be extracted and parsed differently depending on the type
-        # of hypervisor connection being used.
-        hypervisor.options['connection_url'] = FLAGS.xenapi_connection_url
-        hypervisor.options['connection_username'] = FLAGS.xenapi_connection_username
-        hypervisor.options['connection_password'] = FLAGS.xenapi_connection_password
+        self._init_vms()
         
-        virt.init()
-        LOG.debug(_("Virt initialized. auto=%s"), virt.auto)
-
         super(GridCentricManager, self).__init__(service_name="gridcentric",
                                              *args, **kwargs)
+
+    def _init_vms(self):
+        """ Initializes the vms modules hypervisor options depending on the openstack connection type. """
+        vms_hypervisor = None
+        connection_type = FLAGS.connection_type
+        
+        if connection_type == 'xenapi':
+            hypervisor.options['connection_url'] = FLAGS.xenapi_connection_url
+            hypervisor.options['connection_username'] = FLAGS.xenapi_connection_username
+            hypervisor.options['connection_password'] = FLAGS.xenapi_connection_password
+            vms_hypervisor = 'xcp'
+        elif connection_type == 'fake':
+            vms_hypervisor = 'dummy'
+        else:
+            raise exception.Error(_('Unsupported connection type "%s"' % connection_type))
+        
+        LOG.debug(_("Configuring vms for hypervisor %s"), vms_hypervisor)
+        virt.init()
+        virt.select(vms_hypervisor)
+        LOG.debug(_("Virt initialized as auto=%s"), virt.auto)
+
 
     def _copy_instance(self, context, instance_id, new_suffix):
 
@@ -139,13 +151,18 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         LOG.debug(_("Launching new instance: instance_id=%s"), instance_id)
         
+        if not self._is_instance_blessed(context, instance_id):
+            # The instance is not blessed. We can't launch new instances from it.
+            raise exception.Error(
+                  _("Instance %s is not blessed. Please bless the instance before launching from it." % instance_id))
+        
         new_instance_ref = self._copy_instance(context, instance_id, "clone")
         instance_ref = self.db.instance_get(context, instance_id)
 
         # A number to indicate with instantiation is to be launched. Basically this is just an
         # incrementing number.
         clonenum = self._next_clone_num(context, instance_id)
-        
+         
         # TODO(dscannell): Need to figure out what the units of measurement for the target should
         # be (megabytes, kilobytes, bytes, etc). Also, target should probably be an optional parameter
         # that the user can pass down.
