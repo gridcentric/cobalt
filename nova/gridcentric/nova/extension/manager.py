@@ -138,6 +138,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         path = FLAGS.gridcentric_datastore
         LOG.debug(_("Calling vms.bless with name=%s and path=%s"), instance_ref.name, path)
         vms.bless(instance_ref.name, path)
+        LOG.debug(_("Called vms.bless with name=%s and path=%s"), instance_ref.name, path)
         
         metadata = self.db.instance_metadata_get(context, instance_id)
         metadata['blessed'] = True
@@ -168,6 +169,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # that the user can pass down.
         # The target memory settings for the launch virtual machine.
         target = new_instance_ref['memory_mb']
-        LOG.debug(_("Calling vms.bless with name=%s, new_name=%s, clonenum=%s and target=%s"), 
+        LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, clonenum=%s and target=%s"), 
                   instance_ref.name, new_instance_ref.name, clonenum, target)
-        vms.launch(instance_ref.name, new_instance_ref.name, clonenum, target)
+        vms.launch(instance_ref.name, new_instance_ref.name, str(clonenum), str(target))
+        LOG.debug(_("Called vms.launch with name=%s, new_name=%s, clonenum=%s and target=%s"), 
+                  instance_ref.name, new_instance_ref.name, clonenum, target)
