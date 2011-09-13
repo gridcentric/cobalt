@@ -7,38 +7,39 @@ e.g. $ contrib/nova.sh branch (this will get the trunk version. Note that this m
 2. Execute contrib/nova.sh install to install depenencies required by OpenStack
 e.g. $ contrib/nova.sh install
 
-3. Update the Dom0 on the host machine with the nova / gridcentric plugins
+3. Update the Dom0 on the host machine with the nova plugins
 e.g. $ scp -r nova/plugins/xenserver/xenapi/etc root@<xenserver domain>:/
-     $ scp -r ../plugins/xenserver/xenapi/* root@<xenserver domain>:/
-     These last 2 are if you want to use the mock gridcentric functionality (instead of installing
-     the vms support).
-     $ ssh root@<xenserver domain> "ln -s /usr/sbin/suspend.vms.mock /usr/sbin/suspend.vms"
-     $ ssh root@<xenserver domain> "ln -s /usr/sbin/launch.vms.mock /usr/sbin/suspend.vms"
 
 4. Install the glance packages (TODO: This should be rolled into step2 and installed with everything else)
 e.g. $ sudo apt-get install glance
 
 5. Install the vms packages (TODO: This should be rolled into step2 and installed with everything else)
 
-5. Execute contrib/nova.sh run to execute all the nova processes (including the gridcentric extesions)
+5. Execute contrib/nova.sh run to execute all the nova processes (including the gridcentric extension)
 Note: this should be executed as root, and it will create a new screen session for each nova process.
-e.g. $ sudo XEN_CONN_PASS=<xen api password> contrib/nova.sh run
+e.g. $ sudo XEN_CONN_URL="<http://xen_host>" XEN_CONN_PASS=<xen api password> contrib/nova.sh run
 
 6. Use glance to upload a virtual machine image file (TODO: This image file should probably be
-downloaded as part of the install when the other images are downloaded).
-e.g. $ cd contrib/images
-     $ tar -xvzf chromeos.tgz
-     $ glance add name="ChromeOS public" is_public=true disk_format=raw distro="ChromeOS" < chromeos.img 
+downloaded as part of the install when the other images are downloaded. For the time being use
+the CentOS image on filer (filer:/export/dscannell-test/hvm-centos-adin.img. I will mount 
+filer:/export/dscannell-test at /tmp/dscannell-test. Note, images can get big, and but default
+glance is using the root system. To change locations modify the contrib/glance.conf file.)
+e.g. $ mkdir /tmp/dscannell
+     $ mount filer:/export/dscannell-test /tmp/dscannell-test
+     $ glance add name="CentOS HVM public" is_public=true disk_format=raw distro="CentOs" < /tmp/dscannell-test/hvm-centos-adin.img 
      
 7. Boot your first virtual machine
 e.g. $ nova boot --flavor 1 --image 1 ChromeOS-HVM
 
-8. Suspend the virtual machine
-e.g. $ gc-nova suspend 1
+8. Wait for the first machine to move from BUILD to ACTIVE. Also note its best to wait a few seconds
+before blessing the virtual machine.
 
-9 Launch more virtual machines based off of the suspended snapshot
-e.g. $ gc-nova launch 2
-     $ gc-nova launch 2
+9. Bless the virtual machine
+e.g. $ gc-nova bless 1
+
+10 Launch more virtual machines based off of the suspended snapshot
+e.g. $ gc-nova launch 1
+     $ gc-nova launch 1
      $ ... etc ...
 
 == Installation Instructions ==
