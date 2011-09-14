@@ -88,6 +88,13 @@ class Gridcentric_extension(object):
             #NOTE: This only handles JSON responses.
             # You can use content type header to test for XML.
             data = json.loads(res.body)
+            servers = data['servers']
+            for server in servers:
+                metadata =  server['metadata']
+                is_blessed = metadata.get('blessed', False)
+                if is_blessed:
+                    server['status'] = 'BLESSED'
+                    
             LOG.debug(_("RESPONDING to /servers/detail: data=%s"), data)
             return data
 
