@@ -144,6 +144,7 @@ if [ "$CMD" == "run" ] || [ "$CMD" == "run_detached" ]; then
 --image_service=nova.image.glance.GlanceImageService
 --glance_api_servers=localhost:9292
 --osapi_extensions_path=$GC_EXT_DIR/extension/
+--osapi_path=/v1.1/
 --gridcentric_manager=gridcentric.nova.extension.manager.GridCentricManager
 NOVA_CONF_EOF
 
