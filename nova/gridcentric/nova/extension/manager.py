@@ -20,11 +20,16 @@ The :py:class:`GridCentricManager` class is a :py:class:`nova.manager.Manager` t
 handles RPC calls relating to GridCentric functionality creating instances.
 """
 
+import time
+
 from nova import exception
 from nova import flags
 from nova import log as logging
 from nova import manager
 from nova import utils
+from nova import rpc
+
+# (dscannell) We need to import this to ensure that the xenapi flags can be read in.
 from nova.virt import xenapi_conn
 
 import vms.virt as virt
@@ -42,7 +47,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
     def __init__(self, *args, **kwargs):
         
         self._init_vms()
-        
+        self.network_manager = utils.import_object(FLAGS.network_manager)
         super(GridCentricManager, self).__init__(service_name="gridcentric",
                                              *args, **kwargs)
 
@@ -100,7 +105,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'metadata': {},
            'availability_zone': instance_ref['availability_zone'],
            'os_type': instance_ref['os_type'],
-           'host': instance_ref['host']
+           'host': instance_ref['host'],
+           'mac_address':utils.generate_mac()
         }
         new_instance_ref = self.db.instance_create(context, instance)
         return new_instance_ref
@@ -160,6 +166,18 @@ class GridCentricManager(manager.SchedulerDependentManager):
         new_instance_ref = self._copy_instance(context, instance_id, "clone")
         instance_ref = self.db.instance_get(context, instance_id)
 
+        # TODO(dscannell): We need to set the is_vpn parameter correctly. This information might
+        # come from the instance, or the user might have to specify it. Also, we might be able
+        # to convert this to a cast because we are not waiting on any return value.
+        LOG.debug(_("Making call to network for launching instance=%s"), new_instance_ref.name)
+        is_vpn = False
+        rpc.call(context, self.get_network_topic(context),
+                 {"method": "allocate_fixed_ip",
+                  "args": {"instance_id": new_instance_ref['id'],
+                           "vpn": is_vpn}})
+        LOG.debug(_("Made call to network for launching instance=%s"), new_instance_ref.name)
+
+
         # A number to indicate with instantiation is to be launched. Basically this is just an
         # incrementing number.
         clonenum = self._next_clone_num(context, instance_id)
@@ -174,3 +192,27 @@ class GridCentricManager(manager.SchedulerDependentManager):
         vms.launch(instance_ref.name, new_instance_ref.name, str(clonenum), str(target))
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, clonenum=%s and target=%s"), 
                   instance_ref.name, new_instance_ref.name, clonenum, target)
+        
+
+        LOG.debug(_("Calling vms.replug with name=%s"), 
+                  new_instance_ref.name)
+        # We want to unplug the vifs before adding the new ones so that we do not mess around
+        # with the interfaces exposed inside the guest.
+        vms.replug(new_instance_ref.name, plugin_first=False, mac_addresses = {'0': new_instance_ref.mac_address})
+        LOG.debug(_("Called vms.replug with name=%s"), 
+                  new_instance_ref.name)
+
+    
+    
+    # TODO(dscannell): This was taken from the nova-compute manager. We probably want to 
+    # find a better way to determine the network_topic, or follow vish's advice.
+    def get_network_topic(self, context, **kwargs):
+        """Retrieves the network host for a project on this host"""
+        # TODO(vish): This method should be memoized. This will make
+        #             the call to get_network_host cheaper, so that
+        #             it can pas messages instead of checking the db
+        #             locally.
+        host = self.network_manager.get_network_host(context)
+        return self.db.queue_get_for(context,
+                                     FLAGS.network_topic,
+                                     host)
