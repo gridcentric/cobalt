@@ -27,6 +27,11 @@ import gettext
 import os
 import sys
 
+# (dscannell): We need to preload this otherwise it leads to our main
+# manager class not loading because we won't be able to load the virt module
+# so that we may pull out the connection string paramters.
+from nova.compute import instance_types
+
 # If ../nova/__init__.py exists, add ../ to Python search path, so that
 # it will override what happens to be installed in /usr/(local/)lib/python...
 possible_topdir = os.path.normpath(os.path.join(os.path.abspath(sys.argv[0]),

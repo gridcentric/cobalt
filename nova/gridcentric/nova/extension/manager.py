@@ -28,6 +28,7 @@ from nova import log as logging
 from nova import manager
 from nova import utils
 from nova import rpc
+from nova import network
 
 # (dscannell) We need to import this to ensure that the xenapi flags can be read in.
 from nova.virt import xenapi_conn
@@ -47,7 +48,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
     def __init__(self, *args, **kwargs):
         
         self._init_vms()
-        self.network_manager = utils.import_object(FLAGS.network_manager)
+        self.network_api = network.API()
         super(GridCentricManager, self).__init__(service_name="gridcentric",
                                              *args, **kwargs)
 
@@ -105,8 +106,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'metadata': {},
            'availability_zone': instance_ref['availability_zone'],
            'os_type': instance_ref['os_type'],
-           'host': instance_ref['host'],
-           'mac_address':utils.generate_mac()
+           'host': instance_ref['host']
         }
         new_instance_ref = self.db.instance_create(context, instance)
         return new_instance_ref
@@ -117,7 +117,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         metadata = self.db.instance_metadata_get(context, instance_id)
         clone_num = int(metadata.get('last_clone_num',-1)) + 1
         metadata['last_clone_num'] = clone_num
-        self.db.instance_metadata_update_or_create(context, instance_id, metadata)
+        self.db.instance_metadata_update(context, instance_id, metadata, True)
         
         LOG.debug(_("Instance %s has new clone num=%s"), instance_id, clone_num)
         return clone_num
@@ -148,7 +148,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         
         metadata = self.db.instance_metadata_get(context, instance_id)
         metadata['blessed'] = True
-        self.db.instance_metadata_update_or_create(context, instance_id, metadata)
+        self.db.instance_metadata_update(context, instance_id, metadata, True)
         
     def launch_instance(self, context, instance_id):
         """ 
@@ -171,11 +171,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # to convert this to a cast because we are not waiting on any return value.
         LOG.debug(_("Making call to network for launching instance=%s"), new_instance_ref.name)
         is_vpn = False
-        rpc.call(context, self.get_network_topic(context),
-                 {"method": "allocate_fixed_ip",
-                  "args": {"instance_id": new_instance_ref['id'],
-                           "vpn": is_vpn}})
-        LOG.debug(_("Made call to network for launching instance=%s"), new_instance_ref.name)
+        requested_networks=None
+        network_info = self.network_api.allocate_for_instance(context,
+                                    new_instance_ref, vpn=is_vpn,
+                                    requested_networks=requested_networks)
+        LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"), 
+                  new_instance_ref.name, network_info)
 
 
         # A number to indicate with instantiation is to be launched. Basically this is just an
@@ -198,7 +199,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                   new_instance_ref.name)
         # We want to unplug the vifs before adding the new ones so that we do not mess around
         # with the interfaces exposed inside the guest.
-        vms.replug(new_instance_ref.name, plugin_first=False, mac_addresses = {'0': new_instance_ref.mac_address})
+        vms.replug(new_instance_ref.name, plugin_first=False, mac_addresses = {'0': network_info[0][1]['mac']})
         LOG.debug(_("Called vms.replug with name=%s"), 
                   new_instance_ref.name)
 

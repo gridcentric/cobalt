@@ -35,7 +35,7 @@ USE_OPENDJ=${USE_OPENDJ:-0}
 # Use IPv6
 USE_IPV6=${USE_IPV6:-0}
 LIBVIRT_TYPE=${LIBVIRT_TYPE:-qemu}
-NET_MAN=${NET_MAN:-FlatManager}
+NET_MAN=${NET_MAN:-VlanManager}
 # NOTE(vish): If you are using FlatDHCP on multiple hosts, set the interface
 #             below but make sure that the interface doesn't already have an
 #             ip or you risk breaking things.
@@ -87,13 +87,13 @@ if [ "$CMD" == "install" ]; then
     sudo modprobe kvm
     sudo /etc/init.d/libvirt-bin restart
     sudo modprobe nbd
-    sudo apt-get install -y python-twisted python-mox python-ipy python-paste
+    sudo apt-get install -y python-mox python-ipy python-paste
     sudo apt-get install -y python-migrate python-gflags python-greenlet
     sudo apt-get install -y python-libvirt python-libxml2 python-routes
     sudo apt-get install -y python-netaddr python-pastedeploy python-eventlet
     sudo apt-get install -y python-novaclient python-glance python-cheetah
     sudo apt-get install -y python-carrot python-tempita python-sqlalchemy
-    sudo apt-get install -y python-suds
+    sudo apt-get install -y python-suds python-kombu
 
 
     if [ "$USE_IPV6" == 1 ]; then
@@ -146,6 +146,9 @@ if [ "$CMD" == "run" ] || [ "$CMD" == "run_detached" ]; then
 --osapi_extensions_path=$GC_EXT_DIR/extension/
 --osapi_path=/v1.1/
 --gridcentric_manager=gridcentric.nova.extension.manager.GridCentricManager
+--xenapi_inject_image=true
+--flat_injected=true
+--scheduler_driver=nova.scheduler.chance.ChanceScheduler
 NOVA_CONF_EOF
 
     if [ -n "$FLAT_INTERFACE" ]; then
@@ -195,14 +198,14 @@ NOVA_CONF_EOF
     # create a project called 'admin' with project manager of 'admin'
     $NOVA_DIR/bin/nova-manage project create admin admin
     # create a small network
-    $NOVA_DIR/bin/nova-manage network create $FIXED_RANGE 1 32
+    $NOVA_DIR/bin/nova-manage network create --label "test" --fixed_range_v4 $FIXED_RANGE --num_networks 1  --network_size 32
 
     if [ "$NET_MAN" == "VlanManager" ]; then
 
         #Update the VLAN informtion in the database
         sudo sqlite3 $NOVA_DIR/nova.sqlite << VLAN_CONFIG_EOF
-update networks set vlan = '0' where id = 1;
-update networks set bridge = 'br_vlan0' where id = 1;
+update networks set vlan = '1' where id = 1;
+update networks set bridge = 'br_vlan1' where id = 1;
 update networks set gateway = '10.0.0.7' where id = 1;
 update networks set dhcp_start = '10.0.0.8' where id = 1;
 update fixed_ips set reserved = 1 where address in ('10.0.0.1','10.0.0.2','10.0.0.3','10.0.0.4','10.0.0.5','10.0.0.6','10.0.0.7');
@@ -218,7 +221,7 @@ NETWORK_CONFIG_EOF
 
 
     # create some floating ips
-    $NOVA_DIR/bin/nova-manage floating create `hostname` $FLOATING_RANGE
+    $NOVA_DIR/bin/nova-manage floating create $FLOATING_RANGE
 
     if [ ! -d "$NOVA_DIR/images" ]; then
         if [ ! -d "$DIR/converted-images" ]; then
@@ -237,7 +240,7 @@ NETWORK_CONFIG_EOF
     SET_PYTHONPATH="export PYTHONPATH=$NOVA_DIR:$GC_EXT_DIR"
     screen_it api "$SET_PYTHONPATH; $NOVA_DIR/bin/nova-api"
     screen_it objectstore "$NOVA_DIR/bin/nova-objectstore"
-    screen_it compute "$NOVA_DIR/bin/nova-compute --network_driver=nova.network.xenapi_net"
+    screen_it compute "$NOVA_DIR/bin/nova-compute"
     screen_it network "$NOVA_DIR/bin/nova-network"
     screen_it scheduler "$NOVA_DIR/bin/nova-scheduler"
     screen_it volume "$NOVA_DIR/bin/nova-volume"
