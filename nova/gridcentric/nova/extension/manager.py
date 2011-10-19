@@ -29,6 +29,9 @@ from nova import manager
 from nova import utils
 from nova import rpc
 from nova import network
+from nova.compute import power_state
+from nova.compute import task_states
+from nova.compute import vm_states
 
 # (dscannell) We need to import this to ensure that the xenapi flags can be read in.
 from nova.virt import xenapi_conn
@@ -72,6 +75,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
         virt.select(vms_hypervisor)
         LOG.debug(_("Virt initialized as auto=%s"), virt.auto)
 
+
+    def _instance_update(self, context, instance_id, **kwargs):
+        """Update an instance in the database using kwargs as value."""
+        return self.db.instance_update(context, instance_id, kwargs)
 
     def _copy_instance(self, context, instance_id, new_suffix):
 
@@ -170,6 +177,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # come from the instance, or the user might have to specify it. Also, we might be able
         # to convert this to a cast because we are not waiting on any return value.
         LOG.debug(_("Making call to network for launching instance=%s"), new_instance_ref.name)
+        self._instance_update(context, new_instance_ref.id, vm_state=vm_states.BUILDING, task_state=task_states.NETWORKING)
         is_vpn = False
         requested_networks=None
         network_info = self.network_api.allocate_for_instance(context,
@@ -187,6 +195,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # be (megabytes, kilobytes, bytes, etc). Also, target should probably be an optional parameter
         # that the user can pass down.
         # The target memory settings for the launch virtual machine.
+        self._instance_update(context, new_instance_ref.id, vm_state=vm_states.BUILDING, task_state='launching')
         target = new_instance_ref['memory_mb']
         LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, clonenum=%s and target=%s"), 
                   instance_ref.name, new_instance_ref.name, clonenum, target)
@@ -202,8 +211,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
         vms.replug(new_instance_ref.name, plugin_first=False, mac_addresses = {'0': network_info[0][1]['mac']})
         LOG.debug(_("Called vms.replug with name=%s"), 
                   new_instance_ref.name)
-
     
+        self._instance_update(context, new_instance_ref.id, vm_state=vm_states.ACTIVE, task_state=None)
     
     # TODO(dscannell): This was taken from the nova-compute manager. We probably want to 
     # find a better way to determine the network_topic, or follow vish's advice.
