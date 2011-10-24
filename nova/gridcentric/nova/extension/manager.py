@@ -93,8 +93,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
         instance = {
            'reservation_id': utils.generate_uid('r'),
            'image_ref': image_ref,
-           'kernel_id': instance_ref.get('kernel_id',''),
-           'ramdisk_id': instance_ref.get('ramdisk_id',''),
            'state': 0,
            'state_description': 'halted',
            'user_id': context.user_id,
