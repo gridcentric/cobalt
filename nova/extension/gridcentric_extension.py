@@ -81,10 +81,10 @@ class Gridcentric_extension(object):
         context = req.environ["nova.context"]
         self.gridcentric_api.launch_instance(context, id)
 
-    def get_response_extensions(self):
-        response_exts = []
+    def get_request_extensions(self):
+        request_exts = []
 
-        def _show_servers(res):
+        def _show_servers(req, res):
             #NOTE: This only handles JSON responses.
             # You can use content type header to test for XML.
             data = json.loads(res.body)
@@ -95,12 +95,12 @@ class Gridcentric_extension(object):
                 if is_blessed:
                     server['status'] = 'BLESSED'
                     
-            LOG.debug(_("RESPONDING to /servers/detail: data=%s"), data)
+            LOG.debug(_("RESPONDING to /:(project_id)/servers/detail: data=%s"), data)
             return data
 
-        resp_ext = extensions.ResponseExtension('GET', '/servers/detail',
+        req_ext = extensions.RequestExtension('GET', '/:(project_id)/servers/detail',
                                                 _show_servers)
-        response_exts.append(resp_ext)
+        request_exts.append(req_ext)
 
-        return response_exts
+        return request_exts
 
