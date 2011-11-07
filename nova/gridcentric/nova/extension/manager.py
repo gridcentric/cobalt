@@ -108,7 +108,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'key_name': instance_ref.get('key_name',''),
            'key_data': instance_ref.get('key_data',''),
            'locked': False,
-           'metadata': {},
+           'metadata': {'launched_from':'%s' % (instance_id)},
            'availability_zone': instance_ref['availability_zone'],
            'os_type': instance_ref['os_type'],
            'host': instance_ref['host']
@@ -153,6 +153,29 @@ class GridCentricManager(manager.SchedulerDependentManager):
         
         metadata = self.db.instance_metadata_get(context, instance_id)
         metadata['blessed'] = True
+        self.db.instance_metadata_update(context, instance_id, metadata, True)
+
+    def unbless_instance(self, context, instance_id):
+        """ Unblesses an instance so that and no further instances maybe be launched from it. """
+        
+        LOG.debug(_("unbless instance called: instance_id=%s"), instance_id)
+
+        if not self._is_instance_blessed(context, instance_id):
+            # The instance is already blessed. We can't rebless it.
+            raise exception.Error(_("Instance %s is not blessed. Cannot unbless an unblessed instance." % instance_id))
+        
+        context.elevated()
+        # Setup the DB representation for the new VM
+        instance_ref = self.db.instance_get(context, instance_id)
+
+        # path : The path (that is accessible to dom0) where they clone descriptor will be saved
+        
+        LOG.debug(_("Calling vms.unbless with name=%s"), instance_ref.name)
+        vms.unbless(instance_ref.name)
+        LOG.debug(_("Called vms.unbless with name=%s"), instance_ref.name)
+        
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        metadata['blessed'] = False
         self.db.instance_metadata_update(context, instance_id, metadata, True)
         
     def launch_instance(self, context, instance_id):

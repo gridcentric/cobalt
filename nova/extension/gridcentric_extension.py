@@ -21,6 +21,10 @@ import json
 from nova import log as logging
 
 from nova.api.openstack import extensions
+import nova.api.openstack.views.addresses
+import nova.api.openstack.views.flavors
+import nova.api.openstack.views.images
+import nova.api.openstack.views.servers
 from gridcentric.nova import extension
 
 
@@ -66,6 +70,12 @@ class Gridcentric_extension(object):
         
         actions.append(extensions.ActionExtension('servers', 'gc_launch',
                                                     self._launch_instance))
+        
+        actions.append(extensions.ActionExtension('servers', 'gc_unbless',
+                                                    self._unbless_instance))
+        
+        actions.append(extensions.ActionExtension('servers', 'gc_list_launched',
+                                                    self._list_launched_instances))
 
         return actions
 
@@ -76,10 +86,41 @@ class Gridcentric_extension(object):
 
         return id
 
+    def _unbless_instance(self, input_dict, req, id):
+
+        context = req.environ["nova.context"]
+        self.gridcentric_api.unbless_instance(context, id)
+
+        return id
+
+    
     def _launch_instance(self, input_dict, req, id):
 
         context = req.environ["nova.context"]
         self.gridcentric_api.launch_instance(context, id)
+
+    def _list_launched_instances(self, input_dict, req, id):
+
+        def _build_view(req, instance, is_detail=True):
+            
+            project_id = getattr(req.environ['nova.context'], 'project_id', '')
+            base_url = req.application_url
+            flavor_builder = nova.api.openstack.views.flavors.ViewBuilderV11(
+                base_url, project_id)
+            image_builder = nova.api.openstack.views.images.ViewBuilderV11(
+                base_url, project_id)
+            addresses_builder = nova.api.openstack.views.addresses.ViewBuilderV11()
+            builder = nova.api.openstack.views.servers.ViewBuilderV11(
+                addresses_builder, flavor_builder, image_builder,
+                base_url, project_id)
+
+            return builder.build(instance, is_detail=is_detail)
+
+        context = req.environ["nova.context"]
+        instances = self.gridcentric_api.list_launched_instances(context, id)
+        instances = [_build_view(req, inst)['server']
+                    for inst in instances]
+        return dict(instances=instances)
 
     def get_request_extensions(self):
         request_exts = []

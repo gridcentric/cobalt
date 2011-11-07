@@ -16,6 +16,7 @@
 
 """Handles all requests relating to GridCentric functionality."""
 
+from nova import compute
 from nova import flags
 from nova import log as logging
 from nova.db import base
@@ -31,6 +32,7 @@ class API(base.Base):
 
     def __init__(self, **kwargs):
         super(API, self).__init__(**kwargs)
+        self.compute_api = compute.API()
 
     def get(self, context, instance_id):
         """Get a single instance with the given instance_id."""
@@ -60,7 +62,11 @@ class API(base.Base):
     def bless_instance(self, context, instance_id):
         LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
         self._cast_gridcentric_message('bless_instance', context, instance_id)
-        
+    
+    def unbless_instance(self, context, instance_id):
+        LOG.debug(_("Casting gridcentric message for unbless_instance") % locals())
+        self._cast_gridcentric_message('unbless_instance', context, instance_id)
+    
     def launch_instance(self, context, instance_id):
         
         
@@ -73,3 +79,13 @@ class API(base.Base):
                      {"method": "launch_instance",
                       "args": {"topic": FLAGS.gridcentric_topic,
                                "instance_id": instance_id}})
+
+    def list_launched_instances(self, context, instance_id):
+        filter = {
+                  'metadata':{'launched_from':'%s' %instance_id},
+                  'deleted':False
+                  }
+        launched_instances = self.compute_api.get_all(context, filter)
+        for instance in launched_instances:
+            print instance.get('virtual_interfaces', [])
+        return launched_instances
