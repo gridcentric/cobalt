@@ -41,7 +41,7 @@ class API(base.Base):
         
     def _cast_gridcentric_message(self, method, context, instance_id, host=None,
                               params=None):
-        """Generic handler for RPC casts to gridcentric.
+        """Generic handler for RPC casts to gridcentric. This does not block for a response.
 
         :param params: Optional dictionary of arguments to be passed to the
                        gridcentric worker
@@ -59,9 +59,29 @@ class API(base.Base):
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
         
+    def _call_gridcentric_message(self, method, context, instance_id, host=None,
+                              params=None):
+        """Generic handler for RPC call to gridcentric. This will block for a response.
+
+        :param params: Optional dictionary of arguments to be passed to the
+                       gridcentric worker
+
+        :returns: None
+
+        """
+        if not params:
+            params = {}
+        if not host:
+            instance = self.get(context, instance_id)
+            host = instance['host']
+        queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, host)
+        params['instance_id'] = instance_id
+        kwargs = {'method': method, 'args': params}
+        rpc.call(context, queue, kwargs)
+        
     def bless_instance(self, context, instance_id):
         LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
-        self._cast_gridcentric_message('bless_instance', context, instance_id)
+        self._call_gridcentric_message('bless_instance', context, instance_id)
     
     def unbless_instance(self, context, instance_id):
         LOG.debug(_("Casting gridcentric message for unbless_instance") % locals())
