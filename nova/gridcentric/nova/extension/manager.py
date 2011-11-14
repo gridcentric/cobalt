@@ -71,9 +71,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # (dscannell) import the libvirt module to ensure that the the libvirt flags can be read in
             from nova.virt.libvirt import connection as libvirt_connection
             # Point the prelaunch to the KVM specific values.
+            os.putenv('GRIDCENTRIC_DATASTORE',FLAGS.gridcentric_datastore)
             self.libvirt_conn = libvirt_connection.get_connection(False)
             
             hypervisor.options['connection_url'] = self.libvirt_conn.get_uri()
+            self._prebless = self._prebless_kvm
             self._prelaunch = self._prelaunch_kvm
             vms_hypervisor = 'kvm'
         elif connection_type == 'fake':
@@ -86,6 +88,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
         virt.select(vms_hypervisor)
         LOG.debug(_("Virt initialized as auto=%s"), virt.auto)
 
+
+	def _prebless(self):
+		return {}
+
+	def _prebless_kvm(self, instance):
+		working_dir= os.path.join(FLAGS.instances_path, instance['name'])
+        disk_file = os.path.join(working_dir, "disk")
+		return {'disk':disk_file}
 
     def _prelaunch(self):
         return {}
@@ -202,9 +212,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # path : The path (that is accessible to dom0) where they clone descriptor will be saved
         path = FLAGS.gridcentric_datastore
-        LOG.debug(_("Calling vms.bless with name=%s and path=%s"), instance_ref.name, path)
-        vms.bless(instance_ref.name, path)
-        LOG.debug(_("Called vms.bless with name=%s and path=%s"), instance_ref.name, path)
+        extra_params = self._prebless(instance_ref)
+        LOG.debug(_("Calling vms.bless with name=%s, path=%s and extra_params=%s"), instance_ref.name, path, extra_params)
+        vms.bless(instance_ref.name, path, **extra_params)
+        LOG.debug(_("Called vms.bless with name=%s, path=%s and extra_params=%s"), instance_ref.name, path, extra_params)
         
         metadata = self.db.instance_metadata_get(context, instance_id)
         metadata['blessed'] = True
