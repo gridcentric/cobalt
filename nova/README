@@ -71,11 +71,6 @@ extension
 gridcentric
     Contains the source for the gridcentric manager that does the actual work to enable the 
     GridCentric functionality
-
-plugins
-    Contains plugins for xenapi that need to be installed in dom0 of each compute host:
-        scp -r plugins/xenserver/xenapi root@<xenserver-domain>:/
-    
     
 tools
     gc-nova
