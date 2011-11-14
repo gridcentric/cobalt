@@ -21,6 +21,7 @@ handles RPC calls relating to GridCentric functionality creating instances.
 """
 
 import time
+import os
 
 from nova import exception
 from nova import flags
@@ -32,9 +33,6 @@ from nova import network
 from nova.compute import power_state
 from nova.compute import task_states
 from nova.compute import vm_states
-
-# (dscannell) We need to import this to ensure that the xenapi flags can be read in.
-from nova.virt import xenapi_conn
 
 import vms.virt as virt
 import vms.commands as vms
@@ -61,10 +59,23 @@ class GridCentricManager(manager.SchedulerDependentManager):
         connection_type = FLAGS.connection_type
         
         if connection_type == 'xenapi':
+            # (dscannell) We need to import this to ensure that the xenapi flags can be read in.
+            from nova.virt import xenapi_conn
+            
             hypervisor.options['connection_url'] = FLAGS.xenapi_connection_url
             hypervisor.options['connection_username'] = FLAGS.xenapi_connection_username
             hypervisor.options['connection_password'] = FLAGS.xenapi_connection_password
             vms_hypervisor = 'xcp'
+            
+        elif connection_type == 'libvirt':
+            # (dscannell) import the libvirt module to ensure that the the libvirt flags can be read in
+            from nova.virt.libvirt import connection as libvirt_connection
+            # Point the prelaunch to the KVM specific values.
+            self.libvirt_conn = libvirt_connection.get_connection(False)
+            
+            hypervisor.options['connection_url'] = self.libvirt_conn.get_uri()
+            self._prelaunch = self._prelaunch_kvm
+            vms_hypervisor = 'kvm'
         elif connection_type == 'fake':
             vms_hypervisor = 'dummy'
         else:
@@ -75,6 +86,50 @@ class GridCentricManager(manager.SchedulerDependentManager):
         virt.select(vms_hypervisor)
         LOG.debug(_("Virt initialized as auto=%s"), virt.auto)
 
+
+    def _prelaunch(self):
+        return {}
+
+    def _prelaunch_kvm(self, context, instance, network_info = None, block_device_info=None):
+        # We meed to create the libvirt xml, and associated files. Pass
+        # back the path to the libvirt.xml file.
+        
+        working_dir= os.path.join(FLAGS.instances_path, instance['name'])
+        disk_file = os.path.join(working_dir, "disk")
+        libvirt_file = os.path.join(working_dir,"libvirt.xml")
+        
+        # (dscannell) We will write out a stub 'disk' file so that we don't end up copying
+        # this file when setting up everything for libvirt. Essentially, this file will be
+        # removed, and replaced by vms as an overlay on the blessed root image.
+        os.makedirs(working_dir)
+        file(os.path.join(disk_file),'w').close()
+        
+        # (dscannell) We want to disable any injection
+        key = instance['key_data']
+        instance['key_data'] = None
+        metadata = instance['metadata']
+        instance['metadata'] = []
+        for network_ref, mapping in network_info:
+            network_ref['injected'] = False
+        
+        # (dscannell) This was taken from the core nova project as part of the boot path
+        # for normal instances. We basically want to mimic this functionality.
+        xml = self.libvirt_conn.to_xml(instance, network_info, False,
+                          block_device_info=block_device_info)
+        self.libvirt_conn.firewall_driver.setup_basic_filtering(instance, network_info)
+        self.libvirt_conn.firewall_driver.prepare_instance_filter(instance, network_info)
+        self.libvirt_conn._create_image(context, instance, xml, network_info=network_info,
+                           block_device_info=block_device_info)
+        
+        # (dscannell) Restore previously disabled values
+        instance['key_data'] = key
+        instance['metadata'] = metadata
+        
+        # (dscannell) Remove the fake disk file
+        os.remove(disk_file)
+        
+        return {'libvirt':libvirt_file,
+                'gridcentric-datastore':FLAGS.gridcentric_datastore}
 
     def _instance_update(self, context, instance_id, **kwargs):
         """Update an instance in the database using kwargs as value."""
@@ -218,11 +273,13 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # The target memory settings for the launch virtual machine.
         self._instance_update(context, new_instance_ref.id, vm_state=vm_states.BUILDING, task_state='launching')
         target = new_instance_ref['memory_mb']
-        LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, clonenum=%s and target=%s"), 
-                  instance_ref.name, new_instance_ref.name, clonenum, target)
-        vms.launch(instance_ref.name, new_instance_ref.name, str(clonenum), str(target))
-        LOG.debug(_("Called vms.launch with name=%s, new_name=%s, clonenum=%s and target=%s"), 
-                  instance_ref.name, new_instance_ref.name, clonenum, target)
+        
+        extra_params = self._prelaunch(context, new_instance_ref, network_info)
+        LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, clonenum=%s, target=%s and extra_params=%s"), 
+                  instance_ref.name, new_instance_ref.name, clonenum, target, extra_params)
+        vms.launch(instance_ref.name, new_instance_ref.name, str(clonenum), str(target), **extra_params)
+        LOG.debug(_("Called vms.launch with name=%s, new_name=%s, clonenum=%s,target=%s and extra_params=%s"), 
+                  instance_ref.name, new_instance_ref.name, clonenum, target, extra_params)
         
 
         LOG.debug(_("Calling vms.replug with name=%s"), 
