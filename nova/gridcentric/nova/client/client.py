@@ -15,7 +15,7 @@ import httplib2
 import json
 import urlparse
 
-import gridcentric.nova.exceptions as exceptions
+import gridcentric.nova.client.exceptions as exceptions
 
 class NovaClient(httplib2.Http):
     
