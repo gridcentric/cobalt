@@ -1,4 +1,4 @@
-== Developement Instructions (step-by-step to get a development environmnet setup)==
+== Development Instructions (step-by-step to get a development environment setup)==
 
 1. Execute contrib/nova.sh branch [nova branch] to get the latest OpenStack nova code base.
 e.g. $ contrib/nova.sh branch (this will get the trunk version. Note that this might not be stable)
