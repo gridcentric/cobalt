@@ -71,7 +71,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # (dscannell) import the libvirt module to ensure that the the libvirt flags can be read in
             from nova.virt.libvirt import connection as libvirt_connection
             # Point the prelaunch to the KVM specific values.
-            os.putenv('GRIDCENTRIC_DATASTORE',FLAGS.gridcentric_datastore)
             self.libvirt_conn = libvirt_connection.get_connection(False)
             
             hypervisor.options['connection_url'] = self.libvirt_conn.get_uri()
