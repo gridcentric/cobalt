@@ -74,7 +74,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
             self.libvirt_conn = libvirt_connection.get_connection(False)
             
             hypervisor.options['connection_url'] = self.libvirt_conn.get_uri()
-            self._prebless = self._prebless_kvm
             self._prelaunch = self._prelaunch_kvm
             vms_hypervisor = 'kvm'
         elif connection_type == 'fake':
@@ -90,11 +89,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
 	def _prebless(self):
 		return {}
-
-	def _prebless_kvm(self, instance):
-		working_dir= os.path.join(FLAGS.instances_path, instance['name'])
-        disk_file = os.path.join(working_dir, "disk")
-		return {'disk':disk_file}
 
     def _prelaunch(self):
         return {}
