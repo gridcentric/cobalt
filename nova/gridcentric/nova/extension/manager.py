@@ -87,6 +87,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
         LOG.debug(_("Virt initialized as auto=%s"), virt.auto)
 
 
+	def _prebless(self):
+		return {}
+
     def _prelaunch(self):
         return {}
 
@@ -202,9 +205,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # path : The path (that is accessible to dom0) where they clone descriptor will be saved
         path = FLAGS.gridcentric_datastore
-        LOG.debug(_("Calling vms.bless with name=%s and path=%s"), instance_ref.name, path)
-        vms.bless(instance_ref.name, path)
-        LOG.debug(_("Called vms.bless with name=%s and path=%s"), instance_ref.name, path)
+        extra_params = self._prebless(instance_ref)
+        LOG.debug(_("Calling vms.bless with name=%s, path=%s and extra_params=%s"), instance_ref.name, path, extra_params)
+        vms.bless(instance_ref.name, path, **extra_params)
+        LOG.debug(_("Called vms.bless with name=%s, path=%s and extra_params=%s"), instance_ref.name, path, extra_params)
         
         metadata = self.db.instance_metadata_get(context, instance_id)
         metadata['blessed'] = True
