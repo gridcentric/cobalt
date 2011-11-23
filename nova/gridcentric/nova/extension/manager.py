@@ -75,7 +75,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             
             hypervisor.options['connection_url'] = self.libvirt_conn.get_uri()
             self._prelaunch = self._prelaunch_kvm
-            vms_hypervisor = 'kvm'
+            vms_hypervisor = 'libvirt'
         elif connection_type == 'fake':
             vms_hypervisor = 'dummy'
         else:
@@ -90,7 +90,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 	def _prebless(self):
 		return {}
 
-    def _prelaunch(self):
+    def _prelaunch(self, context, instance, network_info=None, block_device_info=None):
         return {}
 
     def _prelaunch_kvm(self, context, instance, network_info = None, block_device_info=None):
@@ -195,7 +195,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
         
         LOG.debug(_("bless instance called: instance_id=%s"), instance_id)
 
-        if self._is_instance_blessed(context, instance_id):
+        is_blessed = self._is_instance_blessed(context, instance_id)
+        LOG.debug(_("********* DRS_DEBUG: is_blessed=%s"), is_blessed)
+        if is_blessed and is_blessed != "False" and is_blessed != "0":
             # The instance is already blessed. We can't rebless it.
             raise exception.Error(_("Instance %s is already blessed. Cannot rebless an instance." % instance_id))
         
@@ -205,10 +207,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # path : The path (that is accessible to dom0) where they clone descriptor will be saved
         path = FLAGS.gridcentric_datastore
-        extra_params = self._prebless(instance_ref)
-        LOG.debug(_("Calling vms.bless with name=%s, path=%s and extra_params=%s"), instance_ref.name, path, extra_params)
-        vms.bless(instance_ref.name, path, **extra_params)
-        LOG.debug(_("Called vms.bless with name=%s, path=%s and extra_params=%s"), instance_ref.name, path, extra_params)
+        
+        LOG.debug(_("Calling vms.bless with name=%s and path=%s"), instance_ref.name, path)
+        vms.bless(instance_ref.name, path)
+        LOG.debug(_("Called vms.bless with name=%s and path=%s"), instance_ref.name, path)
         
         metadata = self.db.instance_metadata_get(context, instance_id)
         metadata['blessed'] = True
