@@ -49,7 +49,7 @@ if command == 'bless':
 elif command == 'launch':
     instance_id = sys.argv[2]
 
-    client = NovaClient('admin','admin','','http://localhost:8774/v1.1')    
+    client = NovaClient('http://localhost:8774/v1.1','admin','admin','admin','v1.1')
     client.launch_instance(instance_id)
 else:
     usage()
