@@ -26,6 +26,14 @@ import os
 from nova import exception
 from nova import flags
 from nova import log as logging
+LOG = logging.getLogger('gridcentric.nova.manager')
+FLAGS = flags.FLAGS
+
+flags.DEFINE_string('gridcentric_datastore', '/tmp', 
+                    'A directory on dom0 that GridCentric will used to save the clone descriptors.')
+flags.DEFINE_string('stub_network', False, 
+                    'Stub network related code (primarily used for testing)')
+
 from nova import manager
 from nova import utils
 from nova import rpc
@@ -37,12 +45,7 @@ from nova.compute import vm_states
 import vms.virt as virt
 import vms.commands as vms
 import vms.hypervisor as hypervisor
-
-LOG = logging.getLogger('gridcentric.nova.manager')
-FLAGS = flags.FLAGS
-
-flags.DEFINE_string('gridcentric_datastore', '/tmp', 
-                    'A directory on dom0 that GridCentric will used to save the clone descriptors.')
+import vms.logger as logger
 
 class GridCentricManager(manager.SchedulerDependentManager):
     
@@ -52,9 +55,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self.network_api = network.API()
         super(GridCentricManager, self).__init__(service_name="gridcentric",
                                              *args, **kwargs)
-
+        
     def _init_vms(self):
         """ Initializes the vms modules hypervisor options depending on the openstack connection type. """
+        
+        logger.setup_console_defaults()
         vms_hypervisor = None
         connection_type = FLAGS.connection_type
         
@@ -192,7 +197,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def bless_instance(self, context, instance_id):
         """ Blesses an instance so that further instances maybe be launched from it. """
-        
+
         LOG.debug(_("bless instance called: instance_id=%s"), instance_id)
 
         is_blessed = self._is_instance_blessed(context, instance_id)
@@ -255,18 +260,21 @@ class GridCentricManager(manager.SchedulerDependentManager):
         new_instance_ref = self._copy_instance(context, instance_id, "clone")
         instance_ref = self.db.instance_get(context, instance_id)
 
-        # TODO(dscannell): We need to set the is_vpn parameter correctly. This information might
-        # come from the instance, or the user might have to specify it. Also, we might be able
-        # to convert this to a cast because we are not waiting on any return value.
-        LOG.debug(_("Making call to network for launching instance=%s"), new_instance_ref.name)
-        self._instance_update(context, new_instance_ref.id, vm_state=vm_states.BUILDING, task_state=task_states.NETWORKING)
-        is_vpn = False
-        requested_networks=None
-        network_info = self.network_api.allocate_for_instance(context,
-                                    new_instance_ref, vpn=is_vpn,
-                                    requested_networks=requested_networks)
-        LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"), 
-                  new_instance_ref.name, network_info)
+        if not FLAGS.stub_network:
+            # TODO(dscannell): We need to set the is_vpn parameter correctly. This information might
+            # come from the instance, or the user might have to specify it. Also, we might be able
+            # to convert this to a cast because we are not waiting on any return value.
+            LOG.debug(_("Making call to network for launching instance=%s"), new_instance_ref.name)
+            self._instance_update(context, new_instance_ref.id, vm_state=vm_states.BUILDING, task_state=task_states.NETWORKING)
+            is_vpn = False
+            requested_networks=None
+            network_info = self.network_api.allocate_for_instance(context,
+                                        new_instance_ref, vpn=is_vpn,
+                                        requested_networks=requested_networks)
+            LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"), 
+                      new_instance_ref.name, network_info)
+        else:
+            network_info = []
 
 
         # A number to indicate with instantiation is to be launched. Basically this is just an
@@ -283,7 +291,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         extra_params = self._prelaunch(context, new_instance_ref, network_info)
         LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, clonenum=%s, target=%s and extra_params=%s"), 
                   instance_ref.name, new_instance_ref.name, clonenum, target, extra_params)
-        vms.launch(instance_ref.name, new_instance_ref.name, str(clonenum), str(target), **extra_params)
+        vms.launch(instance_ref.name, new_instance_ref.name, str(target), **extra_params)
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, clonenum=%s,target=%s and extra_params=%s"), 
                   instance_ref.name, new_instance_ref.name, clonenum, target, extra_params)
         
@@ -292,11 +300,20 @@ class GridCentricManager(manager.SchedulerDependentManager):
                   new_instance_ref.name)
         # We want to unplug the vifs before adding the new ones so that we do not mess around
         # with the interfaces exposed inside the guest.
-        vms.replug(new_instance_ref.name, plugin_first=False, mac_addresses = {'0': network_info[0][1]['mac']})
+        vms.replug(new_instance_ref.name, plugin_first=False, mac_addresses = self.extract_mac_addresses(network_info))
         LOG.debug(_("Called vms.replug with name=%s"), 
                   new_instance_ref.name)
     
         self._instance_update(context, new_instance_ref.id, vm_state=vm_states.ACTIVE, task_state=None)
+    
+    def extract_mac_addresses(self, network_info):
+        mac_addresses = {}
+        vif = 0
+        for network in network_info:
+            mac_addresses[str(vif)] = network[1]['mac']
+            vif += 1
+        
+        return mac_addresses
     
     # TODO(dscannell): This was taken from the nova-compute manager. We probably want to 
     # find a better way to determine the network_topic, or follow vish's advice.

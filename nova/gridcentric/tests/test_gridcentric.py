@@ -8,13 +8,14 @@ from nova import flags
 from nova import context
 from nova import exception
 
+os.environ['VMS_SHELF_PATH'] = '.'
+
 import vms.virt as virt
 
 import gridcentric.nova.extension as gridcentric
 import gridcentric.nova.extension.manager as gc_manager
 
 import gridcentric.tests.utils as utils
-
 
 FLAGS = flags.FLAGS
 
@@ -23,6 +24,7 @@ class GridCentricTestCase(unittest.TestCase):
     def setUp(self):
         
         FLAGS.connection_type='fake'
+        FLAGS.stub_network=True
         # Copy the clean database over
         shutil.copyfile(os.path.join(FLAGS.state_path, FLAGS.sqlite_clean_db),
                         os.path.join(FLAGS.state_path, FLAGS.sqlite_db))
