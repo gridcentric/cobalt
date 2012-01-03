@@ -1,6 +1,19 @@
 # The build file for the gridcentric nova extension
 
+
+# The path to the nova source code. Keeping it empty will assume that
+# nova is already on the python path.
+NOVA_PATH=
+
+# The path to the vms source code. Keeping it empty will asusme that
+# vms is already on the python path
+VMS_PATH=
+
+# The name of the test report
 TEST_REPORT=gc-extension.xml
+
+
+# **** TARGETS ****
 
 # Build the python egg files
 build : test
@@ -9,7 +22,7 @@ build : test
 
 # Executes the units tests and generated an Junit XML report
 test : testenv
-	nosetests --with-xunit --xunit-file=build/$(TEST_REPORT) gridcentric
+	PYTHONPATH=$(NOVA_PATH):$(VMS_PATH) nosetests --with-xunit --xunit-file=build/$(TEST_REPORT) gridcentric
 .PHONY : test
 
 # Builds the test environment
