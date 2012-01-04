@@ -1,6 +1,14 @@
+#!/usr/bin/make -f
 
 build-all : gc-nova-extension
 .PHONY : build-all
+
+$(NOVA_PATH)/.venv/bin/activate:
+	@python $(NOVA_PATH)/tools/install_venv.py
+build-full: $(NOVA_PATH)/.venv/bin/activate
+	@source $(NOVA_PATH)/.venv/bin/activate; $(MAKE) build-all
+	@$(MAKE) collect
+.PHONY : build-clean
 
 gc-nova-extension :
 	@echo Building the gridcentric nova extension
@@ -21,4 +29,3 @@ create-collect-dir : build build/test-reports
 
 build build/test-reports :       
 	@mkdir $@
-
