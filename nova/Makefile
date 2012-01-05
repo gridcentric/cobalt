@@ -22,7 +22,9 @@ build : test
 
 # Executes the units tests and generated an Junit XML report
 test : testenv
-	PYTHONPATH=$(NOVA_PATH):$(VMS_PATH) nosetests --with-xunit --xunit-file=build/$(TEST_REPORT) gridcentric
+	PYTHONPATH=$(NOVA_PATH):$(VMS_PATH) nosetests \
+	    --with-xunit --xunit-file=build/$(TEST_REPORT) \
+	    gridcentric || true
 .PHONY : test
 
 # Builds the test environment
