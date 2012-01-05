@@ -31,9 +31,8 @@ testenv :
 .PHONY : testenv
 
 clean : 
-	rm vms.db
-	rm -r build/*
-	rmdir build
+	rm -f vms.db
+	rm -rf build
 .PHONY : clean
 
 # Note that COLLECT_DIR needs to be set
