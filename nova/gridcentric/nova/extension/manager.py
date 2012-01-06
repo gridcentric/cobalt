@@ -89,7 +89,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         LOG.debug(_("Configuring vms for hypervisor %s"), vms_hypervisor)
         virt.init()
         virt.select(vms_hypervisor)
-        LOG.debug(_("Virt initialized as auto=%s"), virt.auto)
+        LOG.debug(_("Virt initialized as auto=%s"), virt.AUTO)
 
 
 	def _prebless(self):
