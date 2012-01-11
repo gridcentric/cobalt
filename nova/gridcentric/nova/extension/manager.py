@@ -31,8 +31,7 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_string('gridcentric_datastore', '/tmp', 
                     'A directory on dom0 that GridCentric will used to save the clone descriptors.')
-flags.DEFINE_string('stub_network', False, 
-                    'Stub network related code (primarily used for testing)')
+
 
 from nova import manager
 from nova import utils
@@ -44,8 +43,8 @@ from nova.compute import vm_states
 
 import vms.virt as virt
 import vms.commands as vms
-import vms.hypervisor as hypervisor
 import vms.logger as logger
+import vms.config as vmsconfig
 
 class GridCentricManager(manager.SchedulerDependentManager):
     
@@ -67,9 +66,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # (dscannell) We need to import this to ensure that the xenapi flags can be read in.
             from nova.virt import xenapi_conn
             
-            hypervisor.options['connection_url'] = FLAGS.xenapi_connection_url
-            hypervisor.options['connection_username'] = FLAGS.xenapi_connection_username
-            hypervisor.options['connection_password'] = FLAGS.xenapi_connection_password
+            vmsconfig.HYPERVISOR['connection_url'] = FLAGS.xenapi_connection_url
+            vmsconfig.HYPERVISOR['connection_username'] = FLAGS.xenapi_connection_username
+            vmsconfig.HYPERVISOR['connection_password'] = FLAGS.xenapi_connection_password
             vms_hypervisor = 'xcp'
             
         elif connection_type == 'libvirt':
@@ -78,7 +77,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Point the prelaunch to the KVM specific values.
             self.libvirt_conn = libvirt_connection.get_connection(False)
             
-            hypervisor.options['connection_url'] = self.libvirt_conn.get_uri()
+            vmsconfig.HYPERVISOR['connection_url'] = self.libvirt_conn.get_uri()
             self._prelaunch = self._prelaunch_kvm
             vms_hypervisor = 'libvirt'
         elif connection_type == 'fake':

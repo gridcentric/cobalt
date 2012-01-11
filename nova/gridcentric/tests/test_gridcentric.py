@@ -18,6 +18,8 @@ import gridcentric.nova.extension.manager as gc_manager
 import gridcentric.tests.utils as utils
 
 FLAGS = flags.FLAGS
+flags.DEFINE_string('stub_network', False, 
+                    'Stub network related code (primarily used for testing)')
 
 class GridCentricTestCase(unittest.TestCase):
 
