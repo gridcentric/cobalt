@@ -3,9 +3,10 @@
 build-all : gc-nova-extension
 .PHONY : build-all
 
-$(NOVA_PATH)/.venv/bin/activate:
+$(NOVA_PATH)/.venv/bin/activate :
 	@python $(NOVA_PATH)/tools/install_venv.py
-build-full: $(NOVA_PATH)/.venv/bin/activate
+
+build-full : $(NOVA_PATH)/.venv/bin/activate
 	@source $(NOVA_PATH)/.venv/bin/activate; $(MAKE) build-all
 	@$(MAKE) collect
 .PHONY : build-clean
