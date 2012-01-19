@@ -15,7 +15,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from setuptools import setup
+from distutils.core import setup
 
 setup(name='nova-gridcentric',
       version='1.0',
@@ -27,6 +27,5 @@ setup(name='nova-gridcentric',
                 'gridcentric.nova',
                 'gridcentric.nova.client',
                 'gridcentric.nova.extension'],
-      include_package_data=True,
       scripts=['bin/nova-gridcentric',
                'tools/gc-nova'])
