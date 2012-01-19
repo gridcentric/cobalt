@@ -25,7 +25,7 @@ collect : create-collect-dir
 	@cd openstack/nova; $(MAKE) collect COLLECT_DIR=$(PWD)/build
 .PHONY : collect
 
-create-collect-dir : build build/test-reports build/rpm
+create-collect-dir : build build/test-reports build/rpm build/deb
 
-build build/test-reports build/rpm :       
+build build/test-reports build/rpm build/deb :       
 	@mkdir $@

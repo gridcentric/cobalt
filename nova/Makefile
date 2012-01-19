@@ -29,13 +29,17 @@ RELEASE=2011.3
 # **** TARGETS ****
 
 
-all : test rpm pylint
+all : test package pylint
 .PHONY : all
 
 # Build the python egg files
 build : test
 	python setup.py build
 .PHONY : build
+
+# Package the extension
+package : rpm deb
+.PHONY : package
 
 # Installs the python packages
 install : 
@@ -46,7 +50,7 @@ rpm: rpmbuild install
 	@rpmbuild -bb --buildroot $(PWD)/rpmbuild/BUILDROOT \
 	  --define="%_topdir $(PWD)/rpmbuild" --define="%version $(VERSION)" \
 	  --define="%release $(RELEASE)" packagers/rpm/nova-gridcentric.spec
-.PHONY: vms.rpm
+.PHONY : rpm
 
 rpmbuild:
 	@$(INSTALL_DIR) rpmbuild
@@ -56,7 +60,19 @@ rpmbuild:
 	@$(INSTALL_DIR) rpmbuild/SPECS
 	@$(INSTALL_DIR) rpmbuild/RPMS/noarch
 	@$(INSTALL_DIR) rpmbuild/SOURCES
-.PHONY: $(RPMBUILD)
+.PHONY : rpmbuild
+
+deb: debbuild install
+	@rsync -ruav --delete packagers/deb/ debbuild/
+	@rsync -ruav dist/ debbuild/
+	@sed -i "s/\(^Version:\).*/\1 $(VERSION)-$(RELEASE)/" debbuild/DEBIAN/control
+	@dpkg -b debbuild/ debbuild
+.PHONY : deb
+
+debbuild:
+	@$(INSTALL_DIR) debbuild
+	@$(INSTALL_DIR) debuild/gridcentric-nova
+.PHONY : debbuild
 
 # Runs pylint on the code base
 pylint:
@@ -81,11 +97,13 @@ clean :
 	rm -rf dist
 	rm -f pylint.txt
 	rm -rf rpmbuild
+	rm -rf debbuild
 .PHONY : clean
 
 # Note that COLLECT_DIR needs to be set
 collect :
 	cp build/$(TEST_REPORT) $(COLLECT_DIR)/test-reports/$(TEST_REPORT)
 	cp rpmbuild/RPMS/noarch/*.rpm $(COLLECT_DIR)/rpm/
+	cp debbuild/*.deb $(COLLECT_DIR)/deb/
 
 .PHONE : collect

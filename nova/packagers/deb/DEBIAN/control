@@ -1,0 +1,6 @@
+Package: gridcentric-nova
+Section: extra
+Version: VERSION
+Architecture: any
+Maintainer: GridCentric Inc. <support@gridcentric.com>
+Description: GridCentric extension for Openstack Compute.
