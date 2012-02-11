@@ -13,17 +13,17 @@ build-full : $(NOVA_PATH)/.venv/bin/activate
 
 gc-nova-extension :
 	@echo Building the gridcentric nova extension
-	@cd openstack/nova; $(MAKE) 
+	@cd nova; $(MAKE) 
 .PHONY : gc-nova-extension
 
 clean :
-	@cd openstack/nova; $(MAKE) clean
+	@cd nova; $(MAKE) clean
 .PHONY : clean
 
 # This basically rolls up all the artifacts to a top-level directory
 collect : create-collect-dir
 	@echo Collecting
-	@cd openstack/nova; $(MAKE) collect COLLECT_DIR=$(PWD)/build
+	@cd nova; $(MAKE) collect COLLECT_DIR=$(PWD)/build
 .PHONY : collect
 
 create-collect-dir : build build/test-reports build/rpm build/deb
