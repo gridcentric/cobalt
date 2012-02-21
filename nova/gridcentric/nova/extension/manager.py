@@ -37,6 +37,11 @@ from nova import manager
 from nova import utils
 from nova import rpc
 from nova import network
+# We need to import this module because other nova modules use the
+# flags that it defines (without actually importing this module). So
+# we need to ensure this module is loaded so that we can have access
+# to those flags.
+from nova.network import manager as network_manager
 from nova.compute import power_state
 from nova.compute import task_states
 from nova.compute import vm_states
