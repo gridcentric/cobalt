@@ -82,7 +82,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Point the prelaunch to the KVM specific values.
             self.libvirt_conn = libvirt_connection.get_connection(False)
             
-            vmsconfig.HYPERVISOR['connection_url'] = self.libvirt_conn.get_uri()
+            vmsconfig.MANAGEMENT['connection_url'] = self.libvirt_conn.get_uri()
             self._prelaunch = self._prelaunch_kvm
             vms_hypervisor = 'libvirt'
         elif connection_type == 'fake':
