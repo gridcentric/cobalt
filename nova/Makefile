@@ -22,12 +22,11 @@ PYTHON=python$(PYTHON_VERSION)
 INSTALL_DIR := install -d -m0755 -p
 
 # The version of the extension
-VERSION=1.0
+VERSION:=1.0
 # This matches the Openstack release version
-RELEASE=2011.3
+RELEASE:=2011.3
 
 # **** TARGETS ****
-
 
 all : test package pylint
 .PHONY : all

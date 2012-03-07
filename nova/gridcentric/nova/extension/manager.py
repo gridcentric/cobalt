@@ -89,7 +89,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             vms_hypervisor = 'dummy'
         else:
             raise exception.Error(_('Unsupported connection type "%s"' % connection_type))
-        
+
         LOG.debug(_("Configuring vms for hypervisor %s"), vms_hypervisor)
         virt.init()
         virt.select(vms_hypervisor)
