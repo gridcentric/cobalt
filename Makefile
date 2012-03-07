@@ -18,6 +18,7 @@ gc-nova-extension :
 
 clean :
 	@$(MAKE) -C nova clean
+	@rm -rf build
 .PHONY : clean
 
 # This basically rolls up all the artifacts to a top-level directory
@@ -28,5 +29,5 @@ collect : create-collect-dir
 
 create-collect-dir : build build/test-reports build/rpm build/deb
 
-build build/test-reports build/rpm build/deb :       
+build build/test-reports build/rpm build/deb :
 	@mkdir $@
