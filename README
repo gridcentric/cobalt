@@ -1,4 +1,5 @@
 These are the GridCentric extensions for the OpenStack platform. 
 
 nova:
-    The extensions to the Openstack nova project (responsible for managing virtual machines).
+    The extensions to the Openstack nova project (responsible for
+    managing virtual machines).
