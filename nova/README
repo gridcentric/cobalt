@@ -1,19 +1,19 @@
-== Development Instructions (step-by-step to get a development environment setup)==
+== Development Instructions (step-by-step to get a development environment setup) ==
 
 1. Execute contrib/nova.sh branch [nova branch] to get the latest OpenStack nova code base.
 e.g. $ contrib/nova.sh branch (this will get the trunk version. Note that this might not be stable)
      $ contrib/nova.sh branch lp:nova/cactus (This will get the cactus release -- this should be stable)
-     
+
 2. Execute contrib/nova.sh install to install depenencies required by OpenStack
 e.g. $ contrib/nova.sh install
 
 3. Update the Dom0 on the host machine with the nova plugins
 e.g. $ scp -r nova/plugins/xenserver/xenapi/etc root@<xenserver domain>:/
 
-4. Install the glance packages (TODO: This should be rolled into step2 and installed with everything else)
+4. Install the glance packages
 e.g. $ sudo apt-get install glance
 
-5. Install the vms packages (TODO: This should be rolled into step2 and installed with everything else)
+5. Install the vms packages
 
 5. Execute contrib/nova.sh run to execute all the nova processes (including the gridcentric extension)
 Note: this should be executed as root, and it will create a new screen session for each nova process.
@@ -59,7 +59,7 @@ follow these instructions: http://wiki.openstack.org/XenServerDevelopment
 4. Install the Xen API plugins on dom0 of the compute node and/or KVM packages.
 (e.g. scp -r plugins/xenserver/xenapi root@<xenserver-domain>:/)
 
-==Project Contents==
+== Project Contents ==
 
 bin
     nova-gridcentric
