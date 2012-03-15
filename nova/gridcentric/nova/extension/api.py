@@ -107,6 +107,7 @@ class API(base.Base):
                   'deleted':False
                   }
         blessed_instances = self.compute_api.get_all(context, filter)
+        instances = []
         instances.extend(launched_instances)
         instances.extend(blessed_instances)
         return instances
