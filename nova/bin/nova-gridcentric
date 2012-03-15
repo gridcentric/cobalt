@@ -49,8 +49,6 @@ from nova import utils
 
 if __name__ == '__main__':
     utils.default_flagfile()
-    flags.DEFINE_string('gridcentric_manager', 'gridcentric.nova.extension.manager.GridCentricManager',
-            'Manager for gridcentric')
     flags.FLAGS(sys.argv)
     logging.setup()
     server = service.Service.create(binary='nova-gridcentric')

@@ -1,16 +1,1 @@
-.*\.pyc
-^build/.*
-^.*.pyc
-^.*/rpmbuild/.*
-^.*/debbuild/.*
-^.*/dist/.*
-^.*/pylint.txt
-^.*/pylint.report
-^.*\.orig
-^.*/build/.*
-^.*/nova_gridcentric.egg-info/.*
-^nova/contrib/nova/.*
-^nova/contrib/.bzr/.*
-^nova/contrib/glance.sqlite
-^nova/contrib/images/.*
-^nova/vms.db
+.gitignore

@@ -1,8 +1,5 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 # Copyright 2011 GridCentric Inc.
 # All Rights Reserved.
-#
-# Based off of the foxinsocks.py file (c) OpenStack LLC.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -16,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+
 import json
 
 from nova import log as logging
@@ -25,25 +23,28 @@ import nova.api.openstack.views.addresses
 import nova.api.openstack.views.flavors
 import nova.api.openstack.views.images
 import nova.api.openstack.views.servers
-from gridcentric.nova import extension
 
+from gridcentric.nova.extension import API
 
 LOG = logging.getLogger("nova.api.extensions.gridcentric")
 
 class Gridcentric_extension(object):
-
     """ 
     The Openstack Extension definition for the GridCentric capabilities. Currently this includes:
         
-        * Bless an existing virtual machine (basically this suspends the virtual machine and enables
-        it to participate in launching new virtual machines using vms).
+        * Bless an existing virtual machine (creates a new server snapshot
+          of the virtual machine and enables the user to launch new copies
+          nearly instantaneously).
         
-        * Launch new virtual machines from a blessed one
+        * Launch new virtual machines from a blessed copy above.
+        
+        * Discard blessed VMs.
+
+        * List launched VMs (per blessed VM).
     """
 
     def __init__(self):
-        self.gridcentric_api = extension.API()
-        pass
+        self.gridcentric_api = API()
 
     def get_name(self):
         return "GridCentric"
@@ -58,9 +59,7 @@ class Gridcentric_extension(object):
         return "http://www.gridcentric.com"
 
     def get_updated(self):
-        # (dscannell) TODO: 
-        # This should be injected by the build system once one is established.
-        return "2011-01-22T13:25:27-06:00"
+        return '2012-03-14T18:33:34-07:00' ##TIMESTAMP##
 
     def get_actions(self):
         actions = []
@@ -71,8 +70,8 @@ class Gridcentric_extension(object):
         actions.append(extensions.ActionExtension('servers', 'gc_launch',
                                                     self._launch_instance))
         
-        actions.append(extensions.ActionExtension('servers', 'gc_unbless',
-                                                    self._unbless_instance))
+        actions.append(extensions.ActionExtension('servers', 'gc_discard',
+                                                    self._discard_instance))
         
         actions.append(extensions.ActionExtension('servers', 'gc_list_launched',
                                                     self._list_launched_instances))
@@ -80,29 +79,22 @@ class Gridcentric_extension(object):
         return actions
 
     def _bless_instance(self, input_dict, req, id):
-
         context = req.environ["nova.context"]
         self.gridcentric_api.bless_instance(context, id)
-
         return id
 
-    def _unbless_instance(self, input_dict, req, id):
-
+    def _discard_instance(self, input_dict, req, id):
         context = req.environ["nova.context"]
-        self.gridcentric_api.unbless_instance(context, id)
-
+        self.gridcentric_api.discard_instance(context, id)
         return id
 
-    
     def _launch_instance(self, input_dict, req, id):
-
         context = req.environ["nova.context"]
         self.gridcentric_api.launch_instance(context, id)
+        return id
 
     def _list_launched_instances(self, input_dict, req, id):
-
         def _build_view(req, instance, is_detail=True):
-            
             project_id = getattr(req.environ['nova.context'], 'project_id', '')
             base_url = req.application_url
             flavor_builder = nova.api.openstack.views.flavors.ViewBuilderV11(
@@ -113,9 +105,7 @@ class Gridcentric_extension(object):
             builder = nova.api.openstack.views.servers.ViewBuilderV11(
                 addresses_builder, flavor_builder, image_builder,
                 base_url, project_id)
-
             return builder.build(instance, is_detail=is_detail)
-
         context = req.environ["nova.context"]
         instances = self.gridcentric_api.list_launched_instances(context, id)
         instances = [_build_view(req, inst)['server']
@@ -124,7 +114,6 @@ class Gridcentric_extension(object):
 
     def get_request_extensions(self):
         request_exts = []
-
         def _show_servers(req, res):
             #NOTE: This only handles JSON responses.
             # You can use content type header to test for XML.
@@ -135,13 +124,10 @@ class Gridcentric_extension(object):
                 is_blessed = metadata.get('blessed', False)
                 if is_blessed:
                     server['status'] = 'BLESSED'
-                    
             LOG.debug(_("RESPONDING to /:(project_id)/servers/detail: data=%s"), data)
             return data
 
         req_ext = extensions.RequestExtension('GET', '/:(project_id)/servers/detail',
                                                 _show_servers)
         request_exts.append(req_ext)
-
         return request_exts
-

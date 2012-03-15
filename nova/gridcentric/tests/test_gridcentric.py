@@ -39,25 +39,24 @@ class GridCentricTestCase(unittest.TestCase):
         pass
 
     def test_bless_instance(self):
-        
         instance_id = utils.create_instance(self.context)
-        
+
         num_instance_before = len( db.instance_get_all(self.context) )
         self.gridcentric.bless_instance(self.context, instance_id)
-        
-        # Ensure that we have a 2nd instance in the database that is a "clone" of our
-        # original instance.
+
+        # Ensure that we have a 2nd instance in the database that is a "clone"
+        # of our original instance.
         instances = db.instance_get_all(self.context)
-        self.assertTrue(len(instances) == num_instance_before, 
-                        "There should be no new instances after blessing.")
-        
-        # The virtual machine should be marked that it is now blessed
+        self.assertTrue(len(instances) == (num_instance_before + 1),
+                        "There should be one new instances after blessing.")
+
+        # The virtual machine should be marked that it is now blessed.
         metadata = db.instance_metadata_get(self.context, instance_id)
         self.assertTrue(metadata.has_key('blessed'), 
                         "The instance should have a bless metadata after being blessed.")
         self.assertTrue(metadata['blessed'] == '1', 
-                        "The instance should have the bless metadata set to true after being blessed. " \
-                        + "(value=%s)" % (metadata['blessed']))
+            "The instance should have the bless metadata set to true after being blessed. " \
+          + "(value=%s)" % (metadata['blessed']))
 
     def test_bless_instance_twice(self):
         
