@@ -13,8 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-
 import json
+import webob
 
 from nova import log as logging
 
@@ -80,18 +80,18 @@ class Gridcentric_extension(object):
 
     def _bless_instance(self, input_dict, req, id):
         context = req.environ["nova.context"]
-        self.gridcentric_api.bless_instance(context, id)
-        return id
+        result = self.gridcentric_api.bless_instance(context, id)
+        return webob.Response(status_int=200, body=json.dumps(result))
 
     def _discard_instance(self, input_dict, req, id):
         context = req.environ["nova.context"]
-        self.gridcentric_api.discard_instance(context, id)
-        return id
+        result = self.gridcentric_api.discard_instance(context, id)
+        return webob.Response(status_int=200, body=json.dumps(result))
 
     def _launch_instance(self, input_dict, req, id):
         context = req.environ["nova.context"]
-        self.gridcentric_api.launch_instance(context, id)
-        return id
+        result = self.gridcentric_api.launch_instance(context, id)
+        return webob.Response(status_int=200, body=json.dumps(result))
 
     def _list_instances(self, input_dict, req, id):
         def _build_view(req, instance, is_detail=True):
@@ -110,7 +110,7 @@ class Gridcentric_extension(object):
         instances = self.gridcentric_api.list_instances(context, id)
         instances = [_build_view(req, inst)['server']
                     for inst in instances]
-        return dict(instances=instances)
+        return webob.Response(status_int=200, body=json.dumps(instances))
 
     def get_request_extensions(self):
         request_exts = []
@@ -124,7 +124,6 @@ class Gridcentric_extension(object):
                 is_blessed = metadata.get('blessed', False)
                 if is_blessed:
                     server['status'] = 'BLESSED'
-            LOG.debug(_("RESPONDING to /:(project_id)/servers/detail: data=%s"), data)
             return data
 
         req_ext = extensions.RequestExtension('GET', '/:(project_id)/servers/detail',
