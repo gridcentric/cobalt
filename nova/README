@@ -38,8 +38,8 @@ before blessing the virtual machine.
 e.g. $ gc bless 1
 
 10 Launch more virtual machines based off of the suspended snapshot
-e.g. $ gc launch 1
-     $ gc launch 1
+e.g. $ gc launch 2
+     $ gc launch 2
      $ ... etc ...
 
 == Installation Instructions ==
