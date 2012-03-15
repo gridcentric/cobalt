@@ -1,14 +1,14 @@
-"""
-The client connector used to interface with the nova api.
-
-Copyright 2011, GridCentric
-
-Portions of this file are taken from python-novaclient:
-
+# Copyright 2011, GridCentric
+#
+# Portions of this file are taken from python-novaclient:
+#
 # Copyright 2011 OpenStack LLC.
 # Copyright 2011, Piston Cloud Computing, Inc.
 #
 # All Rights Reserved.
+
+"""
+The client connector used to interface with the nova api.
 """
 
 import httplib2
@@ -35,24 +35,31 @@ class NovaClient(httplib2.Http):
         
         # Need to set for the httplib2 library.
         self.force_exception_to_status_code = True
-    
+
     def bless_instance(self, instance_id):
-        self.authenticated_request('/servers/%s/action' % instance_id, 'POST', body={'gc_bless':{}})
-    
+        resp, body = self.authenticated_request('/servers/%s/action' % instance_id,
+                                                'POST', body={'gc_bless':{}})
+        return body
+
     def launch_instance(self, blessed_instance_id):
-        self.authenticated_request('/servers/%s/action' % blessed_instance_id, 'POST', body={'gc_launch':{}})
-    
+        resp, body = self.authenticated_request('/servers/%s/action' % blessed_instance_id,
+                                                'POST', body={'gc_launch':{}})
+        return body
+
     def delete_instance(self, instance_id):
-        self.authenticated_request('/servers/%s' % instance_id, 'DELETE')
-    
-    def unbless_instance(self, instance_id):
-        self.authenticated_request('/servers/%s/action' % instance_id, 'POST', body={'gc_unbless':{}})
-    
-    def list_launched_instances(self, blessed_instance_id):
-        resp, body = self.authenticated_request('/servers/%s/action' % blessed_instance_id, 'POST', body={'gc_list_launched':{}})
-        return body.get('instances', [])
-        
-    
+        resp, body = self.authenticated_request('/servers/%s' % instance_id, 'DELETE')
+        return body
+
+    def discard_instance(self, instance_id):
+        resp, body = self.authenticated_request('/servers/%s/action' % instance_id,
+                                                'POST', body={'gc_discard':{}})
+        return body
+
+    def list_instances(self, instance_id):
+        resp, body = self.authenticated_request('/servers/%s/action' % instance_id,
+                                                'POST', body={'gc_list':{}})
+        return body
+
     def authenticated_request(self, url, method, **kwargs):
         if not self.management_url:
             self._authenticate()
@@ -79,8 +86,7 @@ class NovaClient(httplib2.Http):
                 return resp, body
             else:
                 raise ex
-                
-    
+
     def request(self, *args, **kwargs):
         kwargs.setdefault('headers', kwargs.get('headers', {}))
         kwargs['headers']['User-Agent'] = self.USER_AGENT
@@ -103,14 +109,12 @@ class NovaClient(httplib2.Http):
 
         return resp, body
 
-    
     def _authenticate(self):
         """
         Authenticates the client against the nova server
         """
-
         auth_url = self.auth_url
-        if self.version == "v2.0":  # FIXME(chris): This should be better.
+        if self.version == "v2.0":
             while auth_url:
                 auth_url = self._v2_auth(auth_url)
 
@@ -127,14 +131,14 @@ class NovaClient(httplib2.Http):
                 self._v2_auth(auth_url)
 
     def _v1_auth(self, url):
-        
         headers = {'X-Auth-User': self.user,
                    'X-Auth-Key': self.apikey}
+
         if self.project:
             headers['X-Auth-Project-Id'] = self.project
 
         resp, body = self.request(url, 'GET', headers=headers)
-        if resp.status in (200, 204):  # in some cases we get No Content
+        if resp.status in (200, 204):
             try:
                 self.management_url = resp['x-server-management-url']
                 self.auth_token = resp['x-auth-token']
@@ -220,4 +224,3 @@ class ServiceCatalog:
                     return endpoint['publicURL']
 
         raise exceptions.EndpointNotFound()
-

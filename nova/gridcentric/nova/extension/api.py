@@ -47,7 +47,6 @@ class API(base.Base):
                        gridcentric worker
 
         :returns: None
-
         """
         if not params:
             params = {}
@@ -58,7 +57,7 @@ class API(base.Base):
         params['instance_id'] = instance_id
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
-        
+
     def _call_gridcentric_message(self, method, context, instance_id, host=None,
                               params=None):
         """Generic handler for RPC call to gridcentric. This will block for a response.
@@ -67,7 +66,6 @@ class API(base.Base):
                        gridcentric worker
 
         :returns: None
-
         """
         if not params:
             params = {}
@@ -82,14 +80,12 @@ class API(base.Base):
     def bless_instance(self, context, instance_id):
         LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
         self._call_gridcentric_message('bless_instance', context, instance_id)
-    
-    def unbless_instance(self, context, instance_id):
-        LOG.debug(_("Casting gridcentric message for unbless_instance") % locals())
-        self._cast_gridcentric_message('unbless_instance', context, instance_id)
-    
+
+    def discard_instance(self, context, instance_id):
+        LOG.debug(_("Casting gridcentric message for discard_instance") % locals())
+        self._cast_gridcentric_message('discard_instance', context, instance_id)
+
     def launch_instance(self, context, instance_id):
-        
-        
         pid = context.project_id
         uid = context.user_id
         LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
@@ -100,12 +96,18 @@ class API(base.Base):
                       "args": {"topic": FLAGS.gridcentric_topic,
                                "instance_id": instance_id}})
 
-    def list_launched_instances(self, context, instance_id):
+    def list_instances(self, context, instance_id):
         filter = {
-                  'metadata':{'launched_from':'%s' %instance_id},
+                  'metadata':{'launched_from':'%s' % instance_id},
                   'deleted':False
                   }
         launched_instances = self.compute_api.get_all(context, filter)
-        for instance in launched_instances:
-            print instance.get('virtual_interfaces', [])
-        return launched_instances
+        filter = {
+                  'metadata':{'blessed_from':'%s' % instance_id},
+                  'deleted':False
+                  }
+        blessed_instances = self.compute_api.get_all(context, filter)
+        instances = []
+        instances.extend(launched_instances)
+        instances.extend(blessed_instances)
+        return instances
