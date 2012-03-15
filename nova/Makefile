@@ -20,7 +20,8 @@ PYTHON=python$(PYTHON_VERSION)
 
 # This command is used to setup the package directories
 INSTALL_DIR := install -d -m0755 -p
-INSTALL_FILE := install -m0755 -p 
+INSTALL_BIN := install -m0755 -p 
+INSTALL_DATA := install -m0644 -p 
 
 # The version of the extension
 VERSION:=1.0
@@ -49,8 +50,11 @@ package : rpm deb
 install : 
 	@$(PYTHON) setup.py install --prefix=$(DISTDIR)/usr
 	@$(INSTALL_DIR) $(DISTDIR)/var/lib/nova/extensions
-	@$(INSTALL_FILE) gridcentric/nova/osapi/gridcentric_extension.py \
+	@$(INSTALL_BIN) gridcentric/nova/osapi/gridcentric_extension.py \
 	    $(DISTDIR)/var/lib/nova/extensions
+	@$(INSTALL_DIR) $(DISTDIR)/etc/init
+	@$(INSTALL_DATA) etc/nova-gridcentric.conf \
+	    $(DISTDIR)/etc/init
 .PHONY: install
 
 rpm: rpmbuild install
