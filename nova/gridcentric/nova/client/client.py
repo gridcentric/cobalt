@@ -37,24 +37,28 @@ class NovaClient(httplib2.Http):
         self.force_exception_to_status_code = True
 
     def bless_instance(self, instance_id):
-        self.authenticated_request('/servers/%s/action' % instance_id,
-                                   'POST', body={'gc_bless':{}})
+        resp, body = self.authenticated_request('/servers/%s/action' % instance_id,
+                                                'POST', body={'gc_bless':{}})
+        return body
 
     def launch_instance(self, blessed_instance_id):
-        self.authenticated_request('/servers/%s/action' % blessed_instance_id,
-                                   'POST', body={'gc_launch':{}})
+        resp, body = self.authenticated_request('/servers/%s/action' % blessed_instance_id,
+                                                'POST', body={'gc_launch':{}})
+        return body
 
     def delete_instance(self, instance_id):
-        self.authenticated_request('/servers/%s' % instance_id, 'DELETE')
+        resp, body = self.authenticated_request('/servers/%s' % instance_id, 'DELETE')
+        return body
 
     def discard_instance(self, instance_id):
-        self.authenticated_request('/servers/%s/action' % instance_id,
-                                   'POST', body={'gc_discard':{}})
+        resp, body = self.authenticated_request('/servers/%s/action' % instance_id,
+                                                'POST', body={'gc_discard':{}})
+        return body
 
     def list_instances(self, instance_id):
         resp, body = self.authenticated_request('/servers/%s/action' % instance_id,
                                                 'POST', body={'gc_list':{}})
-        return body.get('instances', [])
+        return body
 
     def authenticated_request(self, url, method, **kwargs):
         if not self.management_url:
