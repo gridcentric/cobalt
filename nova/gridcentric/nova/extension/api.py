@@ -96,12 +96,17 @@ class API(base.Base):
                       "args": {"topic": FLAGS.gridcentric_topic,
                                "instance_id": instance_id}})
 
-    def list_launched_instances(self, context, instance_id):
+    def list_instances(self, context, instance_id):
         filter = {
                   'metadata':{'launched_from':'%s' % instance_id},
                   'deleted':False
                   }
         launched_instances = self.compute_api.get_all(context, filter)
-        for instance in launched_instances:
-            print instance.get('virtual_interfaces', [])
-        return launched_instances
+        filter = {
+                  'metadata':{'blessed_from':'%s' % instance_id},
+                  'deleted':False
+                  }
+        blessed_instances = self.compute_api.get_all(context, filter)
+        instances.extend(launched_instances)
+        instances.extend(blessed_instances)
+        return instances

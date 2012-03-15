@@ -24,6 +24,7 @@ from gridcentric.nova.client.client import NovaClient
 def usage():
     sys.stderr.write("usage: gc <command>\n")
     sys.stderr.write("where command is one of the following:\n")
+    sys.stderr.write("\n")
     sys.stderr.write("    bless <instance id>\n")
     sys.stderr.write("        Creates a new blessed instance based off the given id.\n")
     sys.stderr.write("\n")
@@ -33,8 +34,8 @@ def usage():
     sys.stderr.write("    launch <blessed instance id>\n")
     sys.stderr.write("        Launches a new clone instance from the given blessed id.\n")
     sys.stderr.write("\n")
-    sys.stderr.write("    list <blessed instance id>\n")
-    sys.stderr.write("        List instances launched from the given blessed id.\n")
+    sys.stderr.write("    list <instance id>\n")
+    sys.stderr.write("        List instances blessed or launched from the given id.\n")
     sys.stderr.write("\n")
     sys.stderr.flush()
 
@@ -62,7 +63,7 @@ elif command == 'launch':
 elif command == 'list':
     instance_id = sys.argv[2]
     client = NovaClient('http://localhost:8774/v1.1','admin','admin','admin','v1.1')
-    client.list_launched_instances(instance_id)
+    client.list_instances(instance_id)
 
 else:
     usage()

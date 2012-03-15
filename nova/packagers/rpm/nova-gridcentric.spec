@@ -1,4 +1,4 @@
-Name: gridcentric-nova
+Name: nova-gridcentric
 Summary: GridCentric extension for Openstack Compute.
 Version: %{version}
 Release: %{release}
