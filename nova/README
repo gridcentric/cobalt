@@ -1,19 +1,19 @@
-== Development Instructions (step-by-step to get a development environment setup)==
+== Development Instructions (step-by-step to get a development environment setup) ==
 
 1. Execute contrib/nova.sh branch [nova branch] to get the latest OpenStack nova code base.
 e.g. $ contrib/nova.sh branch (this will get the trunk version. Note that this might not be stable)
      $ contrib/nova.sh branch lp:nova/cactus (This will get the cactus release -- this should be stable)
-     
+
 2. Execute contrib/nova.sh install to install depenencies required by OpenStack
 e.g. $ contrib/nova.sh install
 
 3. Update the Dom0 on the host machine with the nova plugins
 e.g. $ scp -r nova/plugins/xenserver/xenapi/etc root@<xenserver domain>:/
 
-4. Install the glance packages (TODO: This should be rolled into step2 and installed with everything else)
+4. Install the glance packages
 e.g. $ sudo apt-get install glance
 
-5. Install the vms packages (TODO: This should be rolled into step2 and installed with everything else)
+5. Install the vms packages
 
 5. Execute contrib/nova.sh run to execute all the nova processes (including the gridcentric extension)
 Note: this should be executed as root, and it will create a new screen session for each nova process.
@@ -35,11 +35,11 @@ e.g. $ nova boot --flavor 1 --image 1 ChromeOS-HVM
 before blessing the virtual machine.
 
 9. Bless the virtual machine
-e.g. $ gc-nova bless 1
+e.g. $ gc bless 1
 
 10 Launch more virtual machines based off of the suspended snapshot
-e.g. $ gc-nova launch 1
-     $ gc-nova launch 1
+e.g. $ gc launch 2
+     $ gc launch 2
      $ ... etc ...
 
 == Installation Instructions ==
@@ -48,31 +48,35 @@ e.g. $ gc-nova launch 1
 that this is currently for Xen-only hypervisor installations. To setup OpenStack compute for xen
 follow these instructions: http://wiki.openstack.org/XenServerDevelopment
 
-2. Copy the extension definition (extension/gridcentric_extension.py) to the OpenStack extension
-directory (default is /var/lib/nova/extensions and can be overriden using the osapi_extensions_path
-flag).
+2. Install the nova-gridentric management component.
 
-3. Install the Xen API plugins on dom0 of the compute node 
+3. (Optional) If the extension is not loaded (i.e. 'gc' doesn't work),
+   Be sure to add the extension to your nova.conf as:
+    --osapi_extension=gridcentric.nova.osapi.gridcentric_extension
+   Or, if that doesn't work, you can make sure the path correctly:
+    --osapi_extensions_path=/var/lib/nova/extensions
+
+4. Install the Xen API plugins on dom0 of the compute node and/or KVM packages.
 (e.g. scp -r plugins/xenserver/xenapi root@<xenserver-domain>:/)
 
-4. Install the nova-gridentric management component
-
-==Project Contents==
+== Project Contents ==
 
 bin
     nova-gridcentric
-        Contains the nova-gridcentric script that is used to start the GridCentric-nova manager. 
+        Contains the nova-gridcentric script that is used to start the
+        GridCentric-nova manager. 
 
 extension
-    Container the source for the OpenStack API extension. This should be copied to the OpenStack
-    extension directory (defaults to /var/lib/nova/extensions or can be set using the 
-    osapi_extensions_path flag in the nova.conf flag file).
+    Container the source for the OpenStack API extension. This should be copied
+    to the OpenStack extension directory (defaults to /var/lib/nova/extensions
+    or can be set using the osapi_extensions_path flag in the nova.conf flag
+    file).
 
 gridcentric
-    Contains the source for the gridcentric manager that does the actual work to enable the 
-    GridCentric functionality
-    
+    Contains the source for the gridcentric manager that does the actual work
+    to enable the GridCentric functionality.
+
 tools
-    gc-nova
-        A management tool that uses the python novaclient to provide a cli to the extended 
-        functionality.
+    gc
+        A management tool that uses the python novaclient to provide a cli to
+        the extended functionality.

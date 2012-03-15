@@ -1,4 +1,4 @@
-Name: gridcentric-nova
+Name: nova-gridcentric
 Summary: GridCentric extension for Openstack Compute.
 Version: %{version}
 Release: %{release}
@@ -26,6 +26,8 @@ rsync -rav --delete ../../dist/* $RPM_BUILD_ROOT
 
 %files
 /usr/
+/var/lib/nova/extensions/gridcentric_extension.py
+/etc/init/nova-gridcentric.conf
 
 %changelog
 * Tue Jun 21 2011 Adin Scannell <adin@scannell.ca>
