@@ -1,4 +1,4 @@
-Package: gridcentric-nova
+Package: nova-gridcentric
 Section: extra
 Version: VERSION
 Architecture: all

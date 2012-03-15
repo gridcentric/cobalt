@@ -73,8 +73,8 @@ class Gridcentric_extension(object):
         actions.append(extensions.ActionExtension('servers', 'gc_discard',
                                                     self._discard_instance))
         
-        actions.append(extensions.ActionExtension('servers', 'gc_list_launched',
-                                                    self._list_launched_instances))
+        actions.append(extensions.ActionExtension('servers', 'gc_list',
+                                                    self._list_instances))
 
         return actions
 
@@ -93,7 +93,7 @@ class Gridcentric_extension(object):
         self.gridcentric_api.launch_instance(context, id)
         return id
 
-    def _list_launched_instances(self, input_dict, req, id):
+    def _list_instances(self, input_dict, req, id):
         def _build_view(req, instance, is_detail=True):
             project_id = getattr(req.environ['nova.context'], 'project_id', '')
             base_url = req.application_url
@@ -107,7 +107,7 @@ class Gridcentric_extension(object):
                 base_url, project_id)
             return builder.build(instance, is_detail=is_detail)
         context = req.environ["nova.context"]
-        instances = self.gridcentric_api.list_launched_instances(context, id)
+        instances = self.gridcentric_api.list_instances(context, id)
         instances = [_build_view(req, inst)['server']
                     for inst in instances]
         return dict(instances=instances)

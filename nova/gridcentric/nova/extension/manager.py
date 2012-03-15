@@ -144,7 +144,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         """Update an instance in the database using kwargs as value."""
         return self.db.instance_update(context, instance_id, kwargs)
 
-    def _copy_instance(self, context, instance_id, new_suffix):
+    def _copy_instance(self, context, instance_id, new_suffix, launch=False):
         # (dscannell): Basically we want to copy all of the information from
         # instance with id=instance_id into a new instance. This is because we
         # are basically "cloning" the vm as far as all the properties are
@@ -154,6 +154,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
         image_ref = instance_ref.get('image_ref','')
         if image_ref == '':
             image_ref = instance_ref.get('image_id','')
+
+        if launch:
+            metadata = {'launched_from':'%s' % (instance_id)}
+        else:
+            metadata = {'blessed_from':'%s' % (instance_id)}
 
         instance = {
            'reservation_id': utils.generate_uid('r'),
@@ -173,7 +178,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'key_name': instance_ref.get('key_name',''),
            'key_data': instance_ref.get('key_data',''),
            'locked': False,
-           'metadata': {'launched_from':'%s' % (instance_id)},
+           'metadata': metadata,
            'availability_zone': instance_ref['availability_zone'],
            'os_type': instance_ref['os_type'],
            'host': instance_ref['host']
@@ -221,14 +226,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
         clonenum = self._next_clone_num(context, instance_id)
 
         # Create a new blessed instance.
-        new_instance_ref = self._copy_instance(context, instance_id, str(clonenum))
+        new_instance_ref = self._copy_instance(context, instance_id, str(clonenum), launch=False)
 
         # Create a new 'blessed' VM with the given name.
         LOG.debug(_("Calling commands.bless with name=%s"), instance_ref.name)
         commands.bless(instance_ref.name, new_instance_ref.name)
         LOG.debug(_("Called commands.bless with name=%s"), instance_ref.name)
 
-        # Mark this new instance are being 'blessed'.
+        # Mark this new instance as being 'blessed'.
         metadata = self.db.instance_metadata_get(context, new_instance_ref.id)
         metadata['blessed'] = True
         self.db.instance_metadata_update(context, new_instance_ref.id, metadata, True)
@@ -274,7 +279,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                   _(("Instance %s is not blessed. " +
                      "Please bless the instance before launching from it.") % instance_id))
 
-        new_instance_ref = self._copy_instance(context, instance_id, "clone")
+        new_instance_ref = self._copy_instance(context, instance_id, "clone", launch=True)
         instance_ref = self.db.instance_get(context, instance_id)
 
         if not FLAGS.stub_network:
