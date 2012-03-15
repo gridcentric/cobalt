@@ -143,9 +143,8 @@ if [ "$CMD" == "run" ] || [ "$CMD" == "run_detached" ]; then
 --xenapi_connection_password=$XEN_CONN_PASS
 --image_service=nova.image.glance.GlanceImageService
 --glance_api_servers=localhost:9292
---osapi_extensions_path=$GC_EXT_DIR/extension/
+--osapi_extension=gridcentric.nova.extension
 --osapi_path=/v1.1/
---gridcentric_manager=gridcentric.nova.extension.manager.GridCentricManager
 --xenapi_inject_image=true
 --flat_injected=true
 --scheduler_driver=nova.scheduler.chance.ChanceScheduler
