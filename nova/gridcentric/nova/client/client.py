@@ -56,9 +56,14 @@ class NovaClient(httplib2.Http):
                                                 'POST', body={'gc_discard':{}})
         return body
 
-    def list_instances(self, instance_id):
+    def list_launched_instances(self, instance_id):
         resp, body = self.authenticated_request('/servers/%s/action' % instance_id,
-                                                'POST', body={'gc_list':{}})
+                                                'POST', body={'gc_list_launched':{}})
+        return body
+
+    def list_blessed_instances(self, instance_id):
+        resp, body = self.authenticated_request('/servers/%s/action' % instance_id,
+                                                'POST', body={'gc_list_blessed':{}})
         return body
 
     def authenticated_request(self, url, method, **kwargs):

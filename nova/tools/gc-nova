@@ -34,8 +34,11 @@ def usage():
     sys.stderr.write("    launch <blessed instance id>\n")
     sys.stderr.write("        Launches a new clone instance from the given blessed id.\n")
     sys.stderr.write("\n")
-    sys.stderr.write("    list <instance id>\n")
-    sys.stderr.write("        List instances blessed or launched from the given id.\n")
+    sys.stderr.write("    list-launched <instance id>\n")
+    sys.stderr.write("        List instances launched from the given id.\n")
+    sys.stderr.write("\n")
+    sys.stderr.write("    list-blessed <instance id>\n")
+    sys.stderr.write("        List instances blessed from the given id.\n")
     sys.stderr.write("\n")
     sys.stderr.flush()
 
@@ -60,10 +63,16 @@ elif command == 'launch':
     client = NovaClient('http://localhost:8774/v1.1','admin','admin','admin','v1.1')
     client.launch_instance(instance_id)
 
-elif command == 'list':
+elif command == 'list-launched':
     instance_id = sys.argv[2]
     client = NovaClient('http://localhost:8774/v1.1','admin','admin','admin','v1.1')
-    for instance in client.list_instances(instance_id):
+    for instance in client.list_launched_instances(instance_id):
+        print instance['id']
+
+elif command == 'list-blessed':
+    instance_id = sys.argv[2]
+    client = NovaClient('http://localhost:8774/v1.1','admin','admin','admin','v1.1')
+    for instance in client.list_blessed_instances(instance_id):
         print instance['id']
 
 else:
