@@ -28,4 +28,4 @@ setup(name='nova-gridcentric',
                 'gridcentric.nova.client',
                 'gridcentric.nova.extension'],
       scripts=['bin/nova-gridcentric',
-               'tools/gc'])
+               'tools/gc-nova'])

@@ -35,11 +35,11 @@ e.g. $ nova boot --flavor 1 --image 1 ChromeOS-HVM
 before blessing the virtual machine.
 
 9. Bless the virtual machine
-e.g. $ gc bless 1
+e.g. $ gc-nova bless 1
 
 10 Launch more virtual machines based off of the suspended snapshot
-e.g. $ gc launch 2
-     $ gc launch 2
+e.g. $ gc-nova launch 2
+     $ gc-nova launch 2
      $ ... etc ...
 
 == Installation Instructions ==
@@ -77,6 +77,6 @@ gridcentric
     to enable the GridCentric functionality.
 
 tools
-    gc
+    gc-nova
         A management tool that uses the python novaclient to provide a cli to
         the extended functionality.
