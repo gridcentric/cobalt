@@ -51,7 +51,7 @@ class GridCentricTestCase(unittest.TestCase):
                         "There should be one new instances after blessing.")
 
         # The virtual machine should be marked that it is now blessed.
-        metadata = db.instance_metadata_get(self.context, instance_id)
+        metadata = db.instance_metadata_get(self.context, instance_id + 1)
         self.assertTrue(metadata.has_key('blessed'), 
                         "The instance should have a bless metadata after being blessed.")
         self.assertTrue(metadata['blessed'] == '1', 
@@ -64,12 +64,11 @@ class GridCentricTestCase(unittest.TestCase):
         
         num_instance_before = len( db.instance_get_all(self.context) )
         self.gridcentric.bless_instance(self.context, instance_id)
+        self.gridcentric.bless_instance(self.context, instance_id)
         
-        try:
-            self.gridcentric.bless_instance(self.context, instance_id)
-            self.fail("Should not be able to bless an instance twice.")
-        except exception.Error, e:
-            pass # Success
+        instances = db.instance_get_all(self.context)
+        self.assertTrue(len(instances) == num_instance_before + 2, 
+                        "There should be 2 more instances because we blessed twice.")
     
     def test_bless_nonexisting_instance(self):
         try:
@@ -82,17 +81,17 @@ class GridCentricTestCase(unittest.TestCase):
         
         instance_id = utils.create_instance(self.context)
         self.gridcentric.bless_instance(self.context, instance_id)
+        blessed_instance_id = instance_id + 1
+        self.gridcentric.launch_instance(self.context, blessed_instance_id)
         
-        self.gridcentric.launch_instance(self.context, instance_id)
+        launched_instance_id = blessed_instance_id + 1
+        metadata = db.instance_metadata_get(self.context, launched_instance_id)
+        self.assertTrue(metadata.has_key('launched_from'), 
+                        "The instance should have a 'launched from' metadata after being launched.")
+        self.assertTrue(metadata['launched_from'] == '%s' %(blessed_instance_id), 
+            "The instance should have the 'launched from' metadata set to blessed instanced id after being launched. " \
+          + "(value=%s)" % (metadata['launched_from']))
         
-        # The last_clone_num should be set to 0 -- the initial clone number value.
-        metadata = db.instance_metadata_get(self.context, instance_id)
-        self.assertTrue(metadata.has_key('last_clone_num'), 
-                        "The blessed instance should now have a last_clone_num value in its metadata.")
-        self.assertEquals(metadata['last_clone_num'], '0', 
-                        "The last_clone_num of the blessed instance should be 0 because only a " \
-                        + "single new instance was launched from it. (value=%s)" %(metadata['last_clone_num']))
-
     def test_launch_not_blessed_image(self):
         
         instance_id = utils.create_instance(self.context)
@@ -108,23 +107,22 @@ class GridCentricTestCase(unittest.TestCase):
         instance_id = utils.create_instance(self.context)
         self.gridcentric.bless_instance(self.context, instance_id)
         
-        self.gridcentric.launch_instance(self.context, instance_id)
+        blessed_instance_id = instance_id + 1
+        self.gridcentric.launch_instance(self.context, blessed_instance_id)
+        launched_instance_id = blessed_instance_id + 1
+        metadata = db.instance_metadata_get(self.context, launched_instance_id)
+        self.assertTrue(metadata.has_key('launched_from'), 
+                        "The instance should have a 'launched from' metadata after being launched.")
+        self.assertTrue(metadata['launched_from'] == '%s' %(blessed_instance_id), 
+            "The instance should have the 'launched from' metadata set to blessed instanced id after being launched. " \
+          + "(value=%s)" % (metadata['launched_from']))
         
-        # The last_clone_num should be set to 0 -- the initial clone number value.
-        metadata = db.instance_metadata_get(self.context, instance_id)
-        self.assertTrue(metadata.has_key('last_clone_num'), 
-                        "The blessed instance should now have a last_clone_num value in its metadata.")
-        self.assertEquals(metadata['last_clone_num'], '0', 
-                        "The last_clone_num of the blessed instance should be 0 because only a " \
-                        + "single new instance was launched from it. (value=%s)" %(metadata['last_clone_num']))
-        
-        self.gridcentric.launch_instance(self.context, instance_id)
-        
-        # The last_clone_num should be set to 1 because 2 clones now exist.
-        metadata = db.instance_metadata_get(self.context, instance_id)
-        self.assertTrue(metadata.has_key('last_clone_num'), 
-                        "The blessed instance should now have a last_clone_num value in its metadata.")
-        self.assertEquals(metadata['last_clone_num'], '1', 
-                        "The last_clone_num of the blessed instance should be 1 because only a " \
-                        + "second new instance was launched from it. (value=%s)" %(metadata['last_clone_num']))
+        self.gridcentric.launch_instance(self.context, blessed_instance_id)
+        launched_instance_id = blessed_instance_id + 2
+        metadata = db.instance_metadata_get(self.context, launched_instance_id)
+        self.assertTrue(metadata.has_key('launched_from'), 
+                        "The instance should have a 'launched from' metadata after being launched.")
+        self.assertTrue(metadata['launched_from'] == '%s' %(blessed_instance_id), 
+            "The instance should have the 'launched from' metadata set to blessed instanced id after being launched. " \
+          + "(value=%s)" % (metadata['launched_from']))
 
