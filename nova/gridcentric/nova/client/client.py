@@ -14,6 +14,7 @@ The client connector used to interface with the nova api.
 import httplib2
 import json
 import urlparse
+import logging
 
 import gridcentric.nova.client.exceptions as exceptions
 
@@ -55,9 +56,14 @@ class NovaClient(httplib2.Http):
                                                 'POST', body={'gc_discard':{}})
         return body
 
-    def list_instances(self, instance_id):
+    def list_launched_instances(self, instance_id):
         resp, body = self.authenticated_request('/servers/%s/action' % instance_id,
-                                                'POST', body={'gc_list':{}})
+                                                'POST', body={'gc_list_launched':{}})
+        return body
+
+    def list_blessed_instances(self, instance_id):
+        resp, body = self.authenticated_request('/servers/%s/action' % instance_id,
+                                                'POST', body={'gc_list_blessed':{}})
         return body
 
     def authenticated_request(self, url, method, **kwargs):
@@ -72,8 +78,10 @@ class NovaClient(httplib2.Http):
             if self.project:
                 kwargs['headers']['X-Auth-Project-Id'] = self.project
 
+            logging.debug("Sending request to %s (body=%s)" %(url, kwargs.get('body','')))
             resp, body = self.request(self.management_url + url, method,
                                       **kwargs)
+            logging.debug("Response from %s (body=%s)" %(url, body))
             return resp, body
         except exceptions.HttpException, ex:
             if ex.code == 401:
@@ -81,6 +89,7 @@ class NovaClient(httplib2.Http):
                 This is an unauthorized exception. Reauthenticate and try again
                 """ 
                 self._authenticate()
+                logging.debug("Sending request to %s (body=%s) [REAUTHENTICATED]" %(url, kwargs['body']))
                 resp, body = self.request(self.management_url + url, method,
                                           **kwargs)
                 return resp, body
@@ -100,6 +109,7 @@ class NovaClient(httplib2.Http):
             try:
                 body = json.loads(body)
             except ValueError, e:
+                logging.warn("Request (%s) body failed to be parsed as json: body='%s'" %(args[0],body))
                 pass
         else:
             body = None
