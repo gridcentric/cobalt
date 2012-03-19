@@ -11,6 +11,7 @@ from nova import exception
 os.environ['VMS_SHELF_PATH'] = '.'
 
 import vms.virt as virt
+import vms.config as vmsconfig
 
 import gridcentric.nova.extension as gridcentric
 import gridcentric.nova.extension.manager as gc_manager
@@ -30,6 +31,11 @@ class GridCentricTestCase(unittest.TestCase):
         # Copy the clean database over
         shutil.copyfile(os.path.join(FLAGS.state_path, FLAGS.sqlite_clean_db),
                         os.path.join(FLAGS.state_path, FLAGS.sqlite_db))
+    
+        # Point the vms shared directory so that it is not the default (which may not exists, and
+        # we don't really want to create). Since the tests use the dummy hypervisor we do not need
+        # to worry about leftover artifacts.
+        vmsconfig.SHARED=os.getcwd()
     
         self.gridcentric = gc_manager.GridCentricManager()
         self.gridcentric_api = gridcentric.API()
