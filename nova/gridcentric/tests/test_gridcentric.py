@@ -133,6 +133,24 @@ class GridCentricTestCase(unittest.TestCase):
         if no_exception:
             self.fail("Should not be able to bless an instance in a non-active state")
 
+    def test_discard_a_blessed_instance_with_remaining_launched_ones(self):
+        
+        instance_id = utils.create_instance(self.context)
+        self.gridcentric.bless_instance(self.context, instance_id)
+        blessed_id = instance_id + 1
+        
+        self.gridcentric.launch_instance(self.context, blessed_id)
+        
+        no_exception = False
+        try:
+            self.gridcentric.discard_instance(self.context, blessed_id)
+            no_exception = True
+        except:
+            pass  # success
+        
+        if no_exception:
+            self.fail("Should not be able to discard a blessed instance while launched ones still remain.")
+
     def test_launch_instance(self):
         
         instance_id = utils.create_instance(self.context)

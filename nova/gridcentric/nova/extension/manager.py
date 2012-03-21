@@ -42,7 +42,9 @@ from nova.compute import power_state
 from nova.compute import task_states
 from nova.compute import vm_states
 
+from gridcentric.nova.extension import API
 import gridcentric.nova.extension.vmsconn as vmsconn
+
 
 class GridCentricManager(manager.SchedulerDependentManager):
  
@@ -50,6 +52,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self.vms_conn = None
         self._init_vms()
         self.network_api = network.API()
+        self.gridcentric_api = API()
         super(GridCentricManager, self).__init__(service_name="gridcentric", *args, **kwargs)
 
     def _init_vms(self):
@@ -176,6 +179,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # The instance is not blessed. We can't discard it.
             raise exception.Error(_(("Instance %s is not blessed. " +
                                      "Cannot discard an non-blessed instance.") % instance_id))
+        elif len(self.gridcentric_api.list_launched_instance(context, instance_id)) > 0:
+            # There are still launched instances based off of this one.
+            raise exception.Error(_(("Instance %s still has launched instances. " +
+                                     "Cannot discard an instance with remaining launched ones.") % instance_id))
         context.elevated()
 
         # Setup the DB representation for the new VM.
