@@ -25,6 +25,8 @@ from nova import flags
 from nova import log as logging
 LOG = logging.getLogger('gridcentric.nova.extension.vmsconn')
 FLAGS = flags.FLAGS
+flags.DEFINE_string('libvirt_group', 'kvm',
+                    'The system group libvirt will chown the instances.')
 
 import vms.commands as commands
 import vms.logger as logger
@@ -133,10 +135,35 @@ class LibvirtConnection(VmsConnection):
         # libvirt flags can be read in.
         from nova.virt.libvirt import connection as libvirt_connection
 
+        self.configure_path_permissions()
+
         self.libvirt_conn = libvirt_connection.get_connection(False)
         config.MANAGEMENT['connection_url'] = self.libvirt_conn.get_uri()
         select_hypervisor('libvirt')
 
+    def configure_path_permissions(self):
+        """
+        For libvirt connections we need to ensure that the kvm instances have access to the vms
+        database and to the vmsfs mount point.
+        """
+        import vms.db
+        db_path = vms.db.vms.path
+        try:
+            vmsfs_path = vms.kvm.config.find_vmsfs()
+            vmsfs_vms_path = os.path.join(vmsfs_path, "vms")
+        except:
+            raise Exception("Unable to located vmsfs. Please ensure the module is loaded and mounted.")
+        
+        try:
+            kvm_group = grp.getgrnam(FLAGS.libvirt_group)
+            kvm_gid = kvm_group.gr_gid
+        except:
+            raise Exception("Unable to find the libvirt group %s. Please use the --libvirt_group flag to correct." 
+                            %(FLAGS.libvirt_group))
+        
+        for path in [db_path, vmsfs_path, vmsfs_vms_path]:
+            os.chown(path, 0, kvm_gid)
+            os.chmod(path, stat.S_IREAD|stat.S_IWRITE|stat.S_IEXEC|stat.S_IRGRP|stat.S_IWGRP|stat.S_IXGRP)
     
 
     def pre_launch(self, context, instance, network_info=None, block_device_info=None):
