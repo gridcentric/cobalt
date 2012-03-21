@@ -121,6 +121,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
         metadata = self.db.instance_metadata_get(context, instance_id)
         return metadata.get('blessed', False)
 
+    def _is_instance_launched(self, context, instance_id):
+        """ Returns True if this instance is launched, False otherwise """
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        return "launched_from" in metadata
+
     def bless_instance(self, context, instance_id):
         """
         Blesses an instance, which will create a new instance from which
@@ -129,16 +134,23 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         LOG.debug(_("bless instance called: instance_id=%s"), instance_id)
 
+        # Setup the DB representation for the new VM.
+        instance_ref = self.db.instance_get(context, instance_id)
+
         is_blessed = self._is_instance_blessed(context, instance_id)
+        is_launched = self._is_instance_launched(context, instance_id)
         if is_blessed:
             # The instance is already blessed. We can't rebless it.
             raise exception.Error(_(("Instance %s is already blessed. " +
                                      "Cannot rebless an instance.") % instance_id))
+        elif is_launched:
+            # The instance is a launched one. We cannot bless launched instances.
+            raise exception.Error(_(("Instance %s has been launched. Cannot bless a launched instance.") % instance_id))
+        elif instance_ref['vm_state'] != vm_states.ACTIVE:
+            # The instance is not active. We cannot bless a non-active instance.
+             raise exception.Error(_(("Instance %s is not active. Cannot bless a non-active instance.") % instance_id))
 
         context.elevated()
-
-        # Setup the DB representation for the new VM.
-        instance_ref = self.db.instance_get(context, instance_id)
 
         # A number to indicate with instantiation is to be launched. Basically
         # this is just an incrementing number.

@@ -1,6 +1,7 @@
 
 from nova import db
 from nova.compute import instance_types
+from nova.compute import vm_states
 
 def create_user(context, user = {}):
     
@@ -36,6 +37,7 @@ def create_instance(context, instance = {}):
         instance.setdefault('launch_time', '10')
         instance.setdefault('mac_address', "ca:ca:ca:01")
         instance.setdefault('ami_launch_index', 0)
+        instance.setdefault('vm_state', vm_states.ACTIVE)
 
         context.elevated()
         return db.instance_create(context, instance)['id']
