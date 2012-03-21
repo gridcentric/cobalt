@@ -7,6 +7,7 @@ from nova.db import migration
 from nova import flags
 from nova import context
 from nova import exception
+from nova.compute import vm_states
 
 os.environ['VMS_SHELF_PATH'] = '.'
 
@@ -82,6 +83,55 @@ class GridCentricTestCase(unittest.TestCase):
             self.fail("Suspending a non-existing instance should fail.")
         except exception.InstanceNotFound, e:
             pass # Success
+
+    def test_bless_a_blessed_instance(self):
+        
+        instance_id = utils.create_instance(self.context)
+        self.gridcentric.bless_instance(self.context, instance_id)
+        
+        blessed_id = instance_id +1
+        no_exception = False
+        try:
+            self.gridcentric.bless_instance(self.context, blessed_id)
+            no_exception = True
+        except Exception, e:
+            pass # success
+
+        if no_exception:
+            self.fail("Should not be able to bless a blessed instance.")
+
+    def test_bless_a_launched_instance(self):
+        
+        instance_id = utils.create_instance(self.context)
+        self.gridcentric.bless_instance(self.context, instance_id)
+        blessed_id = instance_id + 1
+        
+        self.gridcentric.launch_instance(self.context, blessed_id)
+        launched_id = blessed_id + 1
+        
+        no_exception = False
+        try:
+            self.gridcentric.bless_instance(self.context, launched_id)
+            no_exception = True
+        except:
+            pass # success
+        
+        if no_exception:
+            self.fail("Should not be able to bless a launched instance.")
+
+    def test_bless_a_non_active_instance(self):
+        
+        instance_id = utils.create_instance(self.context, {'vm_state':vm_states.BUILDING})
+        
+        no_exception = False
+        try:
+            self.gridcentric.bless_instance(self.context, launched_id)
+            no_exception = True
+        except:
+            pass # success
+        
+        if no_exception:
+            self.fail("Should not be able to bless an instance in a non-active state")
 
     def test_launch_instance(self):
         
