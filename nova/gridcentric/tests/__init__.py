@@ -24,22 +24,23 @@ def setup():
     import os
     import shutil
 
+    sqlite_db = "tests.sqlite"
+    state_path = "/tmp"
+    testdb = os.path.join(state_path, sqlite_db)
+    if os.path.exists(testdb):
+        os.unlink(testdb)
+
     from nova import flags
     from nova.db import migration
 
     FLAGS = flags.FLAGS
-    
     flags.DEFINE_string('sqlite_clean_db', 'tests.clean.sqlite',
                     'File name of clean sqlite db')
-    
-    FLAGS.sqlite_db = "tests.sqlite"
-    FLAGS.state_path = "/tmp"
-    testdb = os.path.join(FLAGS.state_path, FLAGS.sqlite_db)
+    FLAGS.sqlite_db = sqlite_db
+    FLAGS.state_path = state_path
     FLAGS.sql_connection = 'sqlite:///%s' % testdb
-    
+
     print FLAGS.sql_connection
-    if os.path.exists(testdb):
-        os.unlink(testdb)
     migration.db_sync()
 
     cleandb = os.path.join(FLAGS.state_path, FLAGS.sqlite_clean_db)
