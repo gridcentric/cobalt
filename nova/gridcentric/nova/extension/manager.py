@@ -258,7 +258,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                               vm_state=vm_states.BUILDING, task_state=task_states.SPAWNING)
         target = new_instance_ref['memory_mb']
 
-        def bh():
+        def launch_bottom_half():
             try:
                 self.vms_conn.launch(context,
                                      instance_ref.name,
@@ -275,7 +275,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                       vm_state=vm_states.ERROR, task_state=None)
 
         # Run the actual launch asynchronously.
-        vms.threadpool.submit(bh)
+        vms.threadpool.submit(launch_bottom_half)
 
     def extract_mac_addresses(self, network_info):
         mac_addresses = {}
