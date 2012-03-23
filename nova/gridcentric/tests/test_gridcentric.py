@@ -11,9 +11,8 @@ from nova import context
 from nova import exception
 from nova.compute import vm_states
 
-# Setup VMS python test environment.
+# Setup VMS environment.
 os.environ['VMS_SHELF_PATH'] = '.'
-os.environ['VMS_TEST']       = 'true'
 
 import vms.virt as virt
 import vms.config as vmsconfig
