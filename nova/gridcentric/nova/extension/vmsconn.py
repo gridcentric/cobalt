@@ -21,6 +21,7 @@ import os
 import grp
 import stat
 
+from nova import exception
 from nova import flags
 from nova import log as logging
 LOG = logging.getLogger('gridcentric.nova.extension.vmsconn')
@@ -45,7 +46,6 @@ def get_vms_connection(connection_type):
     else:
         raise exception.Error(_('Unsupported connection type "%s"' % connection_type))
 
-
 def select_hypervisor(hypervisor):
     LOG.debug(_("Configuring vms for hypervisor %s"), hypervisor)
     virt.init()
@@ -53,7 +53,6 @@ def select_hypervisor(hypervisor):
     LOG.debug(_("Virt initialized as auto=%s"), virt.AUTO)
 
 class VmsConnection:
-    
     def configure(self):
         """
         Configures vms for this type of connection.

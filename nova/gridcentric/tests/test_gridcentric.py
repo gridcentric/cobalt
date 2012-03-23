@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import unittest
 import os
 import shutil
@@ -9,6 +11,7 @@ from nova import context
 from nova import exception
 from nova.compute import vm_states
 
+# Setup VMS environment.
 os.environ['VMS_SHELF_PATH'] = '.'
 
 import vms.virt as virt
@@ -122,14 +125,14 @@ class GridCentricTestCase(unittest.TestCase):
     def test_bless_a_non_active_instance(self):
         
         instance_id = utils.create_instance(self.context, {'vm_state':vm_states.BUILDING})
-        
+
         no_exception = False
         try:
-            self.gridcentric.bless_instance(self.context, launched_id)
+            self.gridcentric.bless_instance(self.context, instance_id)
             no_exception = True
         except:
             pass # success
-        
+
         if no_exception:
             self.fail("Should not be able to bless an instance in a non-active state")
 
@@ -213,4 +216,3 @@ class GridCentricTestCase(unittest.TestCase):
         self.assertTrue(metadata['launched_from'] == '%s' %(blessed_instance_id), 
             "The instance should have the 'launched from' metadata set to blessed instanced id after being launched. " \
           + "(value=%s)" % (metadata['launched_from']))
-
