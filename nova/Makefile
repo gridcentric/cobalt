@@ -15,6 +15,9 @@ DISTDIR=dist
 # The name of the test report
 TEST_REPORT=gc-extension.xml
 
+# Allow a python version spec.
+PYTHON_VERSION=$(shell python -V 2>&1 |cut -d' ' -f2|cut -d'.' -f1,2)
+
 # Where the collect target goes.
 COLLECT_DIR ?= .
 
@@ -29,7 +32,7 @@ INSTALL_DATA := install -m0644 -p
 # The version of the extension
 VERSION:=1.0
 # This matches the Openstack release version
-RELEASE:=2011.3
+RELEASE:=2011.3py$(PYTHON_VERSION)
 # The timestamp release for the extension
 TIMESTAMP:=$(shell date "+%Y-%m-%dT%H:%M:%S%:z")
 

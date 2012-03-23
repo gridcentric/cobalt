@@ -45,6 +45,8 @@ from nova.compute import vm_states
 from gridcentric.nova.extension import API
 import gridcentric.nova.extension.vmsconn as vmsconn
 
+# We borrow the threadpool from VMS.
+import vms.threadpool
 
 class GridCentricManager(manager.SchedulerDependentManager):
  
@@ -148,10 +150,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                      "Cannot rebless an instance.") % instance_id))
         elif is_launched:
             # The instance is a launched one. We cannot bless launched instances.
-            raise exception.Error(_(("Instance %s has been launched. Cannot bless a launched instance.") % instance_id))
+            raise exception.Error(_(("Instance %s has been launched. " +
+                                     "Cannot bless a launched instance.") % instance_id))
         elif instance_ref['vm_state'] != vm_states.ACTIVE:
             # The instance is not active. We cannot bless a non-active instance.
-             raise exception.Error(_(("Instance %s is not active. Cannot bless a non-active instance.") % instance_id))
+             raise exception.Error(_(("Instance %s is not active. " +
+                                      "Cannot bless a non-active instance.") % instance_id))
 
         context.elevated()
 
@@ -182,7 +186,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
         elif len(self.gridcentric_api.list_launched_instances(context, instance_id)) > 0:
             # There are still launched instances based off of this one.
             raise exception.Error(_(("Instance %s still has launched instances. " +
-                                     "Cannot discard an instance with remaining launched ones.") % instance_id))
+                                     "Cannot discard an instance with remaining launched ones.") %
+                                     instance_id))
         context.elevated()
 
         # Setup the DB representation for the new VM.
@@ -226,10 +231,20 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   vm_state=vm_states.BUILDING,
                                   task_state=task_states.NETWORKING)
             is_vpn = False
-            requested_networks=None
-            network_info = self.network_api.allocate_for_instance(context,
-                                        new_instance_ref, vpn=is_vpn,
-                                        requested_networks=requested_networks)
+            requested_networks = None
+
+            try:
+                network_info = self.network_api.allocate_for_instance(context,
+                                            new_instance_ref, vpn=is_vpn,
+                                            requested_networks=requested_networks)
+            except Exception, e:
+                LOG.debug(_("Error during network allocation: %s"), str(e))
+                self._instance_update(context, new_instance_ref.id,
+                                      vm_state=vm_states.ERROR,
+                                      task_state=None)
+                # Short-circuit, can't proceed.
+                return
+
             LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"), 
                       new_instance_ref.name, network_info)
         else:
@@ -240,22 +255,35 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # should probably be an optional parameter that the user can pass down.
         # The target memory settings for the launch virtual machine.
         self._instance_update(context, new_instance_ref.id,
-                              vm_state=vm_states.BUILDING, task_state='launching')
+                              vm_state=vm_states.BUILDING, task_state=task_states.SPAWNING)
         target = new_instance_ref['memory_mb']
-       
-        self.vms_conn.launch(context, instance_ref.name, str(target), new_instance_ref, network_info)
-        self.vms_conn.replug(new_instance_ref.name, self.extract_mac_addresses(network_info))
-        
-        self._instance_update(context, new_instance_ref.id,
-                              vm_state=vm_states.ACTIVE, task_state=None)
-    
+
+        def launch_bottom_half():
+            try:
+                self.vms_conn.launch(context,
+                                     instance_ref.name,
+                                     str(target),
+                                     new_instance_ref,
+                                     network_info)
+                self.vms_conn.replug(new_instance_ref.name,
+                                     self.extract_mac_addresses(network_info))
+                self._instance_update(context, new_instance_ref.id,
+                                      vm_state=vm_states.ACTIVE, task_state=None)
+            except Exception, e:
+                LOG.debug(_("Error during launch: %s"), str(e))
+                self._instance_update(context, new_instance_ref.id,
+                                      vm_state=vm_states.ERROR, task_state=None)
+
+        # Run the actual launch asynchronously.
+        vms.threadpool.submit(launch_bottom_half)
+
     def extract_mac_addresses(self, network_info):
         mac_addresses = {}
         vif = 0
         for network in network_info:
             mac_addresses[str(vif)] = network[1]['mac']
             vif += 1
-        
+
         return mac_addresses
 
     # TODO(dscannell): This was taken from the nova-compute manager. We

@@ -66,16 +66,16 @@ class Gridcentric_extension(object):
 
         actions.append(extensions.ActionExtension('servers', 'gc_bless',
                                                     self._bless_instance))
-        
+ 
         actions.append(extensions.ActionExtension('servers', 'gc_launch',
                                                     self._launch_instance))
-        
+
         actions.append(extensions.ActionExtension('servers', 'gc_discard',
                                                     self._discard_instance))
-        
+
         actions.append(extensions.ActionExtension('servers', 'gc_list_launched',
                                                     self._list_launched_instances))
-        
+
         actions.append(extensions.ActionExtension('servers', 'gc_list_blessed',
                                                     self._list_blessed_instances))
 
