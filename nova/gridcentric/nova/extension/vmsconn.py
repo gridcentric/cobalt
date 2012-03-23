@@ -147,6 +147,7 @@ class LibvirtConnection(VmsConnection):
         database and to the vmsfs mount point.
         """
         import vms.db
+        import vms.kvm
         db_path = vms.db.vms.path
         try:
             import vms.kvm
