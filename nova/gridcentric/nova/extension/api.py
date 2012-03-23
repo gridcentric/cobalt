@@ -38,7 +38,7 @@ class API(base.Base):
         """Get a single instance with the given instance_id."""
         rv = self.db.instance_get(context, instance_id)
         return dict(rv.iteritems())
-        
+
     def _cast_gridcentric_message(self, method, context, instance_id, host=None,
                               params=None):
         """Generic handler for RPC casts to gridcentric. This does not block for a response.
@@ -76,7 +76,7 @@ class API(base.Base):
         params['instance_id'] = instance_id
         kwargs = {'method': method, 'args': params}
         rpc.call(context, queue, kwargs)
-        
+
     def bless_instance(self, context, instance_id):
         LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
         self._call_gridcentric_message('bless_instance', context, instance_id)
