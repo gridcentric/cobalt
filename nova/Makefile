@@ -18,6 +18,9 @@ TEST_REPORT=gc-extension.xml
 # Allow a python version spec.
 PYTHON_VERSION=$(shell python -V 2>&1 |cut -d' ' -f2|cut -d'.' -f1,2)
 
+# Where the collect target goes.
+COLLECT_DIR ?= .
+
 # Ensure that the correct python version is used.
 PYTHON=python$(PYTHON_VERSION)
 
@@ -120,8 +123,10 @@ clean :
 
 # Note that COLLECT_DIR needs to be set
 collect :
-	cp build/$(TEST_REPORT) $(COLLECT_DIR)/test-reports/$(TEST_REPORT)
-	cp rpmbuild/RPMS/noarch/*.rpm $(COLLECT_DIR)/rpm/
-	cp *.deb $(COLLECT_DIR)/deb/
+	[ -f build/$(TEST_REPORT) ] && \
+	    mkdir -p $(COLLECT_DIR)/test-reports/ && \
+	    cp build/$(TEST_REPORT) $(COLLECT_DIR)/test-reports/$(TEST_REPORT) || true
+	mkdir -p $(COLLECT_DIR)/rpm/ && cp rpmbuild/RPMS/noarch/*.rpm $(COLLECT_DIR)/rpm/
+	mkdir -p $(COLLECT_DIR)/deb/ && cp *.deb $(COLLECT_DIR)/deb/
 
 .PHONE : collect
