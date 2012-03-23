@@ -183,7 +183,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # The instance is not blessed. We can't discard it.
             raise exception.Error(_(("Instance %s is not blessed. " +
                                      "Cannot discard an non-blessed instance.") % instance_id))
-        elif len(self.gridcentric_api.list_launched_instance(context, instance_id)) > 0:
+        elif len(self.gridcentric_api.list_launched_instances(context, instance_id)) > 0:
             # There are still launched instances based off of this one.
             raise exception.Error(_(("Instance %s still has launched instances. " +
                                      "Cannot discard an instance with remaining launched ones.") %
