@@ -22,14 +22,15 @@ class NovaClient(httplib2.Http):
     
     USER_AGENT="gridcentric-novaclient"
     
-    def __init__(self, auth_url, user, apikey, project=None, version='v1.0'):
+    def __init__(self, auth_url, user, apikey, project=None, version='v1.0', region=None):
         super(NovaClient, self).__init__()
         
         self.auth_url = auth_url
         self.user = user
         self.apikey = apikey
         self.project = project
-        
+        self.region = region
+
         self.version = version
         self.auth_token = None
         self.management_url = None
@@ -166,8 +167,8 @@ class NovaClient(httplib2.Http):
                    "passwordCredentials": {"username": self.user,
                                            "password": self.apikey}}}
 
-        if self.projectid:
-            body['auth']['tenantName'] = self.projectid
+        if self.project:
+            body['auth']['tenantName'] = self.project
 
         token_url = urlparse.urljoin(url, "tokens")
         resp, body = self.request(token_url, "POST", body=body)
@@ -181,12 +182,12 @@ class NovaClient(httplib2.Http):
         if resp.status == 200:  # content must always present
             try:
                 self.auth_url = url
-                service_catalog = service_catalog.ServiceCatalog(body)
+                service_catalog = ServiceCatalog(body)
                 self.auth_token = service_catalog.get_token()
 
-                self.management_url = self.service_catalog.url_for(
+                self.management_url = service_catalog.url_for(
                                            attr='region',
-                                           filter_value=self.region_name)
+                                           filter_value=self.region)
                 return None
             except KeyError:
                 raise exceptions.AuthorizationFailure()
