@@ -285,18 +285,3 @@ class GridCentricManager(manager.SchedulerDependentManager):
             vif += 1
 
         return mac_addresses
-
-    # TODO(dscannell): This was taken from the nova-compute manager. We
-    # probably want to find a better way to determine the network_topic, or
-    # follow vish's advice.
-
-    def get_network_topic(self, context, **kwargs):
-        """Retrieves the network host for a project on this host"""
-        # TODO(vish): This method should be memoized. This will make
-        #             the call to get_network_host cheaper, so that
-        #             it can pas messages instead of checking the db
-        #             locally.
-        host = self.network_manager.get_network_host(context)
-        return self.db.queue_get_for(context,
-                                     FLAGS.network_topic,
-                                     host)

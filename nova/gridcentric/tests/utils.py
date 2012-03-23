@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 
 from nova import db
 from nova.compute import instance_types
