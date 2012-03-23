@@ -78,31 +78,32 @@ class VmsConnection:
         LOG.debug(_("Called commands.discard with name=%s"), instance_name)
 
     def launch(self, context, instance_name, mem_target, new_instance_ref, network_info):
+        """
+        Launch a blessed instance
+        """
         newname = self.pre_launch(context, new_instance_ref, network_info)
+
+        # Launch the new VM.
         LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s"),
                   instance_name, newname, mem_target)
         commands.launch(instance_name, newname, str(mem_target))
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s"),
                   instance_name, newname, mem_target)
 
-    def pre_launch(self, context, new_instance_ref, network_info=None, block_device_info=None):
-        return new_instance_ref.name
-
     def replug(self, instance_name, mac_addresses):
         """
         Replugs the network interfaces on the instance
         """
-        LOG.debug(_("Calling vms.replug with name=%s"), 
-                  instance_name)
-
         # We want to unplug the vifs before adding the new ones so that we do
         # not mess around with the interfaces exposed inside the guest.
+        LOG.debug(_("Calling vms.replug with name=%s"), instance_name)
         commands.replug(instance_name,
                         plugin_first=False,
                         mac_addresses=mac_addresses)
-        LOG.debug(_("Called vms.replug with name=%s"), 
-                  instance_name)
+        LOG.debug(_("Called vms.replug with name=%s"), instance_name)
 
+    def pre_launch(self, context, new_instance_ref, network_info=None, block_device_info=None):
+        return new_instance_ref.name
 
 class DummyConnection(VmsConnection):
     def configure(self):
@@ -150,21 +151,25 @@ class LibvirtConnection(VmsConnection):
         import vms.kvm
         db_path = vms.db.vms.path
         try:
+            import vms.kvm
             vmsfs_path = vms.kvm.config.find_vmsfs()
             vmsfs_vms_path = os.path.join(vmsfs_path, "vms")
         except:
-            raise Exception("Unable to located vmsfs. Please ensure the module is loaded and mounted.")
-        
+            raise Exception("Unable to located vmsfs. " +
+                            "Please ensure the module is loaded and mounted.")
+
         try:
             kvm_group = grp.getgrnam(FLAGS.libvirt_group)
             kvm_gid = kvm_group.gr_gid
         except:
-            raise Exception("Unable to find the libvirt group %s. Please use the --libvirt_group flag to correct." 
-                            %(FLAGS.libvirt_group))
+            raise Exception("Unable to find the libvirt group %s. " +
+                            "Please use the --libvirt_group flag to correct." %
+                            (FLAGS.libvirt_group))
         
         for path in [db_path, vmsfs_path, vmsfs_vms_path]:
             os.chown(path, 0, kvm_gid)
-            os.chmod(path, stat.S_IREAD|stat.S_IWRITE|stat.S_IEXEC|stat.S_IRGRP|stat.S_IWGRP|stat.S_IXGRP)
+            os.chmod(path, stat.S_IREAD|stat.S_IWRITE|stat.S_IEXEC\
+                           |stat.S_IRGRP|stat.S_IWGRP|stat.S_IXGRP)
     
 
     def pre_launch(self, context, instance, network_info=None, block_device_info=None):
