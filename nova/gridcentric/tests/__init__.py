@@ -20,12 +20,14 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import tempfile
+
 def setup():
     import os
     import shutil
 
     sqlite_db = "tests.sqlite"
-    state_path = "/tmp"
+    state_path = tempfile.mkdtemp()
     testdb = os.path.join(state_path, sqlite_db)
     if os.path.exists(testdb):
         os.unlink(testdb)
