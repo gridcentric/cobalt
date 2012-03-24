@@ -20,6 +20,9 @@ Interfaces that configure vms and perform hypervisor specific operations.
 import os
 import grp
 import stat
+import time
+import glob
+import threading
 
 from nova import exception
 from nova import flags
@@ -52,6 +55,49 @@ def select_hypervisor(hypervisor):
     virt.select(hypervisor)
     LOG.debug(_("Virt initialized as auto=%s"), virt.AUTO)
 
+class LogCleaner(threading.Thread):
+    def __init__(self, path, interval = 60.0, min_age = 60 * 60, min_count = 100):
+        threading.Thread.__init__(self)
+        self.path = path
+        self.interval = interval
+        self.min_age = min_age
+        self.min_count = min_count
+        self.daemon = True
+
+    def clean(self, path, min_age, min_count):
+        files = glob.glob(os.path.join(path, "*.log"))
+
+        def mod_time(filename):
+            st = os.stat(filename)
+            return st.st_mtime
+
+        def old_enough(filename):
+            age = time.time() - mod_time(filename)
+            return age > min_age
+
+        # Filter all files that are old enough.
+        files = [f for f in files if old_enough(f)]
+
+        # Ensure we have enough qualifying files.
+        if len(files) < min_count:
+            return
+
+        # Sort them by their modification time.
+        files.sort(key = mod_time)
+
+        # Extract the set to delete.
+        to_delete = files[:(len(files) - min_count)]
+        for filename in to_delete:
+            try:
+                os.remove(filename)
+            except OSError:
+                pass
+
+    def run(self):
+        while True:
+            self.clean(self.path, self.min_age, self.min_count)
+            time.sleep(float(self.interval))
+
 class VmsConnection:
     def configure(self):
         """
@@ -64,9 +110,11 @@ class VmsConnection:
         Create a new blessed VM from the instance with name instance_name and gives the blessed
         instance the name new_instance_name.
         """
-        LOG.debug(_("Calling commands.bless with name=%s, new_name=%s"), instance_name, new_instance_name)
+        LOG.debug(_("Calling commands.bless with name=%s, new_name=%s"),
+                    instance_name, new_instance_name)
         commands.bless(instance_name, new_instance_name)
-        LOG.debug(_("Called commands.bless with name=%s, new_name=%s"), instance_name, new_instance_name)
+        LOG.debug(_("Called commands.bless with name=%s, new_name=%s"),
+                    instance_name, new_instance_name)
     
     def discard(self, instance_name):
         """
@@ -129,9 +177,8 @@ class LibvirtConnection(VmsConnection):
     VMS connection for Libvirt
     """
     
-    
     def configure(self):
-         # (dscannell) import the libvirt module to ensure that the the
+        # (dscannell) import the libvirt module to ensure that the the
         # libvirt flags can be read in.
         from nova.virt.libvirt import connection as libvirt_connection
 
@@ -140,6 +187,18 @@ class LibvirtConnection(VmsConnection):
         self.libvirt_conn = libvirt_connection.get_connection(False)
         config.MANAGEMENT['connection_url'] = self.libvirt_conn.get_uri()
         select_hypervisor('libvirt')
+
+        # We're typically on the local host and the logs may get out
+        # of control after a while. We install a simple log cleaning
+        # service which cleans out excessive logs when they are older
+        # than an hour.
+        import vms.config
+        log_path = vms.config.getconfig('VMS_LOGS', None)
+        if log_path:
+            self.log_cleaner = LogCleaner(log_path)
+            self.log_cleaner.start()
+        else:
+            self.log_cleaner = None
 
     def configure_path_permissions(self):
         """
