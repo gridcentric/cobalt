@@ -35,6 +35,7 @@ flags.DEFINE_string('libvirt_group', 'kvm',
 import vms.commands as commands
 import vms.logger as logger
 import vms.virt as virt
+import vms.config as config
 
 def get_vms_connection(connection_type):
     # Configure the logger regardless of the type of connection that will be used.
