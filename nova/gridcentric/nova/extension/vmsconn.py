@@ -20,6 +20,9 @@ Interfaces that configure vms and perform hypervisor specific operations.
 import os
 import grp
 import stat
+import time
+import glob
+import threading
 
 from nova import exception
 from nova import flags
@@ -32,7 +35,6 @@ flags.DEFINE_string('libvirt_group', 'kvm',
 import vms.commands as commands
 import vms.logger as logger
 import vms.virt as virt
-import vms.config as config
 
 def get_vms_connection(connection_type):
     # Configure the logger regardless of the type of connection that will be used.
@@ -52,6 +54,17 @@ def select_hypervisor(hypervisor):
     virt.select(hypervisor)
     LOG.debug(_("Virt initialized as auto=%s"), virt.AUTO)
 
+class LogCleaner(threading.Thread):
+    def __init__(self, interval = 60.0):
+        threading.Thread.__init__(self)
+        self.interval = interval
+        self.daemon = True
+
+    def run(self):
+        while True:
+            commands.cleanlogs()
+            time.sleep(float(self.interval))
+
 class VmsConnection:
     def configure(self):
         """
@@ -64,9 +77,11 @@ class VmsConnection:
         Create a new blessed VM from the instance with name instance_name and gives the blessed
         instance the name new_instance_name.
         """
-        LOG.debug(_("Calling commands.bless with name=%s, new_name=%s"), instance_name, new_instance_name)
+        LOG.debug(_("Calling commands.bless with name=%s, new_name=%s"),
+                    instance_name, new_instance_name)
         commands.bless(instance_name, new_instance_name)
-        LOG.debug(_("Called commands.bless with name=%s, new_name=%s"), instance_name, new_instance_name)
+        LOG.debug(_("Called commands.bless with name=%s, new_name=%s"),
+                    instance_name, new_instance_name)
     
     def discard(self, instance_name):
         """
@@ -129,9 +144,8 @@ class LibvirtConnection(VmsConnection):
     VMS connection for Libvirt
     """
     
-    
     def configure(self):
-         # (dscannell) import the libvirt module to ensure that the the
+        # (dscannell) import the libvirt module to ensure that the the
         # libvirt flags can be read in.
         from nova.virt.libvirt import connection as libvirt_connection
 
@@ -140,6 +154,13 @@ class LibvirtConnection(VmsConnection):
         self.libvirt_conn = libvirt_connection.get_connection(False)
         config.MANAGEMENT['connection_url'] = self.libvirt_conn.get_uri()
         select_hypervisor('libvirt')
+
+        # We're typically on the local host and the logs may get out
+        # of control after a while. We install a simple log cleaning
+        # service which cleans out excessive logs when they are older
+        # than an hour.
+        self.log_cleaner = LogCleaner()
+        self.log_cleaner.start()
 
     def configure_path_permissions(self):
         """
