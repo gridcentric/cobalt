@@ -35,7 +35,6 @@ flags.DEFINE_string('libvirt_group', 'kvm',
 import vms.commands as commands
 import vms.logger as logger
 import vms.virt as virt
-import vms.config as config
 
 def get_vms_connection(connection_type):
     # Configure the logger regardless of the type of connection that will be used.
@@ -56,46 +55,14 @@ def select_hypervisor(hypervisor):
     LOG.debug(_("Virt initialized as auto=%s"), virt.AUTO)
 
 class LogCleaner(threading.Thread):
-    def __init__(self, path, interval = 60.0, min_age = 60 * 60, min_count = 100):
+    def __init__(self, interval = 60.0):
         threading.Thread.__init__(self)
-        self.path = path
         self.interval = interval
-        self.min_age = min_age
-        self.min_count = min_count
         self.daemon = True
-
-    def clean(self, path, min_age, min_count):
-        files = glob.glob(os.path.join(path, "*.log"))
-
-        def mod_time(filename):
-            st = os.stat(filename)
-            return st.st_mtime
-
-        def old_enough(filename):
-            age = time.time() - mod_time(filename)
-            return age > min_age
-
-        # Filter all files that are old enough.
-        files = [f for f in files if old_enough(f)]
-
-        # Ensure we have enough qualifying files.
-        if len(files) < min_count:
-            return
-
-        # Sort them by their modification time.
-        files.sort(key = mod_time)
-
-        # Extract the set to delete.
-        to_delete = files[:(len(files) - min_count)]
-        for filename in to_delete:
-            try:
-                os.remove(filename)
-            except OSError:
-                pass
 
     def run(self):
         while True:
-            self.clean(self.path, self.min_age, self.min_count)
+            commands.cleanlogs()
             time.sleep(float(self.interval))
 
 class VmsConnection:
@@ -192,13 +159,8 @@ class LibvirtConnection(VmsConnection):
         # of control after a while. We install a simple log cleaning
         # service which cleans out excessive logs when they are older
         # than an hour.
-        import vms.config
-        log_path = vms.config.getconfig('VMS_LOGS', None)
-        if log_path:
-            self.log_cleaner = LogCleaner(log_path)
-            self.log_cleaner.start()
-        else:
-            self.log_cleaner = None
+        self.log_cleaner = LogCleaner()
+        self.log_cleaner.start()
 
     def configure_path_permissions(self):
         """
