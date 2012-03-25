@@ -22,6 +22,7 @@ handles RPC calls relating to GridCentric functionality creating instances.
 
 import time
 import os
+import threading
 
 from nova import exception
 from nova import flags
@@ -63,7 +64,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         connection_type = FLAGS.connection_type
         self.vms_conn = vmsconn.get_vms_connection(connection_type)
         self.vms_conn.configure()
-        
+
     def _instance_update(self, context, instance_id, **kwargs):
         """Update an instance in the database using kwargs as value."""
         return self.db.instance_update(context, instance_id, kwargs)
@@ -105,14 +106,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'metadata': metadata,
            'availability_zone': instance_ref['availability_zone'],
            'os_type': instance_ref['os_type'],
-           'host': instance_ref['host']
+           'host': self.host,
         }
         new_instance_ref = self.db.instance_create(context, instance)
         return new_instance_ref
 
     def _next_clone_num(self, context, instance_id):
         """ Returns the next clone number for the instance_id """
-        
+
         metadata = self.db.instance_metadata_get(context, instance_id)
         clone_num = int(metadata.get('last_clone_num',-1)) + 1
         metadata['last_clone_num'] = clone_num
