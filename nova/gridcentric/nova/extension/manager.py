@@ -22,7 +22,6 @@ handles RPC calls relating to GridCentric functionality creating instances.
 
 import time
 import os
-import threading
 
 from nova import exception
 from nova import flags
