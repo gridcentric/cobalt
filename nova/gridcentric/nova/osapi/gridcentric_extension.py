@@ -16,8 +16,11 @@
 import json
 import webob
 
-from nova import log as logging
 
+from nova import log as logging
+from nova import quota
+
+from nova.api.openstack import create_instance_helper as server_helper
 from nova.api.openstack import extensions
 import nova.api.openstack.views.addresses
 import nova.api.openstack.views.flavors
@@ -45,6 +48,8 @@ class Gridcentric_extension(object):
 
     def __init__(self):
         self.gridcentric_api = API()
+        # This is used to convert exception to consistent HTTP errors
+        self.server_helper = server_helper.CreateInstanceHelper(None)
 
     def get_name(self):
         return "GridCentric"
@@ -93,8 +98,11 @@ class Gridcentric_extension(object):
 
     def _launch_instance(self, input_dict, req, id):
         context = req.environ["nova.context"]
-        result = self.gridcentric_api.launch_instance(context, id)
-        return webob.Response(status_int=200, body=json.dumps(result))
+        try:
+            result = self.gridcentric_api.launch_instance(context, id)
+            return webob.Response(status_int=200, body=json.dumps(result))
+        except quota.QuotaError as error:
+            self.server_helper._handle_quota_error(error)
 
     def _list_launched_instances(self, input_dict, req, id):
         context = req.environ["nova.context"]
