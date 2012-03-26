@@ -20,6 +20,7 @@ from nova import compute
 from nova import flags
 from nova import log as logging
 from nova.db import base
+from nova import quota
 from nova import rpc
 
 LOG = logging.getLogger('gridcentric.nova.api')
@@ -77,6 +78,30 @@ class API(base.Base):
         kwargs = {'method': method, 'args': params}
         rpc.call(context, queue, kwargs)
 
+    def _check_quota(self, context, instance_id):
+        # Check the quota to see if we can launch a new instance.
+        instance = self.get(context, instance_id)
+        instance_type = instance['instance_type']
+        metadata = instance['metadata']
+
+        # check the quota to if we can launch a single instance.
+        num_instances = quota.allowed_instances(context, 1, instance['instance_type'])
+        if num_instances < 1:
+            pid = context.project_id
+            LOG.warn(_("Quota exceeded for %(pid)s,"
+                    " tried to launch an instance"))
+            if num_instances <= 0:
+                message = _("Instance quota exceeded. You cannot run any "
+                            "more instances of this type.")
+            else:
+                message = _("Instance quota exceeded. You can only run %s "
+                            "more instances of this type.") % num_instances
+            raise quota.QuotaError(message, "InstanceLimitExceeded")
+        
+        # check against metadata
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        self.compute_api._check_metadata_properties_quota(context, metadata)
+
     def bless_instance(self, context, instance_id):
         LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
         self._call_gridcentric_message('bless_instance', context, instance_id)
@@ -88,6 +113,9 @@ class API(base.Base):
     def launch_instance(self, context, instance_id):
         pid = context.project_id
         uid = context.user_id
+        
+        self._check_quota(context, instance_id)
+        
         LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
                     " instance %(instance_id)s") % locals())
         rpc.cast(context,
