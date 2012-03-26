@@ -166,8 +166,15 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Create a new blessed instance.
         new_instance_ref = self._copy_instance(context, instance_id, str(clonenum), launch=False)
 
-        # Create a new 'blessed' VM with the given name.
-        self.vms_conn.bless(instance_ref.name, new_instance_ref.name)
+        try:
+            # Create a new 'blessed' VM with the given name.
+            self.vms_conn.bless(instance_ref.name, new_instance_ref.name)
+        except Exception, e:
+            LOG.debug(_("Error during bless: %s"), str(e))
+            self._instance_update(context, new_instance_ref.id,
+                                  vm_state=vm_states.ERROR, task_state=None)
+            # Short-circuit, nothing to be done.
+            return
 
         # Mark this new instance as being 'blessed'.
         metadata = self.db.instance_metadata_get(context, new_instance_ref.id)
