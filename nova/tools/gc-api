@@ -1,0 +1,80 @@
+#!/usr/bin/env python
+
+# Copyright 2011 GridCentric Inc.
+# All Rights Reserved.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+# A simple script that uses the novaclient to communicate with Openstack to
+# provide the gridcentric specific functionality.
+
+import sys
+from gridcentric.nova.client.client import NovaClient
+
+def usage():
+    sys.stderr.write("usage: gc-api <command>\n")
+    sys.stderr.write("where command is one of the following:\n")
+    sys.stderr.write("\n")
+    sys.stderr.write("    bless <instance id>\n")
+    sys.stderr.write("        Creates a new blessed instance based off the given id.\n")
+    sys.stderr.write("\n")
+    sys.stderr.write("    discard <blessed instance id>\n")
+    sys.stderr.write("        Discard the state associated with a blessed instance.\n")
+    sys.stderr.write("\n")
+    sys.stderr.write("    launch <blessed instance id>\n")
+    sys.stderr.write("        Launches a new clone instance from the given blessed id.\n")
+    sys.stderr.write("\n")
+    sys.stderr.write("    list-launched <instance id>\n")
+    sys.stderr.write("        List instances launched from the given id.\n")
+    sys.stderr.write("\n")
+    sys.stderr.write("    list-blessed <instance id>\n")
+    sys.stderr.write("        List instances blessed from the given id.\n")
+    sys.stderr.write("\n")
+    sys.stderr.flush()
+
+if len(sys.argv) < 3:
+    usage()
+    exit()
+ 
+command = sys.argv[1]
+
+if command == 'bless':
+    instance_id = sys.argv[2]
+    client = NovaClient('http://localhost:8774/v1.1','admin','admin','admin','v1.1')
+    client.bless_instance(instance_id)
+
+elif command == 'discard':
+    instance_id = sys.argv[2]
+    client = NovaClient('http://localhost:8774/v1.1','admin','admin','admin','v1.1')
+    client.discard_instance(instance_id)
+
+elif command == 'launch':
+    instance_id = sys.argv[2]
+    client = NovaClient('http://localhost:8774/v1.1','admin','admin','admin','v1.1')
+    client.launch_instance(instance_id)
+
+elif command == 'list-launched':
+    instance_id = sys.argv[2]
+    client = NovaClient('http://localhost:8774/v1.1','admin','admin','admin','v1.1')
+    for instance in client.list_launched_instances(instance_id):
+        print instance['id']
+
+elif command == 'list-blessed':
+    instance_id = sys.argv[2]
+    client = NovaClient('http://localhost:8774/v1.1','admin','admin','admin','v1.1')
+    for instance in client.list_blessed_instances(instance_id):
+        print instance['id']
+
+else:
+    usage()
+    exit()
