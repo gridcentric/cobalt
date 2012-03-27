@@ -16,6 +16,7 @@ os.environ['VMS_SHELF_PATH'] = '.'
 
 import vms.virt as virt
 import vms.config as vmsconfig
+import vms.threadpool
 
 import gridcentric.nova.extension as gridcentric
 import gridcentric.nova.extension.manager as gc_manager
@@ -40,13 +41,22 @@ class GridCentricTestCase(unittest.TestCase):
         # we don't really want to create). Since the tests use the dummy hypervisor we do not need
         # to worry about leftover artifacts.
         vmsconfig.SHARED=os.getcwd()
+        
+        # For the sake of the unit test we substitute the thread submission to just execute the
+        # function instead. This is important for 2 reasons: 
+        #   1. Its hard to unit test and reason against concurrent behaviour.
+        #   2. We do not want another thread to be executing and hitting the db while we are
+        #      in the process fo cleaning it up.
+        self.old_vms_thread_submit = vms.threadpool.submit
+        vms.threadpool.submit = lambda x: x()
     
         self.gridcentric = gc_manager.GridCentricManager()
         self.gridcentric_api = gridcentric.API()
         self.context = context.RequestContext('fake', 'fake', True)
 
     def tearDown(self):
-        pass
+        # Bring things back to normal.
+        vms.threadpool.submit = self.old_vms_thread_submit
 
     def test_bless_instance(self):
         instance_id = utils.create_instance(self.context)
