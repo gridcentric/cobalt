@@ -54,6 +54,6 @@ if __name__ == '__main__':
                         'gridcentric.nova.extension.manager.GridCentricManager',
                         'Manager for gridcentric')
     logging.setup()
-    server = service.Service.create(binary='nova-gc')
+    server = service.Service.create(binary='nova-gridcentric')
     service.serve(server)
     service.wait()
