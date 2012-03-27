@@ -170,7 +170,12 @@ class LibvirtConnection(VmsConnection):
         """
         import vms.db
         import vms.kvm
+        import vms.config
+
         db_path = vms.db.vms.path
+        store_path = vms.config.getconfig("VMS_STORE", None)
+        cache_path = vms.config.getconfig("VMS_CACHE", None)
+
         try:
             import vms.kvm
             vmsfs_path = vms.kvm.config.find_vmsfs()
@@ -186,11 +191,12 @@ class LibvirtConnection(VmsConnection):
             raise Exception("Unable to find the libvirt group %s. " +
                             "Please use the --libvirt_group flag to correct." %
                             (FLAGS.libvirt_group))
-        
-        for path in [db_path, vmsfs_path, vmsfs_vms_path]:
-            os.chown(path, 0, kvm_gid)
-            os.chmod(path, stat.S_IREAD|stat.S_IWRITE|stat.S_IEXEC\
-                           |stat.S_IRGRP|stat.S_IWGRP|stat.S_IXGRP)
+
+        for path in [db_path, store_path, cache_path, vmsfs_path, vmsfs_vms_path]:
+            if path:
+                os.chown(path, 0, kvm_gid)
+                os.chmod(path, stat.S_IREAD|stat.S_IWRITE|stat.S_IEXEC \
+                              |stat.S_IRGRP|stat.S_IWGRP|stat.S_IXGRP)
     
 
     def pre_launch(self, context, instance, network_info=None, block_device_info=None):

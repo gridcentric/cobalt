@@ -35,11 +35,11 @@ e.g. $ nova boot --flavor 1 --image 1 ChromeOS-HVM
 before blessing the virtual machine.
 
 9. Bless the virtual machine
-e.g. $ gc-nova bless 1
+e.g. $ gc-api bless 1
 
 10 Launch more virtual machines based off of the suspended snapshot
-e.g. $ gc-nova launch 2
-     $ gc-nova launch 2
+e.g. $ gc-api launch 2
+     $ gc-api launch 2
      $ ... etc ...
 
 == Installation Instructions ==
@@ -62,9 +62,8 @@ follow these instructions: http://wiki.openstack.org/XenServerDevelopment
 == Project Contents ==
 
 bin
-    nova-gridcentric
-        Contains the nova-gridcentric script that is used to start the
-        GridCentric-nova manager. 
+    nova-gc
+        Contains the nova-gc script that is used to start the GridCentric manager. 
 
 extension
     Container the source for the OpenStack API extension. This should be copied
@@ -77,6 +76,6 @@ gridcentric
     to enable the GridCentric functionality.
 
 tools
-    gc-nova
+    gc-api
         A management tool that uses the python novaclient to provide a cli to
         the extended functionality.
