@@ -22,7 +22,7 @@ import sys
 from gridcentric.nova.client.client import NovaClient
 
 def usage():
-    sys.stderr.write("usage: gc-nova <command>\n")
+    sys.stderr.write("usage: gc-api <command>\n")
     sys.stderr.write("where command is one of the following:\n")
     sys.stderr.write("\n")
     sys.stderr.write("    bless <instance id>\n")
