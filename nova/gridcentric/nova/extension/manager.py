@@ -21,6 +21,7 @@ handles RPC calls relating to GridCentric functionality creating instances.
 """
 
 import time
+import traceback
 import os
 
 from nova import exception
@@ -170,7 +171,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Create a new 'blessed' VM with the given name.
             self.vms_conn.bless(instance_ref.name, new_instance_ref.name)
         except Exception, e:
-            LOG.debug(_("Error during bless: %s"), str(e))
+            LOG.debug(_("Error during bless %s: %s"), str(e), traceback.format_exc())
             self._instance_update(context, new_instance_ref.id,
                                   vm_state=vm_states.ERROR, task_state=None)
             # Short-circuit, nothing to be done.
@@ -277,7 +278,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 self._instance_update(context, new_instance_ref.id,
                                       vm_state=vm_states.ACTIVE, task_state=None)
             except Exception, e:
-                LOG.debug(_("Error during launch: %s"), str(e))
+                LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
                 self._instance_update(context, new_instance_ref.id,
                                       vm_state=vm_states.ERROR, task_state=None)
 
