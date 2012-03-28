@@ -88,7 +88,7 @@ if len(args) < 3:
 command = sys.argv[1]
 
 url, user, key, project = options.url, options.username, options.apikey, options.projectid
-client = NovaClient(url,user,key,project,'v1.1')
+client = NovaClient(url,user,key,project)
 if command == 'bless':
     instance_id = sys.argv[2]
     client.bless_instance(instance_id)
