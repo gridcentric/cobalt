@@ -193,8 +193,8 @@ class LibvirtConnection(VmsConnection):
             kvm_group = grp.getgrnam(FLAGS.libvirt_group)
             kvm_gid = kvm_group.gr_gid
         except:
-            raise Exception("Unable to find the libvirt group %s. " +
-                            "Please use the --libvirt_group flag to correct." %
+            raise Exception(("Unable to find the libvirt group %s. " +
+                             "Please use the --libvirt_group flag to correct.") %
                             (FLAGS.libvirt_group))
 
         for path in [db_path, store_path, cache_path, vmsfs_path, vmsfs_vms_path]:

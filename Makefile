@@ -17,7 +17,6 @@ gc-nova-extension :
 .PHONY : gc-nova-extension
 
 clean :
-	@rm -rf build
 	@cd nova && $(MAKE) clean
 .PHONY : clean
 
