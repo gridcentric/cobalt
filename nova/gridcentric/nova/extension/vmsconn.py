@@ -206,7 +206,7 @@ class LibvirtConnection(VmsConnection):
                     os.chmod(path, stat.S_IREAD|stat.S_IWRITE|stat.S_IEXEC \
                                   |stat.S_IRGRP|stat.S_IWGRP|stat.S_IXGRP)
                 except OSError:
-                    pass
+                    LOG.debug(_("Unable to fix permissions on path: %s"), str(path))
 
     def pre_launch(self, context, instance, network_info=None, block_device_info=None):
          # We meed to create the libvirt xml, and associated files. Pass back
