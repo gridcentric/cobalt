@@ -36,6 +36,7 @@ import vms.commands as commands
 import vms.logger as logger
 import vms.virt as virt
 import vms.config as config
+import vms.utilities as utilities
 
 def get_vms_connection(connection_type):
     # Configure the logger regardless of the type of connection that will be used.
@@ -194,10 +195,13 @@ class LibvirtConnection(VmsConnection):
 
         for path in [db_path, store_path, cache_path, vmsfs_path, vmsfs_vms_path]:
             if path:
-                os.chown(path, 0, kvm_gid)
-                os.chmod(path, stat.S_IREAD|stat.S_IWRITE|stat.S_IEXEC \
-                              |stat.S_IRGRP|stat.S_IWGRP|stat.S_IXGRP)
-    
+                try:
+                    path = utilities.make_directories(path)
+                    os.chown(path, 0, kvm_gid)
+                    os.chmod(path, stat.S_IREAD|stat.S_IWRITE|stat.S_IEXEC \
+                                  |stat.S_IRGRP|stat.S_IWGRP|stat.S_IXGRP)
+                except OSError:
+                    pass
 
     def pre_launch(self, context, instance, network_info=None, block_device_info=None):
          # We meed to create the libvirt xml, and associated files. Pass back
