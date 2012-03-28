@@ -104,6 +104,8 @@ class VmsConnection:
         commands.launch(instance_name, newname, str(mem_target))
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s"),
                   instance_name, newname, mem_target)
+        
+        self.post_launch(context, new_instance_ref, network_info)
 
     def replug(self, instance_name, mac_addresses):
         """
@@ -119,6 +121,9 @@ class VmsConnection:
 
     def pre_launch(self, context, new_instance_ref, network_info=None, block_device_info=None):
         return new_instance_ref.name
+    
+    def post_launch(self, context, new_instance_ref, newtork_info=None, block_device_info=None):
+        pass
 
 class DummyConnection(VmsConnection):
     def configure(self):
@@ -241,3 +246,6 @@ class LibvirtConnection(VmsConnection):
         # Return the libvirt file, this will be passed in as the name. This parameter is
         # overloaded in the management interface as a libvirt special case.
         return libvirt_file
+    
+    def post_launch(self, context, instance, network_info=None, block_device_info=None):
+        self.libvirt_conn.firewall_driver.apply_instance_filter(instance, network_info)
