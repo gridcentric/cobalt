@@ -22,7 +22,7 @@ class NovaClient(httplib2.Http):
     
     USER_AGENT="gridcentric-novaclient"
     
-    def __init__(self, auth_url, user, apikey, project=None, version='v1.0', region=None):
+    def __init__(self, auth_url, user, apikey, project=None, default_version='v1.0', region=None):
         super(NovaClient, self).__init__()
         
         self.auth_url = auth_url
@@ -31,7 +31,8 @@ class NovaClient(httplib2.Http):
         self.project = project
         self.region = region
 
-        self.version = version
+        self.version = None
+        self.default_version = 'v1.0'
         self.auth_token = None
         self.management_url = None
         
@@ -120,10 +121,23 @@ class NovaClient(httplib2.Http):
 
         return resp, body
 
+    def determine_version(self):
+        if self.version != None:
+            magic_tuple = urlparse.urlsplit(self.auth_url)
+            scheme, netloc, path, query, frag = magic_tuple
+            path_parts = path.split('/')
+            for part in path_parts:
+                if len(part) > 0 and part[0] == 'v':
+                    self.version = part
+                    return
+            self.version = self.default_version
+
     def _authenticate(self):
         """
         Authenticates the client against the nova server
         """
+        
+        self.determine_version()
         auth_url = self.auth_url
         if self.version == "v2.0":
             while auth_url:
