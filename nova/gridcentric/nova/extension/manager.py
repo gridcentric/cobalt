@@ -109,6 +109,15 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'host': self.host,
         }
         new_instance_ref = self.db.instance_create(context, instance)
+        
+        elevated = context.elevated()
+        
+        security_groups = self.db.security_group_get_by_instance(context, instance_id)
+        for security_group in security_groups:
+            self.db.instance_add_security_group(elevated,
+                                                new_instance_ref.id,
+                                                security_group['id'])
+        
         return new_instance_ref
 
     def _next_clone_num(self, context, instance_id):
