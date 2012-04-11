@@ -1,9 +1,0 @@
-17.888 launching new instance
-   ... 200 milliseconds ..
-18.188 making call to network for launching
-   ... 1.5 seconds ...
-19.773 made call to network
-   ... 1 second ...
-20.887 Calling vms.launch (parallel begins)
-   ... 2 seconds ...
-23.806 Called vms.launch
