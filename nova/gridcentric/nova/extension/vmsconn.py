@@ -18,19 +18,20 @@ Interfaces that configure vms and perform hypervisor specific operations.
 """
 
 import os
-import grp
+import pwd
 import stat
 import time
 import glob
 import threading
+import tempfile
 
 from nova import exception
 from nova import flags
 from nova import log as logging
 LOG = logging.getLogger('gridcentric.nova.extension.vmsconn')
 FLAGS = flags.FLAGS
-flags.DEFINE_string('libvirt_group', 'kvm',
-                    'The system group libvirt will chown the instances.')
+flags.DEFINE_string('libvirt_user', 'libvirt-qemu',
+                    'The user that libvirt runs qemu as.')
 
 import vms.commands as commands
 import vms.logger as logger
@@ -176,39 +177,80 @@ class LibvirtConnection(VmsConnection):
         For libvirt connections we need to ensure that the kvm instances have access to the vms
         database and to the vmsfs mount point.
         """
+
         import vms.db
         import vms.kvm
         import vms.config
 
-        db_path = vms.db.vms.path
-        store_path = vms.config.getconfig("VMS_STORE", None)
-        cache_path = vms.config.getconfig("VMS_CACHE", None)
+        try:
+            passwd = pwd.getpwnam(FLAGS.libvirt_user)
+            libvirt_uid = passwd.pw_uid
+            libvirt_gid = passwd.pw_gid
+        except Exception, e:
+            raise Exception("Unable to find the libvirt user %s. "
+                            "Please use the --libvirt_user flag to correct."
+                            "Error: %s" % (FLAGS.libvirt_user, str(e)))
 
         try:
-            import vms.kvm
             vmsfs_path = vms.kvm.config.find_vmsfs()
-            vmsfs_vms_path = os.path.join(vmsfs_path, "vms")
-        except:
-            raise Exception("Unable to located vmsfs. " +
-                            "Please ensure the module is loaded and mounted.")
+        except Exception, e:
+            raise Exception("Unable to located vmsfs. "
+                            "Please ensure the module is loaded and mounted. "
+                            "Error: %s" % str(e))
 
         try:
-            kvm_group = grp.getgrnam(FLAGS.libvirt_group)
-            kvm_gid = kvm_group.gr_gid
-        except:
-            raise Exception(("Unable to find the libvirt group %s. " +
-                             "Please use the --libvirt_group flag to correct.") %
-                            (FLAGS.libvirt_group))
+            for path in vmsfs_path, os.path.join(vmsfs_path, 'vms'):
+                os.chown(path, libvirt_uid, libvirt_gid)
+                os.chmod(path, 0770)
+        except Exception, e:
+            raise Exception("Unable to make %s owner of vmsfs: %s" %
+                            FLAGS.libvirt_user, str(e))
 
-        for path in [db_path, store_path, cache_path, vmsfs_path, vmsfs_vms_path]:
-            if path:
-                try:
-                    path = utilities.make_directories(path)
-                    os.chown(path, 0, kvm_gid)
-                    os.chmod(path, stat.S_IREAD|stat.S_IWRITE|stat.S_IEXEC \
-                                  |stat.S_IRGRP|stat.S_IWGRP|stat.S_IXGRP)
-                except OSError:
-                    LOG.debug(_("Unable to fix permissions on path: %s"), str(path))
+        def probe_libvirt_write_access(dir):
+            euid = os.geteuid()
+            try:
+                os.seteuid(libvirt_uid)
+                tempfile.TemporaryFile(dir=dir)
+            finally:
+                os.seteuid(euid)
+
+        def mkdir_libvirt(dir):
+            if not os.path.exists(dir):
+                utilities.make_directories(dir)
+                os.chown(dir, libvirt_uid, libvirt_gid)
+                os.chmod(dir, 0775) # ug+rwx, a+rx
+            try:
+                probe_libvirt_write_access(dir)
+            except Exception, e:
+                raise Exception("Directory %s is not writable by %s (uid=%d). "
+                                "If it already exists, make sure that it's "
+                                "writable by %s. Error: %s" %
+                                (dir, FLAGS.libvirt_user, libvirt_uid,
+                                 FLAGS.libvirt_user, str(e)))
+        try:
+            db_path = vms.db.vms.path
+            mkdir_libvirt(os.path.dirname(db_path))
+            utilities.touch(db_path)
+            os.chown(db_path, libvirt_uid, libvirt_gid)
+            # TODO: This should be 0660 (ug+rw), but there's an error I
+            # can't figure out when libvirt creates domains: the vms.db path
+            # (default /dev/shm/vms.db) can't be opened by bsddb when
+            # libvirt launches kvm. This is perplexing because it's
+            # launching it as root!
+            os.chmod(db_path, 0666) # aug+rw
+
+            dirs = [config.SHELF,
+                    config.SHARED,
+                    config.LOGS,
+                    config.CACHE,
+                    config.STORE]
+            for dir in dirs:
+                if dir != None:
+                    mkdir_libvirt(dir)
+        except Exception, e:
+            raise Exception("Error creating directories and setting "
+                            "permissions for user %s. Error: %s" %
+                            (FLAGS.libvirt_user, str(e)))
 
     def pre_launch(self, context, instance, network_info=None, block_device_info=None):
          # We meed to create the libvirt xml, and associated files. Pass back
