@@ -51,6 +51,9 @@ def usage():
     sys.stderr.write("    list-blessed <instance id>\n")
     sys.stderr.write("        List instances blessed from the given id.\n")
     sys.stderr.write("\n")
+    sys.stderr.write("    migrate <instance id> <dest>\n")
+    sys.stderr.write("        Migrate a streamed instance.\n")
+    sys.stderr.write("\n")
     sys.stderr.flush()
 
 def env(e):
@@ -81,35 +84,43 @@ def get_parser():
 parser = get_parser()
 options, args = parser.parse_known_args(sys.argv)
 
-if len(args) < 3:
-    usage()
-    exit()
- 
+def get_arg(n):
+    if len(args) < n + 3:
+        usage()
+        exit()
+    return args[n+2]
+
 command = sys.argv[1]
 
 url, user, key, project = options.url, options.username, options.apikey, options.projectid
-client = NovaClient(url,user,key,project)
+client = NovaClient(url, user, key, project)
+
 if command == 'bless':
-    instance_id = sys.argv[2]
+    instance_id = get_arg(0)
     client.bless_instance(instance_id)
 
 elif command == 'discard':
-    instance_id = sys.argv[2]
+    instance_id = get_arg(0)
     client.discard_instance(instance_id)
 
 elif command == 'launch':
-    instance_id = sys.argv[2]
+    instance_id = get_arg(0)
     client.launch_instance(instance_id)
 
 elif command == 'list-launched':
-    instance_id = sys.argv[2]
+    instance_id = get_arg(0)
     for instance in client.list_launched_instances(instance_id):
         print instance['id']
 
 elif command == 'list-blessed':
-    instance_id = sys.argv[2]
+    instance_id = get_arg(0)
     for instance in client.list_blessed_instances(instance_id):
         print instance['id']
+
+elif command == 'migrate':
+    instance_id = get_arg(0)
+    dest = get_arg(1)
+    client.migrate_instance(instance_id, dest)
 
 else:
     usage()

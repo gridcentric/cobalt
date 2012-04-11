@@ -49,6 +49,11 @@ class NovaClient(httplib2.Http):
                                                 'POST', body={'gc_launch':{}})
         return body
 
+    def migrate_instance(self, instance_id, dest):
+        resp, body = self.authenticated_request('/servers/%s/action' % instance_id,
+                                                'POST', body={'gc_migrate':{'dest':str(dest)}})
+        return body
+
     def delete_instance(self, instance_id):
         resp, body = self.authenticated_request('/servers/%s' % instance_id, 'DELETE')
         return body
