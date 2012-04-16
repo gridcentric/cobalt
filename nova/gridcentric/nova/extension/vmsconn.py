@@ -58,7 +58,7 @@ def select_hypervisor(hypervisor):
     LOG.debug(_("Virt initialized as auto=%s"), virt.AUTO)
 
 class LogCleaner(threading.Thread):
-    def __init__(self, interval = 60.0):
+    def __init__(self, interval=60.0):
         threading.Thread.__init__(self)
         self.interval = interval
         self.daemon = True
@@ -75,14 +75,14 @@ class VmsConnection:
         """
         pass
 
-    def bless(self, instance_name, new_instance_name, network=None):
+    def bless(self, instance_name, new_instance_name, descriptor_url=None):
         """
         Create a new blessed VM from the instance with name instance_name and gives the blessed
         instance the name new_instance_name.
         """
         LOG.debug(_("Calling commands.bless with name=%s, new_name=%s"),
                     instance_name, new_instance_name)
-        result = commands.bless(instance_name, new_instance_name, network=network)
+        result = commands.bless(instance_name, new_instance_name, network=descriptor_url)
         LOG.debug(_("Called commands.bless with name=%s, new_name=%s"),
                     instance_name, new_instance_name)
         return result
@@ -96,7 +96,7 @@ class VmsConnection:
         LOG.debug(_("Called commands.discard with name=%s"), instance_name)
 
     def launch(self, context, instance_name, mem_target,
-               new_instance_ref, network_info, network=None):
+               new_instance_ref, network_info, descriptor_url=None):
         """
         Launch a blessed instance
         """
@@ -105,7 +105,7 @@ class VmsConnection:
         # Launch the new VM.
         LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s"),
                   instance_name, newname, mem_target)
-        result = commands.launch(instance_name, newname, str(mem_target), network=network)
+        result = commands.launch(instance_name, newname, str(mem_target), network=descriptor_url)
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s"),
                   instance_name, newname, mem_target)
 
@@ -264,7 +264,7 @@ class LibvirtConnection(VmsConnection):
         # Essentially, this file will be removed, and replaced by vms as an
         # overlay on the blessed root image.
         os.makedirs(working_dir)
-        file(os.path.join(disk_file),'w').close()
+        file(os.path.join(disk_file), 'w').close()
 
         # (dscannell) We want to disable any injection
         key = instance['key_data']
