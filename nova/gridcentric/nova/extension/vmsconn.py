@@ -126,7 +126,7 @@ class VmsConnection:
 
     def pre_launch(self, context, new_instance_ref, network_info=None, block_device_info=None):
         return new_instance_ref.name
-    
+
     def post_launch(self, context, new_instance_ref, newtork_info=None, block_device_info=None):
         pass
 
@@ -138,7 +138,7 @@ class XenApiConnection(VmsConnection):
     """
     VMS connection for XenAPI
     """
-    
+
     def configure(self):
          # (dscannell) We need to import this to ensure that the xenapi
         # flags can be read in.
@@ -153,7 +153,7 @@ class LibvirtConnection(VmsConnection):
     """
     VMS connection for Libvirt
     """
-    
+
     def configure(self):
         # (dscannell) import the libvirt module to ensure that the the
         # libvirt flags can be read in.
@@ -294,6 +294,6 @@ class LibvirtConnection(VmsConnection):
         # Return the libvirt file, this will be passed in as the name. This parameter is
         # overloaded in the management interface as a libvirt special case.
         return libvirt_file
-    
+
     def post_launch(self, context, instance, network_info=None, block_device_info=None):
         self.libvirt_conn.firewall_driver.apply_instance_filter(instance, network_info)

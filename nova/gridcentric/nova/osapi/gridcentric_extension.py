@@ -32,15 +32,15 @@ from gridcentric.nova.extension import API
 LOG = logging.getLogger("nova.api.extensions.gridcentric")
 
 class Gridcentric_extension(object):
-    """ 
+    """
     The Openstack Extension definition for the GridCentric capabilities. Currently this includes:
-        
+
         * Bless an existing virtual machine (creates a new server snapshot
           of the virtual machine and enables the user to launch new copies
           nearly instantaneously).
-        
+
         * Launch new virtual machines from a blessed copy above.
-        
+
         * Discard blessed VMs.
 
         * List launched VMs (per blessed VM).
@@ -71,7 +71,7 @@ class Gridcentric_extension(object):
 
         actions.append(extensions.ActionExtension('servers', 'gc_bless',
                                                     self._bless_instance))
- 
+
         actions.append(extensions.ActionExtension('servers', 'gc_launch',
                                                     self._launch_instance))
 
