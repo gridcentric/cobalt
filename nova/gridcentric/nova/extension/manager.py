@@ -76,9 +76,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # concerned.
 
         instance_ref = self.db.instance_get(context, instance_id)
-        image_ref = instance_ref.get('image_ref','')
+        image_ref = instance_ref.get('image_ref', '')
         if image_ref == '':
-            image_ref = instance_ref.get('image_id','')
+            image_ref = instance_ref.get('image_id', '')
 
         if launch:
             metadata = {'launched_from':'%s' % (instance_id)}
@@ -101,9 +101,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'local_gb': instance_ref['local_gb'],
            'display_name': "%s-%s" % (instance_ref['display_name'], new_suffix),
            'display_description': instance_ref['display_description'],
-           'user_data': instance_ref.get('user_data',''),
-           'key_name': instance_ref.get('key_name',''),
-           'key_data': instance_ref.get('key_data',''),
+           'user_data': instance_ref.get('user_data', ''),
+           'key_name': instance_ref.get('key_name', ''),
+           'key_data': instance_ref.get('key_data', ''),
            'locked': False,
            'metadata': metadata,
            'availability_zone': instance_ref['availability_zone'],
@@ -126,7 +126,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         """ Returns the next clone number for the instance_id """
 
         metadata = self.db.instance_metadata_get(context, instance_id)
-        clone_num = int(metadata.get('last_clone_num',-1)) + 1
+        clone_num = int(metadata.get('last_clone_num', -1)) + 1
         metadata['last_clone_num'] = clone_num
         self.db.instance_metadata_update(context, instance_id, metadata, True)
 
@@ -143,7 +143,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         metadata = self.db.instance_metadata_get(context, instance_id)
         return "launched_from" in metadata
 
-    def bless_instance(self, context, instance_id, db_copy=True, network=None):
+    def bless_instance(self, context, instance_id, db_copy=True, descriptor_url=None):
         """
         Blesses an instance, which will create a new instance from which
         further instances can be launched from it.
@@ -184,7 +184,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         try:
             # Create a new 'blessed' VM with the given name.
-            network = self.vms_conn.bless(instance_ref.name, new_instance_ref.name)
+            descriptor_url = self.vms_conn.bless(instance_ref.name, new_instance_ref.name, descriptor_url)
         except Exception, e:
             LOG.debug(_("Error during bless %s: %s"), str(e), traceback.format_exc())
             self._instance_update(context, new_instance_ref.id,
@@ -197,8 +197,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
         metadata['blessed'] = True
         self.db.instance_metadata_update(context, new_instance_ref.id, metadata, True)
 
-        # Return the network URL (None for a normal bless).
-        return network
+        # Return the descriptor URL (None for a normal bless).
+        return descriptor_url
 
     def migrate_instance(self, context, instance_id, dest):
         """
@@ -230,8 +230,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # Bless this instance, given the db_copy=False here, the bless
         # will use the same name and no files will be shift around.
-        network = self.bless_instance(context, instance_id, db_copy=False,
-                                      network="mcdist://%s" % devname)
+        descriptor_url = self.bless_instance(context, instance_id, db_copy=False,
+                                      descriptor_url="mcdist://%s" % devname)
 
         try:
             # Launch on the different host. Same situation here with the
@@ -241,13 +241,13 @@ class GridCentricManager(manager.SchedulerDependentManager):
                     {"method": "launch_instance",
                      "args": {'instance_id': instance_id,
                               'db_copy': False,
-                              'network': network}})
+                              'descriptor_url': descriptor_url}})
 
             # Teardown on this host.
             self.vms_conn.discard(instance_ref.name)
         except:
             # Rollback is launching here again.
-            self.launch_instance(context, instance_id, db_copy=False, network=network)
+            self.launch_instance(context, instance_id, db_copy=False, descriptor_url=descriptor_url)
 
     def discard_instance(self, context, instance_id):
         """ Discards an instance so that and no further instances maybe be launched from it. """
@@ -279,7 +279,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Remove the instance.
         self.db.instance_destroy(context, instance_id)
 
-    def launch_instance(self, context, instance_id, db_copy=True, network=None):
+    def launch_instance(self, context, instance_id, db_copy=True, descriptor_url=None):
         """
         Launches a new virtual machine instance that is based off of the instance referred
         by base_instance_id.
@@ -345,7 +345,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                      instance_ref.name,
                                      str(target),
                                      new_instance_ref,
-                                     network_info)
+                                     network_info,
+                                     descriptor_url)
                 self.vms_conn.replug(new_instance_ref.name,
                                      self.extract_mac_addresses(network_info))
                 self._instance_update(context, new_instance_ref.id,
