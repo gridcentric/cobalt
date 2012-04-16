@@ -50,7 +50,7 @@ import gridcentric.nova.extension.vmsconn as vmsconn
 import vms.threadpool
 
 class GridCentricManager(manager.SchedulerDependentManager):
- 
+
     def __init__(self, *args, **kwargs):
         self.vms_conn = None
         self._init_vms()
@@ -60,7 +60,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def _init_vms(self):
         """ Initializes the hypervisor options depending on the openstack connection type. """
-        
+
         connection_type = FLAGS.connection_type
         self.vms_conn = vmsconn.get_vms_connection(connection_type)
         self.vms_conn.configure()
@@ -113,13 +113,13 @@ class GridCentricManager(manager.SchedulerDependentManager):
         new_instance_ref = self.db.instance_create(context, instance)
 
         elevated = context.elevated()
-        
+
         security_groups = self.db.security_group_get_by_instance(context, instance_id)
         for security_group in security_groups:
             self.db.instance_add_security_group(elevated,
                                                 new_instance_ref.id,
                                                 security_group['id'])
-        
+
         return new_instance_ref
 
     def _next_clone_num(self, context, instance_id):
@@ -280,7 +280,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self.db.instance_destroy(context, instance_id)
 
     def launch_instance(self, context, instance_id, db_copy=True, network=None):
-        """ 
+        """
         Launches a new virtual machine instance that is based off of the instance referred
         by base_instance_id.
         """
@@ -326,7 +326,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 # Short-circuit, can't proceed.
                 return
 
-            LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"), 
+            LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"),
                       new_instance_ref.name, network_info)
         else:
             network_info = []

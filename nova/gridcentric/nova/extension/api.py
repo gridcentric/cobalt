@@ -97,7 +97,7 @@ class API(base.Base):
                 message = _("Instance quota exceeded. You can only run %s "
                             "more instances of this type.") % num_instances
             raise quota.QuotaError(message, "InstanceLimitExceeded")
-        
+
         # check against metadata
         metadata = self.db.instance_metadata_get(context, instance_id)
         self.compute_api._check_metadata_properties_quota(context, metadata)
