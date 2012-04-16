@@ -59,8 +59,8 @@ class API(base.Base):
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
 
-    def _call_gridcentric_message(self, method, context, instance_id, host=None,
-                              params=None):
+    def _call_gridcentric_message(self, method, context, instance_id,
+                                  host=None, params=None):
         """Generic handler for RPC call to gridcentric. This will block for a response.
 
         :param params: Optional dictionary of arguments to be passed to the
@@ -97,7 +97,7 @@ class API(base.Base):
                 message = _("Instance quota exceeded. You can only run %s "
                             "more instances of this type.") % num_instances
             raise quota.QuotaError(message, "InstanceLimitExceeded")
-        
+
         # check against metadata
         metadata = self.db.instance_metadata_get(context, instance_id)
         self.compute_api._check_metadata_properties_quota(context, metadata)
@@ -113,9 +113,9 @@ class API(base.Base):
     def launch_instance(self, context, instance_id):
         pid = context.project_id
         uid = context.user_id
-        
+
         self._check_quota(context, instance_id)
-        
+
         LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
                     " instance %(instance_id)s") % locals())
         rpc.cast(context,
@@ -123,6 +123,11 @@ class API(base.Base):
                      {"method": "launch_instance",
                       "args": {"topic": FLAGS.gridcentric_topic,
                                "instance_id": instance_id}})
+
+    def migrate_instance(self, context, instance_id, dest):
+        LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
+        self._call_gridcentric_message('migrate_instance', context,
+                                       instance_id, params = {"dest" : dest})
 
     def list_launched_instances(self, context, instance_id):
         filter = {

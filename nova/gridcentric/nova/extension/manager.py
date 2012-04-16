@@ -50,7 +50,7 @@ import gridcentric.nova.extension.vmsconn as vmsconn
 import vms.threadpool
 
 class GridCentricManager(manager.SchedulerDependentManager):
- 
+
     def __init__(self, *args, **kwargs):
         self.vms_conn = None
         self._init_vms()
@@ -60,7 +60,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def _init_vms(self):
         """ Initializes the hypervisor options depending on the openstack connection type. """
-        
+
         connection_type = FLAGS.connection_type
         self.vms_conn = vmsconn.get_vms_connection(connection_type)
         self.vms_conn.configure()
@@ -82,8 +82,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         if launch:
             metadata = {'launched_from':'%s' % (instance_id)}
+            host = self.host
         else:
             metadata = {'blessed_from':'%s' % (instance_id)}
+            host = None
 
         instance = {
            'reservation_id': utils.generate_uid('r'),
@@ -106,18 +108,18 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'metadata': metadata,
            'availability_zone': instance_ref['availability_zone'],
            'os_type': instance_ref['os_type'],
-           'host': self.host,
+           'host': host,
         }
         new_instance_ref = self.db.instance_create(context, instance)
-        
+
         elevated = context.elevated()
-        
+
         security_groups = self.db.security_group_get_by_instance(context, instance_id)
         for security_group in security_groups:
             self.db.instance_add_security_group(elevated,
                                                 new_instance_ref.id,
                                                 security_group['id'])
-        
+
         return new_instance_ref
 
     def _next_clone_num(self, context, instance_id):
@@ -141,7 +143,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         metadata = self.db.instance_metadata_get(context, instance_id)
         return "launched_from" in metadata
 
-    def bless_instance(self, context, instance_id):
+    def bless_instance(self, context, instance_id, db_copy=True, network=None):
         """
         Blesses an instance, which will create a new instance from which
         further instances can be launched from it.
@@ -173,12 +175,16 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # this is just an incrementing number.
         clonenum = self._next_clone_num(context, instance_id)
 
-        # Create a new blessed instance.
-        new_instance_ref = self._copy_instance(context, instance_id, str(clonenum), launch=False)
+        if db_copy:
+            # Create a new blessed instance.
+            new_instance_ref = self._copy_instance(context, instance_id, str(clonenum), launch=False)
+        else:
+            # Tweak only this instance directly.
+            new_instance_ref = instance_ref
 
         try:
             # Create a new 'blessed' VM with the given name.
-            self.vms_conn.bless(instance_ref.name, new_instance_ref.name)
+            network = self.vms_conn.bless(instance_ref.name, new_instance_ref.name)
         except Exception, e:
             LOG.debug(_("Error during bless %s: %s"), str(e), traceback.format_exc())
             self._instance_update(context, new_instance_ref.id,
@@ -190,6 +196,58 @@ class GridCentricManager(manager.SchedulerDependentManager):
         metadata = self.db.instance_metadata_get(context, new_instance_ref.id)
         metadata['blessed'] = True
         self.db.instance_metadata_update(context, new_instance_ref.id, metadata, True)
+
+        # Return the network URL (None for a normal bless).
+        return network
+
+    def migrate_instance(self, context, instance_id, dest):
+        """
+        Migrates an instance, dealing with special streaming cases as necessary.
+        """
+        LOG.debug(_("migrate instance called: instance_id=%s"), instance_id)
+
+        # Grab a reference to the instance.
+        instance_ref = self.db.instance_get(context, instance_id)
+
+        # Grab the remote queue (to make sure the host exists).
+        queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, dest)
+
+        # Figure out the interface to reach 'dest'.
+        # This is used to construct our out-of-band network parameter below.
+        iproute = subprocess.Popen(["ip", "route", "get", dest], stdout=subprocess.PIPE)
+        (stdout, stderr) = iproute.communicate()
+        lines = stdout.split("\n")
+        if len(lines) < 1:
+            raise exception.Error(_("Could not reach destination %s.") % dest)
+        try:
+            (destip, devstr, devname, srcstr, srcip) = lines[0].split()
+        except:
+            raise exception.Error(_("Could not determine interface for destination %s.") % dest)
+
+        # Check that this is not local.
+        if devname == "lo":
+            raise exception.Error(_("Can't migrate to the same host."))
+
+        # Bless this instance, given the db_copy=False here, the bless
+        # will use the same name and no files will be shift around.
+        network = self.bless_instance(context, instance_id, db_copy=False,
+                                      network="mcdist://%s" % devname)
+
+        try:
+            # Launch on the different host. Same situation here with the
+            # db_copy. The launch will assume that all the files are the
+            # same places are before (and not in special launch locations).
+            rpc.call(context, queue,
+                    {"method": "launch_instance",
+                     "args": {'instance_id': instance_id,
+                              'db_copy': False,
+                              'network': network}})
+
+            # Teardown on this host.
+            self.vms_conn.discard(instance_ref.name)
+        except:
+            # Rollback is launching here again.
+            self.launch_instance(context, instance_id, db_copy=False, network=network)
 
     def discard_instance(self, context, instance_id):
         """ Discards an instance so that and no further instances maybe be launched from it. """
@@ -221,8 +279,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Remove the instance.
         self.db.instance_destroy(context, instance_id)
 
-    def launch_instance(self, context, instance_id):
-        """ 
+    def launch_instance(self, context, instance_id, db_copy=True, network=None):
+        """
         Launches a new virtual machine instance that is based off of the instance referred
         by base_instance_id.
         """
@@ -235,8 +293,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
                   _(("Instance %s is not blessed. " +
                      "Please bless the instance before launching from it.") % instance_id))
 
-        new_instance_ref = self._copy_instance(context, instance_id, "clone", launch=True)
         instance_ref = self.db.instance_get(context, instance_id)
+
+        if db_copy:
+            # Create a new launched instance.
+            new_instance_ref = self._copy_instance(context, instance_id, "clone", launch=True)
+        else:
+            # Just launch the given blessed instance.
+            new_instance_ref = instance_ref
 
         if not FLAGS.stub_network:
             # TODO(dscannell): We need to set the is_vpn parameter correctly.
@@ -262,7 +326,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 # Short-circuit, can't proceed.
                 return
 
-            LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"), 
+            LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"),
                       new_instance_ref.name, network_info)
         else:
             network_info = []

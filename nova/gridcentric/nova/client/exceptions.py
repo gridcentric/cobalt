@@ -29,6 +29,6 @@ class HttpException(Exception):
         self.code = code
         self.message = message or ''
         self.deatils = details
-        
+
     def __str__(self):
         return "(HTTP %s) %s)" % (self.code, self.message)

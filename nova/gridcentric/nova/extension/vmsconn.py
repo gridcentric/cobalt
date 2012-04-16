@@ -75,17 +75,18 @@ class VmsConnection:
         """
         pass
 
-    def bless(self, instance_name, new_instance_name):
+    def bless(self, instance_name, new_instance_name, network=None):
         """
         Create a new blessed VM from the instance with name instance_name and gives the blessed
         instance the name new_instance_name.
         """
         LOG.debug(_("Calling commands.bless with name=%s, new_name=%s"),
                     instance_name, new_instance_name)
-        commands.bless(instance_name, new_instance_name)
+        result = commands.bless(instance_name, new_instance_name, network=network)
         LOG.debug(_("Called commands.bless with name=%s, new_name=%s"),
                     instance_name, new_instance_name)
-    
+        return result
+
     def discard(self, instance_name):
         """
         Dicard all of the vms artifacts associated with a blessed instance
@@ -94,7 +95,8 @@ class VmsConnection:
         commands.discard(instance_name)
         LOG.debug(_("Called commands.discard with name=%s"), instance_name)
 
-    def launch(self, context, instance_name, mem_target, new_instance_ref, network_info):
+    def launch(self, context, instance_name, mem_target,
+               new_instance_ref, network_info, network=None):
         """
         Launch a blessed instance
         """
@@ -103,11 +105,12 @@ class VmsConnection:
         # Launch the new VM.
         LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s"),
                   instance_name, newname, mem_target)
-        commands.launch(instance_name, newname, str(mem_target))
+        result = commands.launch(instance_name, newname, str(mem_target), network=network)
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s"),
                   instance_name, newname, mem_target)
-        
+
         self.post_launch(context, new_instance_ref, network_info)
+        return result
 
     def replug(self, instance_name, mac_addresses):
         """
@@ -123,7 +126,7 @@ class VmsConnection:
 
     def pre_launch(self, context, new_instance_ref, network_info=None, block_device_info=None):
         return new_instance_ref.name
-    
+
     def post_launch(self, context, new_instance_ref, newtork_info=None, block_device_info=None):
         pass
 
@@ -135,7 +138,7 @@ class XenApiConnection(VmsConnection):
     """
     VMS connection for XenAPI
     """
-    
+
     def configure(self):
          # (dscannell) We need to import this to ensure that the xenapi
         # flags can be read in.
@@ -146,12 +149,11 @@ class XenApiConnection(VmsConnection):
         config.MANAGEMENT['connection_password'] = FLAGS.xenapi_connection_password
         select_hypervisor('xcp')
 
-
 class LibvirtConnection(VmsConnection):
     """
     VMS connection for Libvirt
     """
-    
+
     def configure(self):
         # (dscannell) import the libvirt module to ensure that the the
         # libvirt flags can be read in.
@@ -255,7 +257,7 @@ class LibvirtConnection(VmsConnection):
         # the path to the libvirt.xml file.
         working_dir = os.path.join(FLAGS.instances_path, instance['name'])
         disk_file = os.path.join(working_dir, "disk")
-        libvirt_file = os.path.join(working_dir,"libvirt.xml")
+        libvirt_file = os.path.join(working_dir, "libvirt.xml")
 
         # (dscannell) We will write out a stub 'disk' file so that we don't end
         # up copying this file when setting up everything for libvirt.
@@ -292,6 +294,6 @@ class LibvirtConnection(VmsConnection):
         # Return the libvirt file, this will be passed in as the name. This parameter is
         # overloaded in the management interface as a libvirt special case.
         return libvirt_file
-    
+
     def post_launch(self, context, instance, network_info=None, block_device_info=None):
         self.libvirt_conn.firewall_driver.apply_instance_filter(instance, network_info)
