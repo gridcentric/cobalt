@@ -1,11 +1,9 @@
-#!/usr/bin/env python
-
 from nova import db
 from nova.compute import instance_types
 from nova.compute import vm_states
 
 def create_user(context, user = {}):
-    
+
     user.setdefault('id', "some random user")
     user.setdefault('is_admin', True)
 
@@ -13,7 +11,7 @@ def create_user(context, user = {}):
     return db.user_create(context, user)['id']
 
 def create_project(context, project = {}):
-    
+
     project.setdefault('id', "some random project")
     project.setdefault('name', project['id'])
     if 'project_manager' not in project:
@@ -28,7 +26,7 @@ def create_image(context, image = {}):
 
 def create_instance(context, instance = {}):
         """Create a test instance"""
-        
+
         instance.setdefault('user_id', create_user(context))
         instance.setdefault('project_id', create_project(context, {'project_manager':instance['user_id']}))
         instance.setdefault('instance_type_id', instance_types.get_instance_type_by_name('m1.tiny')['id'])
