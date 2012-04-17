@@ -17,6 +17,7 @@
 
 # A simple script that uses the novaclient to communicate with Openstack to
 # provide the gridcentric specific functionality.
+
 import argparse
 import os
 import sys

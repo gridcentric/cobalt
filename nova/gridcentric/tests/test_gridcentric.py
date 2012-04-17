@@ -1,3 +1,18 @@
+# Copyright 2011 GridCentric Inc.
+# All Rights Reserved.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
 import unittest
 import os
 import shutil
@@ -29,8 +44,8 @@ class GridCentricTestCase(unittest.TestCase):
 
     def setUp(self):
 
-        FLAGS.connection_type='fake'
-        FLAGS.stub_network=True
+        FLAGS.connection_type = 'fake'
+        FLAGS.stub_network = True
         # Copy the clean database over
         shutil.copyfile(os.path.join(FLAGS.state_path, FLAGS.sqlite_clean_db),
                         os.path.join(FLAGS.state_path, FLAGS.sqlite_db))
@@ -38,7 +53,7 @@ class GridCentricTestCase(unittest.TestCase):
         # Point the vms shared directory so that it is not the default (which may not exists, and
         # we don't really want to create). Since the tests use the dummy hypervisor we do not need
         # to worry about leftover artifacts.
-        vmsconfig.SHARED=os.getcwd()
+        vmsconfig.SHARED = os.getcwd()
 
         # For the sake of the unit test we substitute the thread submission to just execute the
         # function instead. This is important for 2 reasons:
@@ -59,7 +74,7 @@ class GridCentricTestCase(unittest.TestCase):
     def test_bless_instance(self):
         instance_id = utils.create_instance(self.context)
 
-        num_instance_before = len( db.instance_get_all(self.context) )
+        num_instance_before = len(db.instance_get_all(self.context))
         self.gridcentric.bless_instance(self.context, instance_id)
 
         # Ensure that we have a 2nd instance in the database that is a "clone"
@@ -80,7 +95,7 @@ class GridCentricTestCase(unittest.TestCase):
 
         instance_id = utils.create_instance(self.context)
 
-        num_instance_before = len( db.instance_get_all(self.context) )
+        num_instance_before = len(db.instance_get_all(self.context))
         self.gridcentric.bless_instance(self.context, instance_id)
         self.gridcentric.bless_instance(self.context, instance_id)
 
@@ -100,7 +115,7 @@ class GridCentricTestCase(unittest.TestCase):
         instance_id = utils.create_instance(self.context)
         self.gridcentric.bless_instance(self.context, instance_id)
 
-        blessed_id = instance_id +1
+        blessed_id = instance_id + 1
         no_exception = False
         try:
             self.gridcentric.bless_instance(self.context, blessed_id)
@@ -187,7 +202,7 @@ class GridCentricTestCase(unittest.TestCase):
         metadata = db.instance_metadata_get(self.context, launched_instance_id)
         self.assertTrue(metadata.has_key('launched_from'),
                         "The instance should have a 'launched from' metadata after being launched.")
-        self.assertTrue(metadata['launched_from'] == '%s' %(blessed_instance_id),
+        self.assertTrue(metadata['launched_from'] == '%s' % (blessed_instance_id),
             "The instance should have the 'launched from' metadata set to blessed instanced id after being launched. " \
           + "(value=%s)" % (metadata['launched_from']))
 
@@ -212,7 +227,7 @@ class GridCentricTestCase(unittest.TestCase):
         metadata = db.instance_metadata_get(self.context, launched_instance_id)
         self.assertTrue(metadata.has_key('launched_from'),
                         "The instance should have a 'launched from' metadata after being launched.")
-        self.assertTrue(metadata['launched_from'] == '%s' %(blessed_instance_id),
+        self.assertTrue(metadata['launched_from'] == '%s' % (blessed_instance_id),
             "The instance should have the 'launched from' metadata set to blessed instanced id after being launched. " \
           + "(value=%s)" % (metadata['launched_from']))
 
@@ -221,6 +236,6 @@ class GridCentricTestCase(unittest.TestCase):
         metadata = db.instance_metadata_get(self.context, launched_instance_id)
         self.assertTrue(metadata.has_key('launched_from'),
                         "The instance should have a 'launched from' metadata after being launched.")
-        self.assertTrue(metadata['launched_from'] == '%s' %(blessed_instance_id),
+        self.assertTrue(metadata['launched_from'] == '%s' % (blessed_instance_id),
             "The instance should have the 'launched from' metadata set to blessed instanced id after being launched. " \
           + "(value=%s)" % (metadata['launched_from']))
