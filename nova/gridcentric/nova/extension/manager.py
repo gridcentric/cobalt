@@ -23,6 +23,7 @@ handles RPC calls relating to GridCentric functionality creating instances.
 import time
 import traceback
 import os
+import socket
 
 from nova import exception
 from nova import flags
@@ -214,7 +215,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # Figure out the interface to reach 'dest'.
         # This is used to construct our out-of-band network parameter below.
-        iproute = subprocess.Popen(["ip", "route", "get", dest], stdout=subprocess.PIPE)
+        dest_ip = socket.gethostbyname(dest)
+        iproute = subprocess.Popen(["ip", "route", "get", dest_ip], stdout=subprocess.PIPE)
         (stdout, stderr) = iproute.communicate()
         lines = stdout.split("\n")
         if len(lines) < 1:
