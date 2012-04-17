@@ -1,63 +1,65 @@
-== Development Instructions (step-by-step to get a development environment setup) ==
+== Overview ==
 
-1. Execute contrib/nova.sh branch [nova branch] to get the latest OpenStack nova code base.
-e.g. $ contrib/nova.sh branch (this will get the trunk version. Note that this might not be stable)
-     $ contrib/nova.sh branch lp:nova/cactus (This will get the cactus release -- this should be stable)
+This project is a simple Openstack extensions that exposes Gridcentric's Virtual Machine Streaming 
+(VMS) technology. It allows Openstack clouds to take advantage of VMS-enabled hypervisors (currently
+supports Xen and KVM). See http://www.gridcentric.com for more information on VMS.
 
-2. Execute contrib/nova.sh install to install depenencies required by OpenStack
-e.g. $ contrib/nova.sh install
-
-3. Update the Dom0 on the host machine with the nova plugins
-e.g. $ scp -r nova/plugins/xenserver/xenapi/etc root@<xenserver domain>:/
-
-4. Install the glance packages
-e.g. $ sudo apt-get install glance
-
-5. Install the vms packages
-
-5. Execute contrib/nova.sh run to execute all the nova processes (including the gridcentric extension)
-Note: this should be executed as root, and it will create a new screen session for each nova process.
-e.g. $ sudo XEN_CONN_URL="<http://xen_host>" XEN_CONN_PASS=<xen api password> contrib/nova.sh run
-
-6. Use glance to upload a virtual machine image file (TODO: This image file should probably be
-downloaded as part of the install when the other images are downloaded. For the time being use
-the CentOS image on filer (filer:/export/dscannell-test/hvm-centos-adin.img. I will mount 
-filer:/export/dscannell-test at /tmp/dscannell-test. Note, images can get big, and but default
-glance is using the root system. To change locations modify the contrib/glance.conf file.)
-e.g. $ mkdir /tmp/dscannell
-     $ mount filer:/export/dscannell-test /tmp/dscannell-test
-     $ glance add name="CentOS HVM public" is_public=true disk_format=raw distro="CentOs" < /tmp/dscannell-test/hvm-centos-adin.img 
-     
-7. Boot your first virtual machine
-e.g. $ nova boot --flavor 1 --image 1 ChromeOS-HVM
-
-8. Wait for the first machine to move from BUILD to ACTIVE. Also note its best to wait a few seconds
-before blessing the virtual machine.
-
-9. Bless the virtual machine
-e.g. $ gc-api bless 1
-
-10 Launch more virtual machines based off of the suspended snapshot
-e.g. $ gc-api launch 2
-     $ gc-api launch 2
-     $ ... etc ...
 
 == Installation Instructions ==
 
-1. Ensure that OpenStack-compute is installed (http://www.openstack.org/projects/compute/). Note
-that this is currently for Xen-only hypervisor installations. To setup OpenStack compute for xen
-follow these instructions: http://wiki.openstack.org/XenServerDevelopment
+There are two main components that need to be installed:
+    1. API-Extension:       This is the actual API extension that exposes the new REST end points
+    2. Gridcentric Service: A new Openstack service that performs the gridcentric specific 
+                            operations.
 
-2. Install the nova-gridentric management component.
+This extension needs to be installed where ever the nova-api and nova-compute services are running.
 
-3. (Optional) If the extension is not loaded (i.e. 'gc' doesn't work),
-   Be sure to add the extension to your nova.conf as:
-    --osapi_extension=gridcentric.nova.osapi.gridcentric_extension
-   Or, if that doesn't work, you can make sure the path correctly:
-    --osapi_extensions_path=/var/lib/nova/extensions
+==== From Source ===
 
-4. Install the Xen API plugins on dom0 of the compute node and/or KVM packages.
-(e.g. scp -r plugins/xenserver/xenapi root@<xenserver-domain>:/)
+1. python setup.py build
+
+2. sudo python setup.py install
+
+3. Copy the extension file (gridcentric/osapi/gridcentric_extension.py) to the nova osapi extension
+directory (the --osapi_extensions_path nova configuration flag):
+       e.g. cp gridcentric/osapi/gridcentric_extension.py /var/lib/nova/extensions/
+
+5. (Optional) Copy the nova-gridcentric upstart script (etc/nova-gridcentric.conf) to /etc/init/
+
+4. Restart the nova-api service
+
+5. Start the nova-gridcentric service. Check the /var/log/nova/nova-gc.log file to ensure the
+service is running.
+
+
+== Usage ==
+
+1. Boot your a new instance using the regular Openstack API
+e.g. $ nova boot --flavor 1 --image 1 ChromeOS-HVM
+
+2. Wait for the first machine to move from BUILD to ACTIVE. Once ACTIVE ssh into the instance
+and install the vms-agent package. The agent package is used to ensure that the networking is 
+reconfigured correctly when launching new instances.
+
+3. Bless the instance. This will create a running snapshot of the instance that can later be
+used to launch new instances. Launched instances will be started with the same loaded memory
+as this blessed one.
+e.g. $ gc-api bless <id of the instance from step 1>
+
+4. List the nova instances and there should now be a new one in with a status of BLESSED. This
+instance represents a blessed snapshot that can be launched.
+
+5 Launch more instances based off of the blessed one
+e.g. $ gc-api launch <blessed instance id>
+     $ gc-api launch <blessed instance id>
+     $ ... etc ...
+
+6. Delete the launched instances.
+e.g. $ nova delete <instance_id>
+
+7. Discard the blessed instance. This will clean up all the VMS artifacts associated with the
+snapshot and remove the blessed instance from the nova database.
+e.g. $ gc-api discard <blessed instance id>
 
 == Project Contents ==
 
@@ -65,11 +67,9 @@ bin
     nova-gc
         Contains the nova-gc script that is used to start the GridCentric manager. 
 
-extension
-    Container the source for the OpenStack API extension. This should be copied
-    to the OpenStack extension directory (defaults to /var/lib/nova/extensions
-    or can be set using the osapi_extensions_path flag in the nova.conf flag
-    file).
+etc
+    nova-gridcentric.con
+        An upstart script for the nova-gridcentric service.
 
 gridcentric
     Contains the source for the gridcentric manager that does the actual work
