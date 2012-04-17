@@ -80,11 +80,11 @@ class VmsConnection:
         Create a new blessed VM from the instance with name instance_name and gives the blessed
         instance the name new_instance_name.
         """
-        LOG.debug(_("Calling commands.bless with name=%s, new_name=%s"),
-                    instance_name, new_instance_name)
+        LOG.debug(_("Calling commands.bless with name=%s, new_name=%s, network=%s"),
+                    instance_name, new_instance_name, str(network))
         result = commands.bless(instance_name, new_instance_name, network=network)
-        LOG.debug(_("Called commands.bless with name=%s, new_name=%s"),
-                    instance_name, new_instance_name)
+        LOG.debug(_("Called commands.bless with name=%s, new_name=%s, network=%s"),
+                    instance_name, new_instance_name, str(network))
         return result
 
     def discard(self, instance_name):
@@ -103,11 +103,11 @@ class VmsConnection:
         newname = self.pre_launch(context, new_instance_ref, network_info)
 
         # Launch the new VM.
-        LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s"),
-                  instance_name, newname, mem_target)
+        LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, network=%s"),
+                  instance_name, newname, mem_target, str(network))
         result = commands.launch(instance_name, newname, str(mem_target), network=network)
-        LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s"),
-                  instance_name, newname, mem_target)
+        LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, network=%s"),
+                  instance_name, newname, mem_target, str(network))
 
         self.post_launch(context, new_instance_ref, network_info)
         return result
