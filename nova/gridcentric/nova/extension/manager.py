@@ -184,7 +184,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         try:
             # Create a new 'blessed' VM with the given name.
-            network = self.vms_conn.bless(instance_ref.name, new_instance_ref.name)
+            network = self.vms_conn.bless(instance_ref.name, new_instance_ref.name, network=network)
         except Exception, e:
             LOG.debug(_("Error during bless %s: %s"), str(e), traceback.format_exc())
             self._instance_update(context, new_instance_ref.id,
@@ -345,7 +345,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                      instance_ref.name,
                                      str(target),
                                      new_instance_ref,
-                                     network_info)
+                                     network_info,
+                                     network=network)
                 self.vms_conn.replug(new_instance_ref.name,
                                      self.extract_mac_addresses(network_info))
                 self._instance_update(context, new_instance_ref.id,
