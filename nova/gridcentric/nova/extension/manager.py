@@ -185,7 +185,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         try:
             # Create a new 'blessed' VM with the given name.
-            memory_url = self.vms_conn.bless(instance_ref.name, new_instance_ref.name, memory_url=memory_url)
+            name, memory_url = self.vms_conn.bless(instance_ref.name, new_instance_ref.name, memory_url=memory_url)
         except Exception, e:
             LOG.debug(_("Error during bless %s: %s"), str(e), traceback.format_exc())
             self._instance_update(context, new_instance_ref.id,
