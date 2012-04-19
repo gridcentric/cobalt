@@ -22,11 +22,16 @@ from nova import log as logging
 from nova.db import base
 from nova import quota
 from nova import rpc
+from nova.openstack.common import cfg
 
 LOG = logging.getLogger('gridcentric.nova.api')
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string('gridcentric_topic', 'gridcentric', 'the topic gridcentric nodes listen on')
+gridcentric_api_opts = [
+               cfg.StrOpt('gridcentric_topic',
+               default='gridcentric',
+               help='the topic gridcentric nodes listen on') ]
+FLAGS.register_opts(gridcentric_api_opts)
 
 class API(base.Base):
     """API for interacting with the gridcentric manager."""
@@ -97,7 +102,7 @@ class API(base.Base):
                 message = _("Instance quota exceeded. You can only run %s "
                             "more instances of this type.") % num_instances
             raise quota.QuotaError(message, "InstanceLimitExceeded")
-        
+
         # check against metadata
         metadata = self.db.instance_metadata_get(context, instance_id)
         self.compute_api._check_metadata_properties_quota(context, metadata)
@@ -113,9 +118,9 @@ class API(base.Base):
     def launch_instance(self, context, instance_id):
         pid = context.project_id
         uid = context.user_id
-        
+
         self._check_quota(context, instance_id)
-        
+
         LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
                     " instance %(instance_id)s") % locals())
         rpc.cast(context,
