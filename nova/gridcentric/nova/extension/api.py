@@ -97,7 +97,7 @@ class API(base.Base):
                 message = _("Instance quota exceeded. You can only run %s "
                             "more instances of this type.") % num_instances
             raise quota.QuotaError(message, "InstanceLimitExceeded")
-        
+
         # check against metadata
         metadata = self.db.instance_metadata_get(context, instance_id)
         self.compute_api._check_metadata_properties_quota(context, metadata)
@@ -113,9 +113,9 @@ class API(base.Base):
     def launch_instance(self, context, instance_id):
         pid = context.project_id
         uid = context.user_id
-        
+
         self._check_quota(context, instance_id)
-        
+
         LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
                     " instance %(instance_id)s") % locals())
         rpc.cast(context,
