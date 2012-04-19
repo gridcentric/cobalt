@@ -20,95 +20,50 @@ import webob
 from nova import log as logging
 from nova import quota
 
-from nova.api.openstack import create_instance_helper as server_helper
 from nova.api.openstack import extensions
-import nova.api.openstack.views.addresses
-import nova.api.openstack.views.flavors
-import nova.api.openstack.views.images
-import nova.api.openstack.views.servers
+from nova.api.openstack import wsgi
+from nova.api.openstack.compute.views import servers as views_servers
 
 from gridcentric.nova.extension import API
 
 LOG = logging.getLogger("nova.api.extensions.gridcentric")
 
-class Gridcentric_extension(object):
-    """ 
-    The Openstack Extension definition for the GridCentric capabilities. Currently this includes:
-        
-        * Bless an existing virtual machine (creates a new server snapshot
-          of the virtual machine and enables the user to launch new copies
-          nearly instantaneously).
-        
-        * Launch new virtual machines from a blessed copy above.
-        
-        * Discard blessed VMs.
+class GridcentricServerControllerExtension(wsgi.Controller):
 
-        * List launched VMs (per blessed VM).
-    """
+    _view_builder_class = views_servers.ViewBuilder
 
     def __init__(self):
+        super(GridcentricServerControllerExtension, self).__init__()
         self.gridcentric_api = API()
-        # This is used to convert exception to consistent HTTP errors
-        self.server_helper = server_helper.CreateInstanceHelper(None)
 
-    def get_name(self):
-        return "GridCentric"
-
-    def get_alias(self):
-        return "GC"
-
-    def get_description(self):
-        return "The GridCentric extension"
-
-    def get_namespace(self):
-        return "http://www.gridcentric.com"
-
-    def get_updated(self):
-        return '2012-03-14T18:33:34-07:00' ##TIMESTAMP##
-
-    def get_actions(self):
-        actions = []
-
-        actions.append(extensions.ActionExtension('servers', 'gc_bless',
-                                                    self._bless_instance))
- 
-        actions.append(extensions.ActionExtension('servers', 'gc_launch',
-                                                    self._launch_instance))
-
-        actions.append(extensions.ActionExtension('servers', 'gc_discard',
-                                                    self._discard_instance))
-
-        actions.append(extensions.ActionExtension('servers', 'gc_list_launched',
-                                                    self._list_launched_instances))
-
-        actions.append(extensions.ActionExtension('servers', 'gc_list_blessed',
-                                                    self._list_blessed_instances))
-
-        return actions
-
-    def _bless_instance(self, input_dict, req, id):
+    @wsgi.action('gc_bless')
+    def _bless_instance(self, req, id, body):
         context = req.environ["nova.context"]
         result = self.gridcentric_api.bless_instance(context, id)
         return webob.Response(status_int=200, body=json.dumps(result))
 
-    def _discard_instance(self, input_dict, req, id):
+    @wsgi.action('gc_discard')
+    def _discard_instance(self, req, id, body):
         context = req.environ["nova.context"]
         result = self.gridcentric_api.discard_instance(context, id)
         return webob.Response(status_int=200, body=json.dumps(result))
 
-    def _launch_instance(self, input_dict, req, id):
+    @wsgi.action('gc_launch')
+    def _launch_instance(self, req, id, body):
         context = req.environ["nova.context"]
         try:
             result = self.gridcentric_api.launch_instance(context, id)
             return webob.Response(status_int=200, body=json.dumps(result))
         except quota.QuotaError as error:
-            self.server_helper._handle_quota_error(error)
+            self._handle_quota_error(error)
 
-    def _list_launched_instances(self, input_dict, req, id):
+    @wsgi.action('gc_list_launched')
+    def _list_launched_instances(self, req, id, body):
         context = req.environ["nova.context"]
         return self._build_instance_list(req, self.gridcentric_api.list_launched_instances(context, id))
 
-    def _list_blessed_instances(self, input_dict, req, id):
+    @wsgi.action('gc_list_blessed')
+    def _list_blessed_instances(self, req, id, body):
         context = req.environ["nova.context"]
         return self._build_instance_list(req, self.gridcentric_api.list_blessed_instances(context, id))
 
@@ -125,25 +80,81 @@ class Gridcentric_extension(object):
                 addresses_builder, flavor_builder, image_builder,
                 base_url, project_id)
             return builder.build(instance, is_detail=is_detail)
-        instances = [_build_view(req, inst)['server']
+        instances = [self._view_builder.detail(req, inst)['server']
                     for inst in instances]
         return webob.Response(status_int=200, body=json.dumps(instances))
 
-    def get_request_extensions(self):
-        request_exts = []
-        def _show_servers(req, res):
+    @wsgi.extends
+    def details(req, res):
             #NOTE: This only handles JSON responses.
             # You can use content type header to test for XML.
             data = json.loads(res.body)
             servers = data['servers']
             for server in servers:
-                metadata =  server['metadata']
+                metadata = server['metadata']
                 is_blessed = metadata.get('blessed', False)
                 if is_blessed:
                     server['status'] = 'BLESSED'
             return data
 
-        req_ext = extensions.RequestExtension('GET', '/:(project_id)/servers/detail',
-                                                _show_servers)
-        request_exts.append(req_ext)
-        return request_exts
+    ## Utility methods taken from nova core ##
+    def _handle_quota_error(self, error):
+        """
+        Reraise quota errors as api-specific http exceptions
+        """
+
+        code_mappings = {
+            "OnsetFileLimitExceeded":
+                    _("Personality file limit exceeded"),
+            "OnsetFilePathLimitExceeded":
+                    _("Personality file path too long"),
+            "OnsetFileContentLimitExceeded":
+                    _("Personality file content too long"),
+
+            # NOTE(bcwaldon): expose the message generated below in order
+            # to better explain how the quota was exceeded
+            "InstanceLimitExceeded": error.message,
+        }
+
+        code = error.kwargs['code']
+        expl = code_mappings.get(code, error.message) % error.kwargs
+        raise webob.exc.HTTPRequestEntityTooLarge(explanation=expl,
+                                            headers={'Retry-After': 0})
+
+
+class Gridcentric_extension(object):
+    """ 
+    The Openstack Extension definition for the GridCentric capabilities. Currently this includes:
+        
+        * Bless an existing virtual machine (creates a new server snapshot
+          of the virtual machine and enables the user to launch new copies
+          nearly instantaneously).
+        
+        * Launch new virtual machines from a blessed copy above.
+        
+        * Discard blessed VMs.
+
+        * List launched VMs (per blessed VM).
+    """
+
+    name = "GridCentric"
+    alias = "GC"
+    namespace = "http://www.gridcentric.com"
+    updated = '2012-03-14T18:33:34-07:00' ##TIMESTAMP##
+
+    def __init__(self, ext_mgr):
+        ext_mgr.register(self)
+
+    def get_controller_extensions(self):
+        extension_list = []
+
+        extension_set = [
+            (GridcentricServerControllerExtension, 'servers'),
+            ]
+        for klass, collection in extension_set:
+            controller = klass()
+            ext = extensions.ControllerExtension(self, collection, controller)
+            extension_list.append(ext)
+
+        return extension_list
+
