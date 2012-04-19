@@ -80,22 +80,20 @@ class GridcentricServerControllerExtension(wsgi.Controller):
                 addresses_builder, flavor_builder, image_builder,
                 base_url, project_id)
             return builder.build(instance, is_detail=is_detail)
-        instances = [self._view_builder.detail(req, inst)['server']
-                    for inst in instances]
+        instances = self._view_builder.detail(req, instances)['servers']
         return webob.Response(status_int=200, body=json.dumps(instances))
 
     @wsgi.extends
-    def details(req, res):
+    def detail(self, req, resp_obj, **kwargs):
             #NOTE: This only handles JSON responses.
             # You can use content type header to test for XML.
-            data = json.loads(res.body)
+            data = resp_obj.obj
             servers = data['servers']
             for server in servers:
                 metadata = server['metadata']
                 is_blessed = metadata.get('blessed', False)
                 if is_blessed:
                     server['status'] = 'BLESSED'
-            return data
 
     ## Utility methods taken from nova core ##
     def _handle_quota_error(self, error):
