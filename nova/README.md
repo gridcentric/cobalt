@@ -5,7 +5,7 @@ Project Contents
             Contains the nova-gc script that is used to start the GridCentric manager.
     
     etc
-        nova-gridcentric.con
+        nova-gridcentric.conf
             An upstart script for the nova-gridcentric service.
     
     gridcentric
