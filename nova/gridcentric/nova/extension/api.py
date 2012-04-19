@@ -40,12 +40,12 @@ class API(base.Base):
         super(API, self).__init__(**kwargs)
         self.compute_api = compute.API()
 
-    def get(self, context, instance_id):
-        """Get a single instance with the given instance_id."""
-        rv = self.db.instance_get(context, instance_id)
+    def get(self, context, instance_uuid):
+        """Get a single instance with the given instance_uuid."""
+        rv = self.db.instance_get_by_uuid(context, instance_uuid)
         return dict(rv.iteritems())
 
-    def _cast_gridcentric_message(self, method, context, instance_id, host=None,
+    def _cast_gridcentric_message(self, method, context, instance_uuid, host=None,
                               params=None):
         """Generic handler for RPC casts to gridcentric. This does not block for a response.
 
@@ -54,17 +54,18 @@ class API(base.Base):
 
         :returns: None
         """
+
         if not params:
             params = {}
         if not host:
-            instance = self.get(context, instance_id)
+            instance = self.get(context, instance_uuid)
             host = instance['host']
         queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, host)
-        params['instance_id'] = instance_id
+        params['instance_uuid'] = instance_uuid
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
 
-    def _call_gridcentric_message(self, method, context, instance_id, host=None,
+    def _call_gridcentric_message(self, method, context, instance_uuid, host=None,
                               params=None):
         """Generic handler for RPC call to gridcentric. This will block for a response.
 
@@ -73,19 +74,20 @@ class API(base.Base):
 
         :returns: None
         """
+
         if not params:
             params = {}
         if not host:
-            instance = self.get(context, instance_id)
+            instance = self.get(context, instance_uuid)
             host = instance['host']
         queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, host)
-        params['instance_id'] = instance_id
+        params['instance_uuid'] = instance_uuid
         kwargs = {'method': method, 'args': params}
         rpc.call(context, queue, kwargs)
 
-    def _check_quota(self, context, instance_id):
+    def _check_quota(self, context, instance_uuid):
         # Check the quota to see if we can launch a new instance.
-        instance = self.get(context, instance_id)
+        instance = self.get(context, instance_uuid)
         instance_type = instance['instance_type']
         metadata = instance['metadata']
 
@@ -104,42 +106,44 @@ class API(base.Base):
             raise quota.QuotaError(message, "InstanceLimitExceeded")
 
         # check against metadata
-        metadata = self.db.instance_metadata_get(context, instance_id)
+        metadata = self.db.instance_metadata_get(context, instance_uuid)
         self.compute_api._check_metadata_properties_quota(context, metadata)
 
-    def bless_instance(self, context, instance_id):
+    def bless_instance(self, context, instance_uuid):
         LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
-        self._call_gridcentric_message('bless_instance', context, instance_id)
+        self._cast_gridcentric_message('bless_instance', context, instance_uuid)
 
-    def discard_instance(self, context, instance_id):
+    def discard_instance(self, context, instance_uuid):
         LOG.debug(_("Casting gridcentric message for discard_instance") % locals())
-        self._cast_gridcentric_message('discard_instance', context, instance_id)
+        self._cast_gridcentric_message('discard_instance', context, instance_uuid)
 
-    def launch_instance(self, context, instance_id):
+    def launch_instance(self, context, instance_uuid):
         pid = context.project_id
         uid = context.user_id
 
-        self._check_quota(context, instance_id)
+        self._check_quota(context, instance_uuid)
+
+        instance = self.get(context, instance_uuid)
 
         LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
-                    " instance %(instance_id)s") % locals())
+                    " instance %(instance_uuid)s") % locals())
         rpc.cast(context,
                      FLAGS.scheduler_topic,
                      {"method": "launch_instance",
                       "args": {"topic": FLAGS.gridcentric_topic,
-                               "instance_id": instance_id}})
+                               "instance_uuid": instance_uuid}})
 
-    def list_launched_instances(self, context, instance_id):
+    def list_launched_instances(self, context, instance_uuid):
         filter = {
-                  'metadata':{'launched_from':'%s' % instance_id},
+                  'metadata':{'launched_from':'%s' % instance_uuid},
                   'deleted':False
                   }
         launched_instances = self.compute_api.get_all(context, filter)
         return launched_instances
 
-    def list_blessed_instances(self, context, instance_id):
+    def list_blessed_instances(self, context, instance_uuid):
         filter = {
-                  'metadata':{'blessed_from':'%s' % instance_id},
+                  'metadata':{'blessed_from':'%s' % instance_uuid},
                   'deleted':False
                   }
         blessed_instances = self.compute_api.get_all(context, filter)
