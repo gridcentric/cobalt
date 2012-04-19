@@ -26,6 +26,7 @@ import os
 
 from nova import exception
 from nova import flags
+from nova.openstack.common import cfg
 from nova import log as logging
 LOG = logging.getLogger('gridcentric.nova.manager')
 FLAGS = flags.FLAGS
@@ -50,7 +51,7 @@ import gridcentric.nova.extension.vmsconn as vmsconn
 import vms.threadpool
 
 class GridCentricManager(manager.SchedulerDependentManager):
- 
+
     def __init__(self, *args, **kwargs):
         self.vms_conn = None
         self._init_vms()
@@ -60,7 +61,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def _init_vms(self):
         """ Initializes the hypervisor options depending on the openstack connection type. """
-        
+
         connection_type = FLAGS.connection_type
         self.vms_conn = vmsconn.get_vms_connection(connection_type)
         self.vms_conn.configure()
@@ -76,9 +77,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # concerned.
 
         instance_ref = self.db.instance_get(context, instance_id)
-        image_ref = instance_ref.get('image_ref','')
+        image_ref = instance_ref.get('image_ref', '')
         if image_ref == '':
-            image_ref = instance_ref.get('image_id','')
+            image_ref = instance_ref.get('image_id', '')
 
         if launch:
             metadata = {'launched_from':'%s' % (instance_id)}
@@ -96,12 +97,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'instance_type_id': instance_ref['instance_type_id'],
            'memory_mb': instance_ref['memory_mb'],
            'vcpus': instance_ref['vcpus'],
-           'local_gb': instance_ref['local_gb'],
+           'root_gb': instance_ref['root_gb'],
            'display_name': "%s-%s" % (instance_ref['display_name'], new_suffix),
            'display_description': instance_ref['display_description'],
-           'user_data': instance_ref.get('user_data',''),
-           'key_name': instance_ref.get('key_name',''),
-           'key_data': instance_ref.get('key_data',''),
+           'user_data': instance_ref.get('user_data', ''),
+           'key_name': instance_ref.get('key_name', ''),
+           'key_data': instance_ref.get('key_data', ''),
            'locked': False,
            'metadata': metadata,
            'availability_zone': instance_ref['availability_zone'],
@@ -109,22 +110,22 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'host': self.host,
         }
         new_instance_ref = self.db.instance_create(context, instance)
-        
+
         elevated = context.elevated()
-        
+
         security_groups = self.db.security_group_get_by_instance(context, instance_id)
         for security_group in security_groups:
             self.db.instance_add_security_group(elevated,
                                                 new_instance_ref.id,
                                                 security_group['id'])
-        
+
         return new_instance_ref
 
     def _next_clone_num(self, context, instance_id):
         """ Returns the next clone number for the instance_id """
 
         metadata = self.db.instance_metadata_get(context, instance_id)
-        clone_num = int(metadata.get('last_clone_num',-1)) + 1
+        clone_num = int(metadata.get('last_clone_num', -1)) + 1
         metadata['last_clone_num'] = clone_num
         self.db.instance_metadata_update(context, instance_id, metadata, True)
 
@@ -262,7 +263,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 # Short-circuit, can't proceed.
                 return
 
-            LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"), 
+            LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"),
                       new_instance_ref.name, network_info)
         else:
             network_info = []
