@@ -169,7 +169,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         context.elevated()
 
-        # A number to indicate with instantiation is to be launched. Basically
+        # A number to indicate which instantiation is to be launched. Basically
         # this is just an incrementing number.
         clonenum = self._next_clone_num(context, instance_id)
 
@@ -192,7 +192,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self.db.instance_metadata_update(context, new_instance_ref.id, metadata, True)
 
     def discard_instance(self, context, instance_id):
-        """ Discards an instance so that and no further instances maybe be launched from it. """
+        """ Discards an instance so that no further instances maybe be launched from it. """
 
         LOG.debug(_("discard instance called: instance_id=%s"), instance_id)
 
@@ -224,7 +224,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
     def launch_instance(self, context, instance_id):
         """ 
         Launches a new virtual machine instance that is based off of the instance referred
-        by base_instance_id.
+        by instance_id.
         """
 
         LOG.debug(_("Launching new instance: instance_id=%s"), instance_id)
@@ -267,12 +267,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
         else:
             network_info = []
 
+        self._instance_update(context, new_instance_ref.id,
+                              vm_state=vm_states.BUILDING, task_state=task_states.SPAWNING)
         # TODO(dscannell): Need to figure out what the units of measurement for
         # the target should be (megabytes, kilobytes, bytes, etc). Also, target
         # should probably be an optional parameter that the user can pass down.
         # The target memory settings for the launch virtual machine.
-        self._instance_update(context, new_instance_ref.id,
-                              vm_state=vm_states.BUILDING, task_state=task_states.SPAWNING)
         target = new_instance_ref['memory_mb']
 
         def launch_bottom_half():
