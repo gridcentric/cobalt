@@ -16,7 +16,6 @@
 import json
 import webob
 
-
 from nova import log as logging
 from nova import exception as novaexc
 

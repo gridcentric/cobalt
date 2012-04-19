@@ -112,6 +112,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'host': self.host,
         }
         new_instance_ref = self.db.instance_create(context, instance)
+
         # (dscannell) We need to reload the instance_ref in order for it to be associated with
         # the database session of lazy-loading.
         new_instance_ref = self.db.instance_get(context, new_instance_ref.id)
@@ -186,7 +187,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         context.elevated()
 
-        # A number to indicate with instantiation is to be launched. Basically
+        # A number to indicate which instantiation is to be launched. Basically
         # this is just an incrementing number.
         clonenum = self._next_clone_num(context, instance_uuid)
 
@@ -286,12 +287,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
         else:
             network_info = []
 
+        self._instance_update(context, new_instance_ref.id,
+                              vm_state=vm_states.BUILDING, task_state=task_states.SPAWNING)
         # TODO(dscannell): Need to figure out what the units of measurement for
         # the target should be (megabytes, kilobytes, bytes, etc). Also, target
         # should probably be an optional parameter that the user can pass down.
         # The target memory settings for the launch virtual machine.
-        self._instance_update(context, new_instance_ref.id,
-                              vm_state=vm_states.BUILDING, task_state=task_states.SPAWNING)
         target = new_instance_ref['memory_mb']
 
         def launch_bottom_half():

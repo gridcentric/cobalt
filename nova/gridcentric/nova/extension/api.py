@@ -123,7 +123,6 @@ class API(base.Base):
         uid = context.user_id
 
         self._check_quota(context, instance_uuid)
-
         instance = self.get(context, instance_uuid)
 
         LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
