@@ -43,6 +43,7 @@ from nova.network import manager as network_manager
 from nova.compute import power_state
 from nova.compute import task_states
 from nova.compute import vm_states
+from nova.compute import utils as compute_utils
 
 from gridcentric.nova.extension import API
 import gridcentric.nova.extension.vmsconn as vmsconn
@@ -98,6 +99,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'memory_mb': instance_ref['memory_mb'],
            'vcpus': instance_ref['vcpus'],
            'root_gb': instance_ref['root_gb'],
+           'ephemeral_gb': instance_ref['ephemeral_gb'],
            'display_name': "%s-%s" % (instance_ref['display_name'], new_suffix),
            'display_description': instance_ref['display_description'],
            'user_data': instance_ref.get('user_data', ''),
@@ -110,9 +112,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
            'host': self.host,
         }
         new_instance_ref = self.db.instance_create(context, instance)
+        # (dscannell) We need to reload the instance_ref in order for it to be associated with
+        # the database session of lazy-loading.
+        new_instance_ref = self.db.instance_get(context, new_instance_ref.id)
 
         elevated = context.elevated()
-
         security_groups = self.db.security_group_get_by_instance(context, instance_uuid)
         for security_group in security_groups:
             self.db.instance_add_security_group(elevated,
@@ -292,14 +296,17 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         def launch_bottom_half():
             try:
+                # (dscannell) Because this will be executed in a different thread
+                # we need to regrab our instance_ref
+                new_inst_ref = self.db.instance_get(context, new_instance_ref['id'])
                 self.vms_conn.launch(context,
                                      instance_ref.name,
                                      str(target),
-                                     new_instance_ref,
+                                     new_inst_ref,
                                      network_info)
-                self.vms_conn.replug(new_instance_ref.name,
+                self.vms_conn.replug(new_inst_ref.name,
                                      self.extract_mac_addresses(network_info))
-                self._instance_update(context, new_instance_ref.id,
+                self._instance_update(context, new_inst_ref.id,
                                       vm_state=vm_states.ACTIVE, task_state=None)
             except Exception, e:
                 LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
@@ -310,6 +317,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
         vms.threadpool.submit(launch_bottom_half)
 
     def extract_mac_addresses(self, network_info):
+        # TODO(dscannell) We should be using the network_info object. This is just here
+        # until we figure out how to use it.
+        network_info = compute_utils.legacy_network_info(network_info)
         mac_addresses = {}
         vif = 0
         for network in network_info:

@@ -18,7 +18,7 @@ import webob
 
 
 from nova import log as logging
-from nova import quota
+from nova import exception as novaexc
 
 from nova.api.openstack import extensions
 from nova.api.openstack import wsgi
@@ -54,7 +54,7 @@ class GridcentricServerControllerExtension(wsgi.Controller):
         try:
             result = self.gridcentric_api.launch_instance(context, id)
             return webob.Response(status_int=200, body=json.dumps(result))
-        except quota.QuotaError as error:
+        except novaexc.QuotaError as error:
             self._handle_quota_error(error)
 
     @wsgi.action('gc_list_launched')

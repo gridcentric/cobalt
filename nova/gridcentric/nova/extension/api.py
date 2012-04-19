@@ -21,6 +21,7 @@ from nova import flags
 from nova import log as logging
 from nova.db import base
 from nova import quota
+from nova import exception as novaexc
 from nova import rpc
 from nova.openstack.common import cfg
 
@@ -103,10 +104,10 @@ class API(base.Base):
             else:
                 message = _("Instance quota exceeded. You can only run %s "
                             "more instances of this type.") % num_instances
-            raise quota.QuotaError(message, "InstanceLimitExceeded")
+            raise novaexc.QuotaError(code="InstanceLimitExceeded")
 
         # check against metadata
-        metadata = self.db.instance_metadata_get(context, instance_uuid)
+        metadata = self.db.instance_metadata_get(context, instance['id'])
         self.compute_api._check_metadata_properties_quota(context, metadata)
 
     def bless_instance(self, context, instance_uuid):
