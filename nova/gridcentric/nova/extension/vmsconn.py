@@ -28,6 +28,7 @@ import tempfile
 from nova import exception
 from nova import flags
 from nova import log as logging
+from nova.compute import utils as compute_utils
 from nova.openstack.common import cfg
 LOG = logging.getLogger('gridcentric.nova.extension.vmsconn')
 FLAGS = flags.FLAGS
@@ -45,7 +46,7 @@ import vms.utilities as utilities
 
 def get_vms_connection(connection_type):
     # Configure the logger regardless of the type of connection that will be used.
-    logger.setup_console_defaults()
+    #logger.setup_console_defaults()
     if connection_type == 'xenapi':
         return XenApiConnection()
     elif connection_type == 'libvirt':
@@ -255,6 +256,12 @@ class LibvirtConnection(VmsConnection):
                             (FLAGS.libvirt_user, str(e)))
 
     def pre_launch(self, context, instance, network_info=None, block_device_info=None):
+
+        # (dscannell) Check to see if we need to convert the network_info object
+        # into the legacy format.
+        if self.libvirt_conn.legacy_nwinfo():
+            network_info = compute_utils.legacy_network_info(network_info)
+
          # We meed to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
         working_dir = os.path.join(FLAGS.instances_path, instance['name'])
@@ -298,5 +305,5 @@ class LibvirtConnection(VmsConnection):
         return libvirt_file
 
     def post_launch(self, context, instance, network_info=None, block_device_info=None):
-        self._enable_hairpin(instance)
+        self.libvirt_conn._enable_hairpin(instance)
         self.libvirt_conn.firewall_driver.apply_instance_filter(instance, network_info)
