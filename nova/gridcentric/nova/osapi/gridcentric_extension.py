@@ -71,7 +71,7 @@ class Gridcentric_extension(object):
 
         actions.append(extensions.ActionExtension('servers', 'gc_bless',
                                                     self._bless_instance))
- 
+
         actions.append(extensions.ActionExtension('servers', 'gc_launch',
                                                     self._launch_instance))
 
@@ -137,7 +137,7 @@ class Gridcentric_extension(object):
             data = json.loads(res.body)
             servers = data['servers']
             for server in servers:
-                metadata =  server['metadata']
+                metadata = server['metadata']
                 is_blessed = metadata.get('blessed', False)
                 if is_blessed:
                     server['status'] = 'BLESSED'
