@@ -251,7 +251,7 @@ class LibvirtConnection(VmsConnection):
                             (FLAGS.libvirt_user, str(e)))
 
     def pre_launch(self, context, instance, network_info=None, block_device_info=None):
-         # We meed to create the libvirt xml, and associated files. Pass back
+         # We need to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
         working_dir = os.path.join(FLAGS.instances_path, instance['name'])
         disk_file = os.path.join(working_dir, "disk")
