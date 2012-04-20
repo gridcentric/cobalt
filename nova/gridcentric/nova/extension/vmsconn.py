@@ -28,10 +28,15 @@ import tempfile
 from nova import exception
 from nova import flags
 from nova import log as logging
+from nova.compute import utils as compute_utils
+from nova.openstack.common import cfg
 LOG = logging.getLogger('gridcentric.nova.extension.vmsconn')
 FLAGS = flags.FLAGS
-flags.DEFINE_string('libvirt_user', 'libvirt-qemu',
-                    'The user that libvirt runs qemu as.')
+vmsconn_opts = [
+               cfg.StrOpt('libvirt_user',
+               default='libvirt-qemu',
+               help='The user that libvirt runs qemu as.') ]
+FLAGS.register_opts(vmsconn_opts)
 
 import vms.commands as commands
 import vms.logger as logger
@@ -41,7 +46,7 @@ import vms.utilities as utilities
 
 def get_vms_connection(connection_type):
     # Configure the logger regardless of the type of connection that will be used.
-    logger.setup_console_defaults()
+    #logger.setup_console_defaults()
     if connection_type == 'xenapi':
         return XenApiConnection()
     elif connection_type == 'libvirt':
@@ -160,7 +165,7 @@ class LibvirtConnection(VmsConnection):
         self.configure_path_permissions()
 
         self.libvirt_conn = libvirt_connection.get_connection(False)
-        config.MANAGEMENT['connection_url'] = self.libvirt_conn.get_uri()
+        config.MANAGEMENT['connection_url'] = self.libvirt_conn.uri
         select_hypervisor('libvirt')
 
         # We're typically on the local host and the logs may get out
@@ -251,7 +256,13 @@ class LibvirtConnection(VmsConnection):
                             (FLAGS.libvirt_user, str(e)))
 
     def pre_launch(self, context, instance, network_info=None, block_device_info=None):
-         # We need to create the libvirt xml, and associated files. Pass back
+
+        # (dscannell) Check to see if we need to convert the network_info object
+        # into the legacy format.
+        if self.libvirt_conn.legacy_nwinfo():
+            network_info = compute_utils.legacy_network_info(network_info)
+
+         # We meed to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
         working_dir = os.path.join(FLAGS.instances_path, instance['name'])
         disk_file = os.path.join(working_dir, "disk")
@@ -294,4 +305,5 @@ class LibvirtConnection(VmsConnection):
         return libvirt_file
 
     def post_launch(self, context, instance, network_info=None, block_device_info=None):
+        self.libvirt_conn._enable_hairpin(instance)
         self.libvirt_conn.firewall_driver.apply_instance_filter(instance, network_info)
