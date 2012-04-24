@@ -85,41 +85,41 @@ parser = get_parser()
 options, args = parser.parse_known_args(sys.argv)
 
 def get_arg(n):
-    if len(args) < n + 3:
+    if len(args) < n + 2:
         usage()
         exit()
-    return args[n+2]
+    return args[n+1]
 
-command = sys.argv[1]
+command = get_arg(0)
 
 url, user, key, project = options.url, options.username, options.apikey, options.projectid
 client = NovaClient(url, user, key, project)
 
 if command == 'bless':
-    instance_id = get_arg(0)
+    instance_id = get_arg(1)
     client.bless_instance(instance_id)
 
 elif command == 'discard':
-    instance_id = get_arg(0)
+    instance_id = get_arg(1)
     client.discard_instance(instance_id)
 
 elif command == 'launch':
-    instance_id = get_arg(0)
+    instance_id = get_arg(1)
     client.launch_instance(instance_id)
 
 elif command == 'list-launched':
-    instance_id = get_arg(0)
+    instance_id = get_arg(1)
     for instance in client.list_launched_instances(instance_id):
         print instance['id']
 
 elif command == 'list-blessed':
-    instance_id = get_arg(0)
+    instance_id = get_arg(1)
     for instance in client.list_blessed_instances(instance_id):
         print instance['id']
 
 elif command == 'migrate':
-    instance_id = get_arg(0)
-    dest = get_arg(1)
+    instance_id = get_arg(1)
+    dest = get_arg(2)
     client.migrate_instance(instance_id, dest)
 
 else:
