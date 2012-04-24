@@ -16,7 +16,6 @@
 import json
 import webob
 
-
 from nova import log as logging
 from nova import quota
 
@@ -151,7 +150,7 @@ class Gridcentric_extension(object):
             data = json.loads(res.body)
             servers = data['servers']
             for server in servers:
-                metadata =  server['metadata']
+                metadata = server['metadata']
                 is_blessed = metadata.get('blessed', False)
                 if is_blessed:
                     server['status'] = 'BLESSED'
