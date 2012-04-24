@@ -88,9 +88,7 @@ class VmsConnection:
                                 migration=(migration_url and True))
         LOG.debug(_("Called commands.bless with name=%s, new_name=%s, migration_url=%s"),
                     instance_name, new_instance_name, str(migration_url))
-
-        # Return the network URL, should be None for a non-migration case.
-        return result[1]
+        return result
 
     def discard(self, instance_name):
         """

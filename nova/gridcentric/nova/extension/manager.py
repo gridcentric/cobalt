@@ -186,7 +186,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         try:
             # Create a new 'blessed' VM with the given name.
-            migration_url = self.vms_conn.bless(instance_ref.name,
+            name, migration_url = self.vms_conn.bless(instance_ref.name,
                                                 new_instance_ref.name,
                                                 migration_url=migration_url)
         except Exception, e:
