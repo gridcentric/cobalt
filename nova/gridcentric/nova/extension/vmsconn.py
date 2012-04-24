@@ -290,27 +290,28 @@ class LibvirtConnection(VmsConnection):
         # objects back to the database and other times it is missing the
         # necessary context.
 
-        # (dscannell) We want to disable any injection
-        key = instance['key_data']
-        instance['key_data'] = None
-        metadata = instance['metadata']
-        instance['metadata'] = []
+        # (dscannell) We want to disable any injection. We do this by making a 
+        # copy of the instance and clearing out some entries. Since Openstack
+        # uses dictionary-list accessors, we can pass this dictionary through
+        # that code.
+        instance_dict = dict(instance.iteritems())
+        # The name attribute is special and does not carry over like the rest of the
+        # attributes.
+        instance_dict['name'] = instance['name']
+        instance_dict['key_data'] = None
+        instance_dict['metadata'] = []
         for network_ref, mapping in network_info:
             network_ref['injected'] = False
 
         # (dscannell) This was taken from the core nova project as part of the
         # boot path for normal instances. We basically want to mimic this
         # functionality.
-        xml = self.libvirt_conn.to_xml(instance, network_info, False,
+        xml = self.libvirt_conn.to_xml(instance_dict, network_info, False,
                                        block_device_info=block_device_info)
-        self.libvirt_conn.firewall_driver.setup_basic_filtering(instance, network_info)
-        self.libvirt_conn.firewall_driver.prepare_instance_filter(instance, network_info)
-        self.libvirt_conn._create_image(context, instance, xml, network_info=network_info,
+        self.libvirt_conn.firewall_driver.setup_basic_filtering(instance_dict, network_info)
+        self.libvirt_conn.firewall_driver.prepare_instance_filter(instance_dict, network_info)
+        self.libvirt_conn._create_image(context, instance_dict, xml, network_info=network_info,
                                         block_device_info=block_device_info)
-
-        # (dscannell) Restore previously disabled values.
-        instance['key_data'] = key
-        instance['metadata'] = metadata
 
         if not(migration):
             # (dscannell) Remove the fake disk file (if created).
