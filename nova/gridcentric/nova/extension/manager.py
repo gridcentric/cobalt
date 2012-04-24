@@ -218,6 +218,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # only real difference is that the migration must not go through
         # libvirt, instead we drive it via our bless, launch routines.
 
+        if dest == self.host:
+            raise exception.Error(_("Unable to migrate to the same host."))
+
         # Grab a reference to the instance.
         instance_ref = self.db.instance_get(context, instance_id)
 
