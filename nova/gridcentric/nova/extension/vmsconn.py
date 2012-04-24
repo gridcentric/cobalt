@@ -80,6 +80,7 @@ class VmsConnection:
         Create a new blessed VM from the instance with name instance_name and gives the blessed
         instance the name new_instance_name.
         """
+<<<<<<< HEAD
         LOG.debug(_("Calling commands.bless with name=%s, new_name=%s, migration_url=%s"),
                     instance_name, new_instance_name, str(migration_url))
         result = commands.bless(instance_name,
@@ -89,6 +90,13 @@ class VmsConnection:
         LOG.debug(_("Called commands.bless with name=%s, new_name=%s, migration_url=%s"),
                     instance_name, new_instance_name, str(migration_url))
         return result
+=======
+        LOG.debug(_("Calling commands.bless with name=%s, new_name=%s"),
+                    instance_name, new_instance_name)
+        commands.bless(instance_name, new_instance_name)
+        LOG.debug(_("Called commands.bless with name=%s, new_name=%s"),
+                    instance_name, new_instance_name)
+>>>>>>> gridcentric/master
 
     def discard(self, instance_name):
         """
