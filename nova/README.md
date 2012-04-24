@@ -1,6 +1,6 @@
 Overview
 ========
-This project is a simple Openstack extensions that exposes Gridcentric's Virtual Machine Streaming 
+This project is an Openstack extension that exposes Gridcentric's Virtual Machine Streaming 
 (VMS) technology. It allows Openstack clouds to take advantage of VMS-enabled hypervisors (currently
 supports Xen and KVM). See http://www.gridcentric.com for more information on VMS.
 
