@@ -105,7 +105,8 @@ class VmsConnection:
         """
         Launch a blessed instance
         """
-        newname = self.pre_launch(context, new_instance_ref, network_info)
+        newname = self.pre_launch(context, new_instance_ref, network_info,
+                                  migration=(migration_url and True))
 
         # Launch the new VM.
         LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
@@ -118,7 +119,8 @@ class VmsConnection:
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
                   instance_name, newname, mem_target, str(migration_url))
 
-        self.post_launch(context, new_instance_ref, network_info)
+        self.post_launch(context, new_instance_ref, network_info,
+                         migration=(migration_url and True))
         return result
 
     def replug(self, instance_name, mac_addresses):
@@ -133,10 +135,12 @@ class VmsConnection:
                         mac_addresses=mac_addresses)
         LOG.debug(_("Called vms.replug with name=%s"), instance_name)
 
-    def pre_launch(self, context, new_instance_ref, network_info=None, block_device_info=None):
+    def pre_launch(self, context, new_instance_ref, network_info=None,
+                   block_device_info=None, migration=False):
         return new_instance_ref.name
 
-    def post_launch(self, context, new_instance_ref, newtork_info=None, block_device_info=None):
+    def post_launch(self, context, new_instance_ref, newtork_info=None,
+                    block_device_info=None, migration=False):
         pass
 
 class DummyConnection(VmsConnection):
@@ -261,31 +265,34 @@ class LibvirtConnection(VmsConnection):
                             "permissions for user %s. Error: %s" %
                             (FLAGS.libvirt_user, str(e)))
 
-    def pre_launch(self, context, instance, network_info=None, block_device_info=None):
+    def pre_launch(self, context, instance, network_info=None,
+                   block_device_info=None, migration=False):
+
         # We need to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
         working_dir = os.path.join(FLAGS.instances_path, instance['name'])
         disk_file = os.path.join(working_dir, "disk")
         libvirt_file = os.path.join(working_dir, "libvirt.xml")
 
-        # (dscannell) We will write out a stub 'disk' file so that we don't end
-        # up copying this file when setting up everything for libvirt.
-        # Essentially, this file will be removed, and replaced by vms as an
-        # overlay on the blessed root image.
+        # Make sure that our working directory exists.
         if not(os.path.exists(working_dir)):
             os.makedirs(working_dir)
-        disk_exists = os.path.exists(disk_file)
-        if not(disk_exists):
+
+        if not(migration):
+            # (dscannell) We will write out a stub 'disk' file so that we don't end
+            # up copying this file when setting up everything for libvirt.
+            # Essentially, this file will be removed, and replaced by vms as an
+            # overlay on the blessed root image.
             f = open(disk_file, 'w')
             f.close()
 
-        # (dscannell) We want to disable any injection
-        key = instance['key_data']
-        instance['key_data'] = None
-        metadata = instance['metadata']
-        instance['metadata'] = []
-        for network_ref, mapping in network_info:
-            network_ref['injected'] = False
+            # (dscannell) We want to disable any injection
+            key = instance['key_data']
+            instance['key_data'] = None
+            metadata = instance['metadata']
+            instance['metadata'] = []
+            for network_ref, mapping in network_info:
+                network_ref['injected'] = False
 
         # (dscannell) This was taken from the core nova project as part of the
         # boot path for normal instances. We basically want to mimic this
@@ -297,17 +304,18 @@ class LibvirtConnection(VmsConnection):
         self.libvirt_conn._create_image(context, instance, xml, network_info=network_info,
                                         block_device_info=block_device_info)
 
-        # (dscannell) Restore previously disabled values.
-        instance['key_data'] = key
-        instance['metadata'] = metadata
+        if not(migration):
+            # (dscannell) Restore previously disabled values.
+            instance['key_data'] = key
+            instance['metadata'] = metadata
 
-        # (dscannell) Remove the fake disk file (if created).
-        if not(disk_exists):
+            # (dscannell) Remove the fake disk file (if created).
             os.remove(disk_file)
 
         # Return the libvirt file, this will be passed in as the name. This parameter is
         # overloaded in the management interface as a libvirt special case.
         return libvirt_file
 
-    def post_launch(self, context, instance, network_info=None, block_device_info=None):
+    def post_launch(self, context, instance, network_info=None,
+                    block_device_info=None, migration=False):
         self.libvirt_conn.firewall_driver.apply_instance_filter(instance, network_info)
