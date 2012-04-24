@@ -286,13 +286,19 @@ class LibvirtConnection(VmsConnection):
             f = open(disk_file, 'w')
             f.close()
 
-            # (dscannell) We want to disable any injection
-            key = instance['key_data']
-            instance['key_data'] = None
-            metadata = instance['metadata']
-            instance['metadata'] = []
-            for network_ref, mapping in network_info:
-                network_ref['injected'] = False
+        # FIXME: Not sure why this occasionally generates an error about
+        # missing a database context. It seems that there is some condition
+        # here where sometimes the ORM is capable of correctly mapping these
+        # objects back to the database and other times it is missing the
+        # necessary context.
+
+        # (dscannell) We want to disable any injection
+        key = instance['key_data']
+        instance['key_data'] = None
+        metadata = instance['metadata']
+        instance['metadata'] = []
+        for network_ref, mapping in network_info:
+            network_ref['injected'] = False
 
         # (dscannell) This was taken from the core nova project as part of the
         # boot path for normal instances. We basically want to mimic this
@@ -304,11 +310,11 @@ class LibvirtConnection(VmsConnection):
         self.libvirt_conn._create_image(context, instance, xml, network_info=network_info,
                                         block_device_info=block_device_info)
 
-        if not(migration):
-            # (dscannell) Restore previously disabled values.
-            instance['key_data'] = key
-            instance['metadata'] = metadata
+        # (dscannell) Restore previously disabled values.
+        instance['key_data'] = key
+        instance['metadata'] = metadata
 
+        if not(migration):
             # (dscannell) Remove the fake disk file (if created).
             os.remove(disk_file)
 
