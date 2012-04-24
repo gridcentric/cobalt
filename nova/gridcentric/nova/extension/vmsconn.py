@@ -75,16 +75,19 @@ class VmsConnection:
         """
         pass
 
-    def bless(self, instance_name, new_instance_name, memory_url=None):
+    def bless(self, instance_name, new_instance_name, migration_url=None):
         """
         Create a new blessed VM from the instance with name instance_name and gives the blessed
         instance the name new_instance_name.
         """
-        LOG.debug(_("Calling commands.bless with name=%s, new_name=%s, network=%s"),
-                    instance_name, new_instance_name, str(memory_url))
-        result = commands.bless(instance_name, new_instance_name, network=memory_url)
-        LOG.debug(_("Called commands.bless with name=%s, new_name=%s, network=%s"),
-                    instance_name, new_instance_name, str(memory_url))
+        LOG.debug(_("Calling commands.bless with name=%s, new_name=%s, migration_url=%s"),
+                    instance_name, new_instance_name, str(migration_url))
+        result = commands.bless(instance_name,
+                                new_instance_name,
+                                network=migration_url,
+                                migration=(migration_url and True))
+        LOG.debug(_("Called commands.bless with name=%s, new_name=%s, migration_url=%s"),
+                    instance_name, new_instance_name, str(migration_url))
         return result
 
     def discard(self, instance_name):
@@ -96,20 +99,26 @@ class VmsConnection:
         LOG.debug(_("Called commands.discard with name=%s"), instance_name)
 
     def launch(self, context, instance_name, mem_target,
-               new_instance_ref, network_info, memory_url=None):
+               new_instance_ref, network_info, migration_url=None):
         """
         Launch a blessed instance
         """
-        newname = self.pre_launch(context, new_instance_ref, network_info)
+        newname = self.pre_launch(context, new_instance_ref, network_info,
+                                  migration=(migration_url and True))
 
         # Launch the new VM.
-        LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, network=%s"),
-                  instance_name, newname, mem_target, str(memory_url))
-        result = commands.launch(instance_name, newname, str(mem_target), network=memory_url)
-        LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, network=%s"),
-                  instance_name, newname, mem_target, str(memory_url))
+        LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
+                  instance_name, newname, mem_target, str(migration_url))
+        result = commands.launch(instance_name,
+                                 newname,
+                                 str(mem_target),
+                                 network=migration_url,
+                                 migration=(migration_url and True))
+        LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
+                  instance_name, newname, mem_target, str(migration_url))
 
-        self.post_launch(context, new_instance_ref, network_info)
+        self.post_launch(context, new_instance_ref, network_info,
+                         migration=(migration_url and True))
         return result
 
     def replug(self, instance_name, mac_addresses):
@@ -124,10 +133,12 @@ class VmsConnection:
                         mac_addresses=mac_addresses)
         LOG.debug(_("Called vms.replug with name=%s"), instance_name)
 
-    def pre_launch(self, context, new_instance_ref, network_info=None, block_device_info=None):
+    def pre_launch(self, context, new_instance_ref, network_info=None,
+                   block_device_info=None, migration=False):
         return new_instance_ref.name
 
-    def post_launch(self, context, new_instance_ref, newtork_info=None, block_device_info=None):
+    def post_launch(self, context, new_instance_ref, newtork_info=None,
+                    block_device_info=None, migration=False):
         pass
 
 class DummyConnection(VmsConnection):
@@ -252,19 +263,32 @@ class LibvirtConnection(VmsConnection):
                             "permissions for user %s. Error: %s" %
                             (FLAGS.libvirt_user, str(e)))
 
-    def pre_launch(self, context, instance, network_info=None, block_device_info=None):
-         # We meed to create the libvirt xml, and associated files. Pass back
+    def pre_launch(self, context, instance, network_info=None,
+                   block_device_info=None, migration=False):
+
+        # We need to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
         working_dir = os.path.join(FLAGS.instances_path, instance['name'])
         disk_file = os.path.join(working_dir, "disk")
         libvirt_file = os.path.join(working_dir, "libvirt.xml")
 
-        # (dscannell) We will write out a stub 'disk' file so that we don't end
-        # up copying this file when setting up everything for libvirt.
-        # Essentially, this file will be removed, and replaced by vms as an
-        # overlay on the blessed root image.
-        os.makedirs(working_dir)
-        file(os.path.join(disk_file), 'w').close()
+        # Make sure that our working directory exists.
+        if not(os.path.exists(working_dir)):
+            os.makedirs(working_dir)
+
+        if not(migration):
+            # (dscannell) We will write out a stub 'disk' file so that we don't end
+            # up copying this file when setting up everything for libvirt.
+            # Essentially, this file will be removed, and replaced by vms as an
+            # overlay on the blessed root image.
+            f = open(disk_file, 'w')
+            f.close()
+
+        # FIXME: Not sure why this occasionally generates an error about
+        # missing a database context. It seems that there is some condition
+        # here where sometimes the ORM is capable of correctly mapping these
+        # objects back to the database and other times it is missing the
+        # necessary context.
 
         # (dscannell) We want to disable any injection
         key = instance['key_data']
@@ -284,16 +308,18 @@ class LibvirtConnection(VmsConnection):
         self.libvirt_conn._create_image(context, instance, xml, network_info=network_info,
                                         block_device_info=block_device_info)
 
-        # (dscannell) Restore previously disabled values
+        # (dscannell) Restore previously disabled values.
         instance['key_data'] = key
         instance['metadata'] = metadata
 
-        # (dscannell) Remove the fake disk file
-        os.remove(disk_file)
+        if not(migration):
+            # (dscannell) Remove the fake disk file (if created).
+            os.remove(disk_file)
 
         # Return the libvirt file, this will be passed in as the name. This parameter is
         # overloaded in the management interface as a libvirt special case.
         return libvirt_file
 
-    def post_launch(self, context, instance, network_info=None, block_device_info=None):
+    def post_launch(self, context, instance, network_info=None,
+                    block_device_info=None, migration=False):
         self.libvirt_conn.firewall_driver.apply_instance_filter(instance, network_info)
