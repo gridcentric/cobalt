@@ -261,6 +261,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
         migration_url = self.bless_instance(context, instance_id,
                                             migration_url="mcdist://%s" % devname)
 
+        # Make sure that the disk reflects all current state for this VM.
+        # It's times like these that I wish there was a way to do this on a
+        # per-file basis, but we have no choice here but to sync() globally.
+        subprocess.call(["sync"])
+
         try:
             # Launch on the different host. With the non-null migration_url,
             # the launch will assume that all the files are the same places are
