@@ -52,6 +52,9 @@ import gridcentric.nova.extension.vmsconn as vmsconn
 # We borrow the threadpool from VMS.
 import vms.threadpool
 
+# Borrow the call command from VMS (to fix python bug).
+import vms.utilities
+
 class GridCentricManager(manager.SchedulerDependentManager):
 
     def __init__(self, *args, **kwargs):
@@ -264,7 +267,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Make sure that the disk reflects all current state for this VM.
         # It's times like these that I wish there was a way to do this on a
         # per-file basis, but we have no choice here but to sync() globally.
-        subprocess.call(["sync"])
+        vms.utilities.call_command(["sync"])
 
         try:
             # Launch on the different host. With the non-null migration_url,
