@@ -284,12 +284,6 @@ class LibvirtConnection(VmsConnection):
             f = open(disk_file, 'w')
             f.close()
 
-        # FIXME: Not sure why this occasionally generates an error about
-        # missing a database context. It seems that there is some condition
-        # here where sometimes the ORM is capable of correctly mapping these
-        # objects back to the database and other times it is missing the
-        # necessary context.
-
         # (dscannell) We want to disable any injection. We do this by making a 
         # copy of the instance and clearing out some entries. Since Openstack
         # uses dictionary-list accessors, we can pass this dictionary through
