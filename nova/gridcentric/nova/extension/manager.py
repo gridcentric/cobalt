@@ -286,6 +286,15 @@ class GridCentricManager(manager.SchedulerDependentManager):
             self.compute_manager.post_live_migration(context, instance_ref, dest, block_migration=False)
 
         except:
+            #TODO(dscannell): This rollback is a bit broken right now because we cannot simply
+            # relaunch the instance on this host. The order of events during migration are:
+            #  1. Bless instance -- This will leave the qemu process in a paused state, but alive
+            #  2. Clean up libvirt state (need to see why it doesn't kill the qemu process)
+            #  3. Call launch on the destination host and wait for the instance to hoard its memory
+            #  4. Call discard that will clean up the descriptor and kill off the qemu process
+            # Depending on what has occurred different strategies are needed to rollback
+            #  e.g We can simply unpause the instance if the qemu process still exists (might need
+            #  to move when libvirt cleanup occurs).
             LOG.debug(_("Error during migration: %s"), traceback.format_exc())
             # Rollback is launching here again.
             self.launch_instance(context, instance_id, migration_url=migration_url)
