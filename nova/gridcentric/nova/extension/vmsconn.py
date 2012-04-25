@@ -75,16 +75,20 @@ class VmsConnection:
         """
         pass
 
-    def bless(self, instance_name, new_instance_name):
+    def bless(self, instance_name, new_instance_name, migration_url=None):
         """
         Create a new blessed VM from the instance with name instance_name and gives the blessed
         instance the name new_instance_name.
         """
-        LOG.debug(_("Calling commands.bless with name=%s, new_name=%s"),
-                    instance_name, new_instance_name)
-        commands.bless(instance_name, new_instance_name)
-        LOG.debug(_("Called commands.bless with name=%s, new_name=%s"),
-                    instance_name, new_instance_name)
+        LOG.debug(_("Calling commands.bless with name=%s, new_name=%s, migration_url=%s"),
+                    instance_name, new_instance_name, str(migration_url))
+        result = commands.bless(instance_name,
+                                new_instance_name,
+                                network=migration_url,
+                                migration=(migration_url and True))
+        LOG.debug(_("Called commands.bless with name=%s, new_name=%s, migration_url=%s"),
+                    instance_name, new_instance_name, str(migration_url))
+        return result
 
     def discard(self, instance_name):
         """
@@ -94,20 +98,28 @@ class VmsConnection:
         commands.discard(instance_name)
         LOG.debug(_("Called commands.discard with name=%s"), instance_name)
 
-    def launch(self, context, instance_name, mem_target, new_instance_ref, network_info):
+    def launch(self, context, instance_name, mem_target,
+               new_instance_ref, network_info, migration_url=None):
         """
         Launch a blessed instance
         """
-        newname = self.pre_launch(context, new_instance_ref, network_info)
+        newname = self.pre_launch(context, new_instance_ref, network_info,
+                                  migration=(migration_url and True))
 
         # Launch the new VM.
-        LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s"),
-                  instance_name, newname, mem_target)
-        commands.launch(instance_name, newname, str(mem_target))
-        LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s"),
-                  instance_name, newname, mem_target)
+        LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
+                  instance_name, newname, mem_target, str(migration_url))
+        result = commands.launch(instance_name,
+                                 newname,
+                                 str(mem_target),
+                                 network=migration_url,
+                                 migration=(migration_url and True))
+        LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
+                  instance_name, newname, mem_target, str(migration_url))
 
-        self.post_launch(context, new_instance_ref, network_info)
+        self.post_launch(context, new_instance_ref, network_info,
+                         migration=(migration_url and True))
+        return result
 
     def replug(self, instance_name, mac_addresses):
         """
@@ -121,10 +133,12 @@ class VmsConnection:
                         mac_addresses=mac_addresses)
         LOG.debug(_("Called vms.replug with name=%s"), instance_name)
 
-    def pre_launch(self, context, new_instance_ref, network_info=None, block_device_info=None):
+    def pre_launch(self, context, new_instance_ref, network_info=None,
+                   block_device_info=None, migration=False):
         return new_instance_ref.name
 
-    def post_launch(self, context, new_instance_ref, newtork_info=None, block_device_info=None):
+    def post_launch(self, context, new_instance_ref, newtork_info=None,
+                    block_device_info=None, migration=False):
         pass
 
 class DummyConnection(VmsConnection):
@@ -145,7 +159,6 @@ class XenApiConnection(VmsConnection):
         config.MANAGEMENT['connection_username'] = FLAGS.xenapi_connection_username
         config.MANAGEMENT['connection_password'] = FLAGS.xenapi_connection_password
         select_hypervisor('xcp')
-
 
 class LibvirtConnection(VmsConnection):
     """
@@ -250,48 +263,64 @@ class LibvirtConnection(VmsConnection):
                             "permissions for user %s. Error: %s" %
                             (FLAGS.libvirt_user, str(e)))
 
-    def pre_launch(self, context, instance, network_info=None, block_device_info=None):
-         # We need to create the libvirt xml, and associated files. Pass back
+    def pre_launch(self, context, instance, network_info=None,
+                   block_device_info=None, migration=False):
+
+        # We need to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
         working_dir = os.path.join(FLAGS.instances_path, instance['name'])
         disk_file = os.path.join(working_dir, "disk")
         libvirt_file = os.path.join(working_dir, "libvirt.xml")
 
-        # (dscannell) We will write out a stub 'disk' file so that we don't end
-        # up copying this file when setting up everything for libvirt.
-        # Essentially, this file will be removed, and replaced by vms as an
-        # overlay on the blessed root image.
-        os.makedirs(working_dir)
-        file(os.path.join(disk_file), 'w').close()
+        # Make sure that our working directory exists.
+        if not(os.path.exists(working_dir)):
+            os.makedirs(working_dir)
 
-        # (dscannell) We want to disable any injection
-        key = instance['key_data']
-        instance['key_data'] = None
-        metadata = instance['metadata']
-        instance['metadata'] = []
+        if not(migration):
+            # (dscannell) We will write out a stub 'disk' file so that we don't end
+            # up copying this file when setting up everything for libvirt.
+            # Essentially, this file will be removed, and replaced by vms as an
+            # overlay on the blessed root image.
+            f = open(disk_file, 'w')
+            f.close()
+
+        # FIXME: Not sure why this occasionally generates an error about
+        # missing a database context. It seems that there is some condition
+        # here where sometimes the ORM is capable of correctly mapping these
+        # objects back to the database and other times it is missing the
+        # necessary context.
+
+        # (dscannell) We want to disable any injection. We do this by making a 
+        # copy of the instance and clearing out some entries. Since Openstack
+        # uses dictionary-list accessors, we can pass this dictionary through
+        # that code.
+        instance_dict = dict(instance.iteritems())
+        # The name attribute is special and does not carry over like the rest of the
+        # attributes.
+        instance_dict['name'] = instance['name']
+        instance_dict['key_data'] = None
+        instance_dict['metadata'] = []
         for network_ref, mapping in network_info:
             network_ref['injected'] = False
 
         # (dscannell) This was taken from the core nova project as part of the
         # boot path for normal instances. We basically want to mimic this
         # functionality.
-        xml = self.libvirt_conn.to_xml(instance, network_info, False,
+        xml = self.libvirt_conn.to_xml(instance_dict, network_info, False,
                                        block_device_info=block_device_info)
-        self.libvirt_conn.firewall_driver.setup_basic_filtering(instance, network_info)
-        self.libvirt_conn.firewall_driver.prepare_instance_filter(instance, network_info)
-        self.libvirt_conn._create_image(context, instance, xml, network_info=network_info,
+        self.libvirt_conn.firewall_driver.setup_basic_filtering(instance_dict, network_info)
+        self.libvirt_conn.firewall_driver.prepare_instance_filter(instance_dict, network_info)
+        self.libvirt_conn._create_image(context, instance_dict, xml, network_info=network_info,
                                         block_device_info=block_device_info)
 
-        # (dscannell) Restore previously disabled values
-        instance['key_data'] = key
-        instance['metadata'] = metadata
-
-        # (dscannell) Remove the fake disk file
-        os.remove(disk_file)
+        if not(migration):
+            # (dscannell) Remove the fake disk file (if created).
+            os.remove(disk_file)
 
         # Return the libvirt file, this will be passed in as the name. This parameter is
         # overloaded in the management interface as a libvirt special case.
         return libvirt_file
 
-    def post_launch(self, context, instance, network_info=None, block_device_info=None):
+    def post_launch(self, context, instance, network_info=None,
+                    block_device_info=None, migration=False):
         self.libvirt_conn.firewall_driver.apply_instance_filter(instance, network_info)
