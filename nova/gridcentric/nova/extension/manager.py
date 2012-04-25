@@ -175,15 +175,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         context.elevated()
 
-        # A number to indicate which instantiation is to be launched. Basically
-        # this is just an incrementing number.
-        clonenum = self._next_clone_num(context, instance_id)
-
         if migration_url:
             # Tweak only this instance directly.
             new_instance_ref = instance_ref
         else:
             # Create a new blessed instance.
+            clonenum = self._next_clone_num(context, instance_id)
             new_instance_ref = self._copy_instance(context, instance_id, str(clonenum), launch=False)
 
         try:
@@ -219,6 +216,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # as this code can be inherited directly from the ComputeManager. The
         # only real difference is that the migration must not go through
         # libvirt, instead we drive it via our bless, launch routines.
+
+        if dest == self.host:
+            raise exception.Error(_("Unable to migrate to the same host."))
 
         # Grab a reference to the instance.
         instance_ref = self.db.instance_get(context, instance_id)
