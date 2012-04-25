@@ -44,6 +44,7 @@ from nova.network import manager as network_manager
 from nova.compute import power_state
 from nova.compute import task_states
 from nova.compute import vm_states
+from nova.compute import manager as compute_manager
 
 from gridcentric.nova.extension import API
 import gridcentric.nova.extension.vmsconn as vmsconn
@@ -58,6 +59,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self._init_vms()
         self.network_api = network.API()
         self.gridcentric_api = API()
+        self.compute_manager = compute_manager.ComputeManager()
         super(GridCentricManager, self).__init__(service_name="gridcentric", *args, **kwargs)
 
     def _init_vms(self):
@@ -221,6 +223,19 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Grab a reference to the instance.
         instance_ref = self.db.instance_get(context, instance_id)
 
+        src = instance_ref['host']
+        if instance_ref['volumes']:
+            rpc.call(context,
+                      FLAGS.volume_topic,
+                      {"method": "check_for_export",
+                       "args": {'instance_id': instance_id}})
+        rpc.call(context,
+                 self.db.queue_get_for(context, FLAGS.compute_topic, dest),
+                 {"method": "pre_live_migration",
+                  "args": {'instance_id': instance_id,
+                           'block_migration': False,
+                           'disk': None}})
+
         # Grab the remote queue (to make sure the host exists).
         queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, dest)
 
@@ -257,7 +272,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
             # Teardown on this host (and delete the descriptor).
             self.vms_conn.discard(instance_ref.name)
+
+            self.compute_manager.post_live_migration(context, instance_ref, dest, block_migration=False)
+
         except:
+            LOG.debug(_("Error during migration: %s"), traceback.format_exc())
             # Rollback is launching here again.
             self.launch_instance(context, instance_id, migration_url=migration_url)
 
