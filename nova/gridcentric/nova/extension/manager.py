@@ -261,6 +261,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
         migration_url = self.bless_instance(context, instance_id,
                                             migration_url="mcdist://%s" % devname)
 
+        # After blessing we need to notify the hypvisor that the instance is no longer
+        # available.
+        network_info = self.network_api.get_instance_nw_info(context, instance_ref)
+        self.vms_conn.post_migration(instance_ref, network_info)
+
         try:
             # Launch on the different host. With the non-null migration_url,
             # the launch will assume that all the files are the same places are

@@ -137,8 +137,11 @@ class VmsConnection:
                    block_device_info=None, migration=False):
         return new_instance_ref.name
 
-    def post_launch(self, context, new_instance_ref, newtork_info=None,
+    def post_launch(self, context, new_instance_ref, network_info=None,
                     block_device_info=None, migration=False):
+        pass
+
+    def migration_post_bless(self, instance_ref, network_info):
         pass
 
 class DummyConnection(VmsConnection):
@@ -318,3 +321,8 @@ class LibvirtConnection(VmsConnection):
     def post_launch(self, context, instance, network_info=None,
                     block_device_info=None, migration=False):
         self.libvirt_conn.firewall_driver.apply_instance_filter(instance, network_info)
+
+    def migration_post_bless(self, instance_ref, network_info):
+        # We want to remove the instance from libvirt, but keep all of the artifacts around
+        # which is why we use cleanup=False
+        self.libvirt_conn.destroy(instance_ref, network_info, cleanup=False)
