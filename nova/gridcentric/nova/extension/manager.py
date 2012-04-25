@@ -173,15 +173,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         context.elevated()
 
-        # A number to indicate which instantiation is to be launched. Basically
-        # this is just an incrementing number.
-        clonenum = self._next_clone_num(context, instance_id)
-
         if migration_url:
             # Tweak only this instance directly.
             new_instance_ref = instance_ref
         else:
             # Create a new blessed instance.
+            clonenum = self._next_clone_num(context, instance_id)
             new_instance_ref = self._copy_instance(context, instance_id, str(clonenum), launch=False)
 
         try:
