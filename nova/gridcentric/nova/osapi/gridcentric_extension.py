@@ -31,15 +31,15 @@ from gridcentric.nova.extension import API
 LOG = logging.getLogger("nova.api.extensions.gridcentric")
 
 class Gridcentric_extension(object):
-    """ 
+    """
     The Openstack Extension definition for the GridCentric capabilities. Currently this includes:
-        
+
         * Bless an existing virtual machine (creates a new server snapshot
           of the virtual machine and enables the user to launch new copies
           nearly instantaneously).
-        
+
         * Launch new virtual machines from a blessed copy above.
-        
+
         * Discard blessed VMs.
 
         * List launched VMs (per blessed VM).
@@ -74,6 +74,9 @@ class Gridcentric_extension(object):
         actions.append(extensions.ActionExtension('servers', 'gc_launch',
                                                     self._launch_instance))
 
+        actions.append(extensions.ActionExtension('servers', 'gc_migrate',
+                                                    self._migrate_instance))
+
         actions.append(extensions.ActionExtension('servers', 'gc_discard',
                                                     self._discard_instance))
 
@@ -99,6 +102,17 @@ class Gridcentric_extension(object):
         context = req.environ["nova.context"]
         try:
             result = self.gridcentric_api.launch_instance(context, id)
+            return webob.Response(status_int=200, body=json.dumps(result))
+        except quota.QuotaError as error:
+            self.server_helper._handle_quota_error(error)
+
+    def _migrate_instance(self, input_dict, req, id):
+        context = req.environ["nova.context"]
+        try:
+            dest = input_dict["gc_migrate"].get("dest", None)
+            if not(dest):
+                return webob.Response(status_int=400)
+            result = self.gridcentric_api.migrate_instance(context, id, dest)
             return webob.Response(status_int=200, body=json.dumps(result))
         except quota.QuotaError as error:
             self.server_helper._handle_quota_error(error)

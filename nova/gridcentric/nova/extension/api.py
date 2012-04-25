@@ -59,8 +59,8 @@ class API(base.Base):
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
 
-    def _call_gridcentric_message(self, method, context, instance_id, host=None,
-                              params=None):
+    def _call_gridcentric_message(self, method, context, instance_id,
+                                  host=None, params=None):
         """Generic handler for RPC call to gridcentric. This will block for a response.
 
         :param params: Optional dictionary of arguments to be passed to the
@@ -123,6 +123,11 @@ class API(base.Base):
                      {"method": "launch_instance",
                       "args": {"topic": FLAGS.gridcentric_topic,
                                "instance_id": instance_id}})
+
+    def migrate_instance(self, context, instance_id, dest):
+        LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
+        self._call_gridcentric_message('migrate_instance', context,
+                                       instance_id, params = {"dest" : dest})
 
     def list_launched_instances(self, context, instance_id):
         filter = {
