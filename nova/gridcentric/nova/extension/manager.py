@@ -264,7 +264,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # After blessing we need to notify the hypvisor that the instance is no longer
         # available.
         network_info = self.network_api.get_instance_nw_info(context, instance_ref)
-        self.vms_conn.post_migration(instance_ref, network_info)
+        self.vms_conn.migration_post_bless(instance_ref, network_info)
 
         # Make sure that the disk reflects all current state for this VM.
         # It's times like these that I wish there was a way to do this on a
