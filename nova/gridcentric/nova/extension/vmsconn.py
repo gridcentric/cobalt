@@ -266,27 +266,38 @@ class LibvirtConnection(VmsConnection):
             raise Exception("Unable to make %s owner of vmsfs: %s" %
                             FLAGS.libvirt_user, str(e))
 
-        def probe_libvirt_write_access(dir):
-            euid = os.geteuid()
-            try:
-                os.seteuid(libvirt_uid)
-                tempfile.TemporaryFile(dir=dir)
-            finally:
-                os.seteuid(euid)
+        def can_libvirt_write_access(dir):
+            # Test if libvirt_user has W+X permissions in dir (which are
+            # necessary to create files). Using os.seteuid/os.setegid is
+            # insufficient because they don't affect supplementary
+            # groups. Hence we run
+            #    sudo -u $libvirt_user test -w $dir -a -x $dir
+            # We're not using os.system because of shell escaping of directory
+            # name. We're not using subprocess.call because it's buggy: it
+            # returns 0 regardless of the real return value of the command!
+            command = ['sudo', '-u', FLAGS.libvirt_user,
+                       'test', '-w', dir, '-a', '-x', dir]
+            child = os.fork()
+            if child == 0:
+                os.execvp('sudo', ['sudo', '-u', FLAGS.libvirt_user,
+                                   'test', '-w', dir, '-a', '-x', dir])
+            while True:
+                pid, status = os.waitpid(child, 0)
+                if pid == child:
+                    return os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0
 
         def mkdir_libvirt(dir):
             if not os.path.exists(dir):
+                LOG.debug('does not exist %s', dir)
                 utilities.make_directories(dir)
                 os.chown(dir, libvirt_uid, libvirt_gid)
                 os.chmod(dir, 0775) # ug+rwx, a+rx
-            try:
-                probe_libvirt_write_access(dir)
-            except Exception, e:
+            if not can_libvirt_write_access(dir):
                 raise Exception("Directory %s is not writable by %s (uid=%d). "
                                 "If it already exists, make sure that it's "
-                                "writable by %s. Error: %s" %
+                                "writable and executable by %s." %
                                 (dir, FLAGS.libvirt_user, libvirt_uid,
-                                 FLAGS.libvirt_user, str(e)))
+                                 FLAGS.libvirt_user))
         try:
             db_path = vms.db.vms.path
             mkdir_libvirt(os.path.dirname(db_path))
