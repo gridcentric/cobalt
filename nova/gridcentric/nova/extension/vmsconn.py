@@ -33,6 +33,8 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('libvirt_user', 'libvirt-qemu',
                     'The user that libvirt runs qemu as.')
 
+from eventlet import tpool
+
 import vms.commands as commands
 import vms.logger as logger
 import vms.virt as virt
@@ -76,11 +78,6 @@ class VmsConnection:
         """
         pass
 
-    def command(self, fcn):
-        # Run in a separate thread, through runsafe().
-        rdz = utilities.Rendezvous(lambda: utilities.runsafe(fcn))
-        return rdz.result()
-
     def bless(self, instance_name, new_instance_name, migration_url=None):
         """
         Create a new blessed VM from the instance with name instance_name and gives the blessed
@@ -88,11 +85,11 @@ class VmsConnection:
         """
         LOG.debug(_("Calling commands.bless with name=%s, new_name=%s, migration_url=%s"),
                     instance_name, new_instance_name, str(migration_url))
-        fn = lambda: commands.bless(instance_name,
-                                    new_instance_name,
-                                    network=migration_url,
-                                    migration=(migration_url and True))
-        result = self.command(fn)
+        result = tpool.execute(commands.bless,
+                               instance_name,
+                               new_instance_name,
+                               network=migration_url,
+                               migration=(migration_url and True))
         LOG.debug(_("Called commands.bless with name=%s, new_name=%s, migration_url=%s"),
                     instance_name, new_instance_name, str(migration_url))
         return result
@@ -102,8 +99,7 @@ class VmsConnection:
         Dicard all of the vms artifacts associated with a blessed instance
         """
         LOG.debug(_("Calling commands.discard with name=%s"), instance_name)
-        fn = lambda: commands.discard(instance_name)
-        result = self.command(fn)
+        result = tpool.execute(commands.discard, instance_name)
         LOG.debug(_("Called commands.discard with name=%s"), instance_name)
 
     def extract_mac_addresses(self, network_info):
@@ -125,12 +121,12 @@ class VmsConnection:
         # Launch the new VM.
         LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
                   instance_name, newname, mem_target, str(migration_url))
-        fn = lambda: commands.launch(instance_name,
-                                     newname,
-                                     str(mem_target),
-                                     network=migration_url,
-                                     migration=(migration_url and True))
-        result = self.command(fn)
+        result = tpool.execute(commands.launch,
+                               instance_name,
+                               newname,
+                               str(mem_target),
+                               network=migration_url,
+                               migration=(migration_url and True))
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
                   instance_name, newname, mem_target, str(migration_url))
 
@@ -146,10 +142,10 @@ class VmsConnection:
         # We want to unplug the vifs before adding the new ones so that we do
         # not mess around with the interfaces exposed inside the guest.
         LOG.debug(_("Calling vms.replug with name=%s"), instance_name)
-        fn = lambda: commands.replug(instance_name,
-                                     plugin_first=False,
-                                     mac_addresses=mac_addresses)
-        self.command(fn)
+        result = tpool.execute(commands.replug,
+                               instance_name,
+                               plugin_first=False,
+                               mac_addresses=mac_addresses)
         LOG.debug(_("Called vms.replug with name=%s"), instance_name)
 
     def pre_launch(self, context, new_instance_ref, network_info=None,
