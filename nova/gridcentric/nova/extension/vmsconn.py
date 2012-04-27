@@ -185,8 +185,7 @@ class XenApiConnection(VmsConnection):
     def post_launch(self, context, instance, network_info=None,
                     block_device_info=None, migration=False):
         if network_info:
-            self.vms_conn.replug(instance.name,
-                                 self.extract_mac_addresses(network_info))
+            self.replug(instance.name, self.extract_mac_addresses(network_info))
 
 class LibvirtConnection(VmsConnection):
     """
