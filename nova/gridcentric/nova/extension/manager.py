@@ -202,6 +202,17 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Return the memory URL (will be None for a normal bless).
         return migration_url
 
+    def list_gridcentric_hosts(self, context):
+        """ Returns a list of all the hosts known to openstack running the gridcentric service. """
+
+        admin_context = context.elevated()
+        services = self.db.service_get_all_by_topic(admin_context, FLAGS.gridcentric_topic)
+        hosts = []
+        for srv in services:
+            if srv['host'] not in hosts:
+                hosts.append(srv['host'])
+        return hosts
+
     def migrate_instance(self, context, instance_id, dest):
         """
         Migrates an instance, dealing with special streaming cases as necessary.
@@ -215,7 +226,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # only real difference is that the migration must not go through
         # libvirt, instead we drive it via our bless, launch routines.
 
-        if dest == self.host:
+        gridcentric_hosts = self.list_gridcentric_hosts(context)
+        if dest not in gridcentric_hosts:
+            raise exception.Error(_("Cannot migrate to host %s because it is not running the"
+                                    " gridcentric service.") % dest)
+        elif dest == self.host:
             raise exception.Error(_("Unable to migrate to the same host."))
 
         # Grab a reference to the instance.
@@ -278,7 +293,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             self.vms_conn.post_migration(instance_ref, network_info)
 
             # Perform necessary compute post-migration tasks.
-            self.compute_manager.post_live_migration( \
+            self.compute_manager.post_live_migration(\
                     context, instance_ref, dest, block_migration=False)
 
         except:
