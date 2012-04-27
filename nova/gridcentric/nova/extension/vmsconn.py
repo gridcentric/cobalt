@@ -33,6 +33,8 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('libvirt_user', 'libvirt-qemu',
                     'The user that libvirt runs qemu as.')
 
+from eventlet import tpool
+
 import vms.commands as commands
 import vms.logger as logger
 import vms.virt as virt
@@ -65,6 +67,7 @@ class LogCleaner(threading.Thread):
 
     def run(self):
         while True:
+            # Call cleanlogs to make sure things are reasonable.
             commands.cleanlogs()
             time.sleep(float(self.interval))
 
@@ -82,10 +85,11 @@ class VmsConnection:
         """
         LOG.debug(_("Calling commands.bless with name=%s, new_name=%s, migration_url=%s"),
                     instance_name, new_instance_name, str(migration_url))
-        result = commands.bless(instance_name,
-                                new_instance_name,
-                                network=migration_url,
-                                migration=(migration_url and True))
+        result = tpool.execute(commands.bless,
+                               instance_name,
+                               new_instance_name,
+                               network=migration_url,
+                               migration=(migration_url and True))
         LOG.debug(_("Called commands.bless with name=%s, new_name=%s, migration_url=%s"),
                     instance_name, new_instance_name, str(migration_url))
         return result
@@ -95,9 +99,17 @@ class VmsConnection:
         Dicard all of the vms artifacts associated with a blessed instance
         """
         LOG.debug(_("Calling commands.discard with name=%s"), instance_name)
-        commands.discard(instance_name)
+        result = tpool.execute(commands.discard, instance_name)
         LOG.debug(_("Called commands.discard with name=%s"), instance_name)
 
+    def extract_mac_addresses(self, network_info):
+        mac_addresses = {}
+        vif = 0
+        for network in network_info:
+            mac_addresses[str(vif)] = network[1]['mac']
+            vif += 1
+
+        return mac_addresses
     def launch(self, context, instance_name, mem_target,
                new_instance_ref, network_info, migration_url=None):
         """
@@ -109,14 +121,16 @@ class VmsConnection:
         # Launch the new VM.
         LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
                   instance_name, newname, mem_target, str(migration_url))
-        result = commands.launch(instance_name,
-                                 newname,
-                                 str(mem_target),
-                                 network=migration_url,
-                                 migration=(migration_url and True))
+        result = tpool.execute(commands.launch,
+                               instance_name,
+                               newname,
+                               str(mem_target),
+                               network=migration_url,
+                               migration=(migration_url and True))
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
                   instance_name, newname, mem_target, str(migration_url))
 
+        # Take care of post-launch.
         self.post_launch(context, new_instance_ref, network_info,
                          migration=(migration_url and True))
         return result
@@ -128,9 +142,10 @@ class VmsConnection:
         # We want to unplug the vifs before adding the new ones so that we do
         # not mess around with the interfaces exposed inside the guest.
         LOG.debug(_("Calling vms.replug with name=%s"), instance_name)
-        commands.replug(instance_name,
-                        plugin_first=False,
-                        mac_addresses=mac_addresses)
+        result = tpool.execute(commands.replug,
+                               instance_name,
+                               plugin_first=False,
+                               mac_addresses=mac_addresses)
         LOG.debug(_("Called vms.replug with name=%s"), instance_name)
 
     def pre_launch(self, context, new_instance_ref, network_info=None,
@@ -141,8 +156,12 @@ class VmsConnection:
                     block_device_info=None, migration=False):
         pass
 
-    def migration_post_bless(self, instance_ref, network_info):
+    def pre_migration(self, instance_ref, network_info):
         pass
+
+    def post_migration(self, instance_ref, network_info):
+        # We call a normal discard to ensure the artifacts are cleaned up.
+        self.discard(instance_ref.name)
 
 class DummyConnection(VmsConnection):
     def configure(self):
@@ -154,7 +173,7 @@ class XenApiConnection(VmsConnection):
     """
 
     def configure(self):
-         # (dscannell) We need to import this to ensure that the xenapi
+        # (dscannell) We need to import this to ensure that the xenapi
         # flags can be read in.
         from nova.virt import xenapi_conn
 
@@ -162,6 +181,11 @@ class XenApiConnection(VmsConnection):
         config.MANAGEMENT['connection_username'] = FLAGS.xenapi_connection_username
         config.MANAGEMENT['connection_password'] = FLAGS.xenapi_connection_password
         select_hypervisor('xcp')
+
+    def post_launch(self, context, instance, network_info=None,
+                    block_device_info=None, migration=False):
+        if network_info:
+            self.replug(instance.name, self.extract_mac_addresses(network_info))
 
 class LibvirtConnection(VmsConnection):
     """
@@ -246,11 +270,11 @@ class LibvirtConnection(VmsConnection):
             mkdir_libvirt(os.path.dirname(db_path))
             utilities.touch(db_path)
             os.chown(db_path, libvirt_uid, libvirt_gid)
-            # TODO: This should be 0660 (ug+rw), but there's an error I
-            # can't figure out when libvirt creates domains: the vms.db path
-            # (default /dev/shm/vms.db) can't be opened by bsddb when
-            # libvirt launches kvm. This is perplexing because it's
-            # launching it as root!
+
+            # TODO: This should be 0660 (ug+rw), but there's an error I can't
+            # figure out when libvirt creates domains: the vms.db path (default
+            # /dev/shm/vms.db) can't be opened by bsddb when libvirt launches
+            # kvm. This is perplexing because it's launching it as root!
             os.chmod(db_path, 0666) # aug+rw
 
             dirs = [config.SHELF,
@@ -287,7 +311,7 @@ class LibvirtConnection(VmsConnection):
             f = open(disk_file, 'w')
             f.close()
 
-        # (dscannell) We want to disable any injection. We do this by making a 
+        # (dscannell) We want to disable any injection. We do this by making a
         # copy of the instance and clearing out some entries. Since Openstack
         # uses dictionary-list accessors, we can pass this dictionary through
         # that code.
@@ -314,15 +338,25 @@ class LibvirtConnection(VmsConnection):
             # (dscannell) Remove the fake disk file (if created).
             os.remove(disk_file)
 
-        # Return the libvirt file, this will be passed in as the name. This parameter is
-        # overloaded in the management interface as a libvirt special case.
+        # Return the libvirt file, this will be passed in as the name. This
+        # parameter is overloaded in the management interface as a libvirt
+        # special case.
         return libvirt_file
 
     def post_launch(self, context, instance, network_info=None,
                     block_device_info=None, migration=False):
         self.libvirt_conn.firewall_driver.apply_instance_filter(instance, network_info)
 
-    def migration_post_bless(self, instance_ref, network_info):
-        # We want to remove the instance from libvirt, but keep all of the artifacts around
-        # which is why we use cleanup=False
+    def pre_migration(self, instance_ref, network_info):
+        # Make sure that the disk reflects all current state for this VM.
+        # It's times like these that I wish there was a way to do this on a
+        # per-file basis, but we have no choice here but to sync() globally.
+        utilities.call_command(["sync"])
+
+    def post_migration(self, instance_ref, network_info):
+        # We call a normal discard to ensure the artifacts are cleaned up.
+        self.discard(instance_ref.name)
+
+        # We want to remove the instance from libvirt, but keep all of the
+        # artifacts around which is why we use cleanup=False.
         self.libvirt_conn.destroy(instance_ref, network_info, cleanup=False)
