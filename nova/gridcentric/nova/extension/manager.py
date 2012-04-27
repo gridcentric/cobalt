@@ -417,8 +417,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                  new_instance_ref,
                                  network_info,
                                  migration_url=migration_url)
-            self.vms_conn.replug(new_instance_ref.name,
-                                 self.extract_mac_addresses(network_info))
 
             # Perform our database update.
             self._instance_update(context,
@@ -430,12 +428,3 @@ class GridCentricManager(manager.SchedulerDependentManager):
             LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
             self._instance_update(context, new_instance_ref.id,
                                   vm_state=vm_states.ERROR, task_state=None)
-
-    def extract_mac_addresses(self, network_info):
-        mac_addresses = {}
-        vif = 0
-        for network in network_info:
-            mac_addresses[str(vif)] = network[1]['mac']
-            vif += 1
-
-        return mac_addresses
