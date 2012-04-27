@@ -66,7 +66,7 @@ class LogCleaner(threading.Thread):
     def run(self):
         while True:
             # Call cleanlogs to make sure things are reasonable.
-            utilities.runsafe(commands.cleanlogs)
+            commands.cleanlogs()
             time.sleep(float(self.interval))
 
 class VmsConnection:
@@ -75,6 +75,11 @@ class VmsConnection:
         Configures vms for this type of connection.
         """
         pass
+
+    def command(self, fcn):
+        # Run in a separate thread, through runsafe().
+        rdz = utilities.Rendezvous(lambda: utilities.runsafe(fcn))
+        return rdz.result()
 
     def bless(self, instance_name, new_instance_name, migration_url=None):
         """
@@ -87,7 +92,7 @@ class VmsConnection:
                                     new_instance_name,
                                     network=migration_url,
                                     migration=(migration_url and True))
-        result = utilities.runsafe(fn)
+        result = self.command(fn)
         LOG.debug(_("Called commands.bless with name=%s, new_name=%s, migration_url=%s"),
                     instance_name, new_instance_name, str(migration_url))
         return result
@@ -98,7 +103,7 @@ class VmsConnection:
         """
         LOG.debug(_("Calling commands.discard with name=%s"), instance_name)
         fn = lambda: commands.discard(instance_name)
-        result = utilities.runsafe(fn)
+        result = self.command(fn)
         LOG.debug(_("Called commands.discard with name=%s"), instance_name)
 
     def launch(self, context, instance_name, mem_target,
@@ -117,7 +122,7 @@ class VmsConnection:
                                      str(mem_target),
                                      network=migration_url,
                                      migration=(migration_url and True))
-        result = utilities.runsafe(fn)
+        result = self.command(fn)
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
                   instance_name, newname, mem_target, str(migration_url))
 
@@ -136,7 +141,7 @@ class VmsConnection:
         fn = lambda: commands.replug(instance_name,
                                      plugin_first=False,
                                      mac_addresses=mac_addresses)
-        utilities.runsafe(fn)
+        self.command(fn)
         LOG.debug(_("Called vms.replug with name=%s"), instance_name)
 
     def pre_launch(self, context, new_instance_ref, network_info=None,
