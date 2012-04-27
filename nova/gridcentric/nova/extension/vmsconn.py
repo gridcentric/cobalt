@@ -78,6 +78,13 @@ class VmsConnection:
         """
         pass
 
+    def safe_run(self, fcn, *args, **kwargs):
+        def real_function():
+            return fcn(*args, **kwargs)
+        def pool_function():
+            return utilities.fork_daemon(fcn=real_function)
+        return tpool.execute(pool_function)
+
     def bless(self, instance_name, new_instance_name, migration_url=None):
         """
         Create a new blessed VM from the instance with name instance_name and gives the blessed
@@ -85,7 +92,7 @@ class VmsConnection:
         """
         LOG.debug(_("Calling commands.bless with name=%s, new_name=%s, migration_url=%s"),
                     instance_name, new_instance_name, str(migration_url))
-        result = tpool.execute(commands.bless,
+        result = self.safe_run(commands.bless,
                                instance_name,
                                new_instance_name,
                                network=migration_url,
@@ -99,7 +106,7 @@ class VmsConnection:
         Dicard all of the vms artifacts associated with a blessed instance
         """
         LOG.debug(_("Calling commands.discard with name=%s"), instance_name)
-        result = tpool.execute(commands.discard, instance_name)
+        result = self.safe_run(commands.discard, instance_name)
         LOG.debug(_("Called commands.discard with name=%s"), instance_name)
 
     def extract_mac_addresses(self, network_info):
@@ -121,7 +128,7 @@ class VmsConnection:
         # Launch the new VM.
         LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
                   instance_name, newname, mem_target, str(migration_url))
-        result = tpool.execute(commands.launch,
+        result = self.safe_run(commands.launch,
                                instance_name,
                                newname,
                                str(mem_target),
@@ -142,7 +149,7 @@ class VmsConnection:
         # We want to unplug the vifs before adding the new ones so that we do
         # not mess around with the interfaces exposed inside the guest.
         LOG.debug(_("Calling vms.replug with name=%s"), instance_name)
-        result = tpool.execute(commands.replug,
+        result = self.safe_run(commands.replug,
                                instance_name,
                                plugin_first=False,
                                mac_addresses=mac_addresses)
