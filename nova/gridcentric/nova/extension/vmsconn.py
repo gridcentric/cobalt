@@ -106,6 +106,14 @@ class VmsConnection:
         result = self.command(fn)
         LOG.debug(_("Called commands.discard with name=%s"), instance_name)
 
+    def extract_mac_addresses(self, network_info):
+        mac_addresses = {}
+        vif = 0
+        for network in network_info:
+            mac_addresses[str(vif)] = network[1]['mac']
+            vif += 1
+
+        return mac_addresses
     def launch(self, context, instance_name, mem_target,
                new_instance_ref, network_info, migration_url=None):
         """
@@ -177,6 +185,12 @@ class XenApiConnection(VmsConnection):
         config.MANAGEMENT['connection_username'] = FLAGS.xenapi_connection_username
         config.MANAGEMENT['connection_password'] = FLAGS.xenapi_connection_password
         select_hypervisor('xcp')
+
+    def post_launch(self, context, instance, network_info=None,
+                    block_device_info=None, migration=False):
+        if network_info:
+            self.vms_conn.replug(instance.name,
+                                 self.extract_mac_addresses(network_info))
 
 class LibvirtConnection(VmsConnection):
     """
