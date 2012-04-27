@@ -36,10 +36,10 @@ from nova import manager
 from nova import utils
 from nova import rpc
 from nova import network
-# We need to import this module because other nova modules use the
-# flags that it defines (without actually importing this module). So
-# we need to ensure this module is loaded so that we can have access
-# to those flags.
+
+# We need to import this module because other nova modules use the flags that
+# it defines (without actually importing this module). So we need to ensure
+# this module is loaded so that we can have access to those flags.
 from nova.network import manager as network_manager
 from nova.compute import power_state
 from nova.compute import task_states
@@ -49,11 +49,6 @@ from nova.compute import manager as compute_manager
 from gridcentric.nova.extension import API
 import gridcentric.nova.extension.vmsconn as vmsconn
 
-# We borrow the threadpool from VMS.
-import vms.threadpool
-
-# Borrow the call command from VMS (to fix python bug).
-import vms.utilities
 
 class GridCentricManager(manager.SchedulerDependentManager):
 
@@ -264,15 +259,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
         migration_url = self.bless_instance(context, instance_id,
                                             migration_url="mcdist://%s" % devname)
 
-        # After blessing we need to notify the hypvisor that the instance is no longer
-        # available.
+        # Grab the network info (to be used for cleanup later on the host).
         network_info = self.network_api.get_instance_nw_info(context, instance_ref)
-        self.vms_conn.migration_post_bless(instance_ref, network_info)
 
-        # Make sure that the disk reflects all current state for this VM.
-        # It's times like these that I wish there was a way to do this on a
-        # per-file basis, but we have no choice here but to sync() globally.
-        vms.utilities.call_command(["sync"])
+        # Run our premigration hook.
+        self.vms_conn.pre_migration(instance_ref, network_info)
 
         try:
             # Launch on the different host. With the non-null migration_url,
@@ -284,21 +275,29 @@ class GridCentricManager(manager.SchedulerDependentManager):
                               'migration_url': migration_url}})
 
             # Teardown on this host (and delete the descriptor).
-            self.vms_conn.discard(instance_ref.name)
+            self.vms_conn.post_migration(instance_ref, network_info)
 
-            self.compute_manager.post_live_migration(context, instance_ref, dest, block_migration=False)
+            # Perform necessary compute post-migration tasks.
+            self.compute_manager.post_live_migration( \
+                    context, instance_ref, dest, block_migration=False)
 
         except:
-            #TODO(dscannell): This rollback is a bit broken right now because we cannot simply
-            # relaunch the instance on this host. The order of events during migration are:
-            #  1. Bless instance -- This will leave the qemu process in a paused state, but alive
-            #  2. Clean up libvirt state (need to see why it doesn't kill the qemu process)
-            #  3. Call launch on the destination host and wait for the instance to hoard its memory
-            #  4. Call discard that will clean up the descriptor and kill off the qemu process
-            # Depending on what has occurred different strategies are needed to rollback
-            #  e.g We can simply unpause the instance if the qemu process still exists (might need
-            #  to move when libvirt cleanup occurs).
+            # TODO(dscannell): This rollback is a bit broken right now because
+            # we cannot simply relaunch the instance on this host. The order of
+            # events during migration are: 1. Bless instance -- This will leave
+            # the qemu process in a paused state, but alive 2. Clean up libvirt
+            # state (need to see why it doesn't kill the qemu process) 3. Call
+            # launch on the destination host and wait for the instance to hoard
+            # its memory 4. Call discard that will clean up the descriptor and
+            # kill off the qemu process Depending on what has occurred
+            # different strategies are needed to rollback e.g We can simply
+            # unpause the instance if the qemu process still exists (might need
+            # to move when libvirt cleanup occurs).
             LOG.debug(_("Error during migration: %s"), traceback.format_exc())
+
+            # Prepare to relaunch here (this is the nasty bit as per above).
+            self.vms_conn.post_migration(instance_ref, network_info)
+
             # Rollback is launching here again.
             self.launch_instance(context, instance_id, migration_url=migration_url)
 
@@ -334,8 +333,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def launch_instance(self, context, instance_id, migration_url=None):
         """
-        Launches a new virtual machine instance that is based off of the instance referred
-        by instance_id.
+        Launches a new virtual machine instance that is based off of the
+        instance referred by instance_id.
         """
 
         LOG.debug(_("Launching new instance: instance_id=%s"), instance_id)
@@ -373,7 +372,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 # This information might come from the instance, or the user might
                 # have to specify it. Also, we might be able to convert this to a
                 # cast because we are not waiting on any return value.
-                LOG.debug(_("Making call to network for launching instance=%s"), new_instance_ref.name)
+                LOG.debug(_("Making call to network for launching instance=%s"), \
+                          new_instance_ref.name)
+
                 self._instance_update(context, new_instance_ref.id,
                                       vm_state=vm_states.BUILDING,
                                       task_state=task_states.NETWORKING)
@@ -409,33 +410,26 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # virtual machine.
         target = new_instance_ref['memory_mb']
 
-        def launch_bottom_half():
-            try:
-                self.vms_conn.launch(context,
-                                     instance_ref.name,
-                                     str(target),
-                                     new_instance_ref,
-                                     network_info,
-                                     migration_url=migration_url)
-                self.vms_conn.replug(new_instance_ref.name,
-                                     self.extract_mac_addresses(network_info))
+        try:
+            self.vms_conn.launch(context,
+                                 instance_ref.name,
+                                 str(target),
+                                 new_instance_ref,
+                                 network_info,
+                                 migration_url=migration_url)
+            self.vms_conn.replug(new_instance_ref.name,
+                                 self.extract_mac_addresses(network_info))
 
-                # Perform our database update.
-                self._instance_update(context,
-                                      new_instance_ref.id,
-                                      vm_state=vm_states.ACTIVE,
-                                      host=self.host,
-                                      task_state=None)
-            except Exception, e:
-                LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
-                self._instance_update(context, new_instance_ref.id,
-                                      vm_state=vm_states.ERROR, task_state=None)
-
-        if migration_url:
-            launch_bottom_half()
-        else:
-            # Run the actual launch asynchronously.
-            vms.threadpool.submit(launch_bottom_half)
+            # Perform our database update.
+            self._instance_update(context,
+                                  new_instance_ref.id,
+                                  vm_state=vm_states.ACTIVE,
+                                  host=self.host,
+                                  task_state=None)
+        except Exception, e:
+            LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
+            self._instance_update(context, new_instance_ref.id,
+                                  vm_state=vm_states.ERROR, task_state=None)
 
     def extract_mac_addresses(self, network_info):
         mac_addresses = {}
