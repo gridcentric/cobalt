@@ -278,7 +278,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                             migration_url="mcdist://%s" % devname)
 
         # Run our premigration hook.
-        self.vms_conn.pre_migration(instance_ref, network_info)
+        self.vms_conn.pre_migration(instance_ref, network_info, migration_url)
 
         try:
             # Launch on the different host. With the non-null migration_url,
@@ -290,7 +290,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                               'migration_url': migration_url}})
 
             # Teardown on this host (and delete the descriptor).
-            self.vms_conn.post_migration(instance_ref, network_info)
+            self.vms_conn.post_migration(instance_ref, network_info, migration_url)
 
             # Perform necessary compute post-migration tasks.
             self.compute_manager.post_live_migration(\

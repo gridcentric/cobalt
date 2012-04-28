@@ -40,6 +40,7 @@ import vms.logger as logger
 import vms.virt as virt
 import vms.config as config
 import vms.utilities as utilities
+import vms.control as control
 
 def get_vms_connection(connection_type):
     # Configure the logger regardless of the type of connection that will be used.
@@ -78,13 +79,6 @@ class VmsConnection:
         """
         pass
 
-    def safe_run(self, fcn, *args, **kwargs):
-        def real_function():
-            return fcn(*args, **kwargs)
-        def pool_function():
-            return utilities.fork_daemon(fcn=real_function)
-        return tpool.execute(pool_function)
-
     def bless(self, instance_name, new_instance_name, migration_url=None):
         """
         Create a new blessed VM from the instance with name instance_name and gives the blessed
@@ -92,7 +86,7 @@ class VmsConnection:
         """
         LOG.debug(_("Calling commands.bless with name=%s, new_name=%s, migration_url=%s"),
                     instance_name, new_instance_name, str(migration_url))
-        result = self.safe_run(commands.bless,
+        result = tpool.execute(commands.bless,
                                instance_name,
                                new_instance_name,
                                network=migration_url,
@@ -106,7 +100,7 @@ class VmsConnection:
         Dicard all of the vms artifacts associated with a blessed instance
         """
         LOG.debug(_("Calling commands.discard with name=%s"), instance_name)
-        result = self.safe_run(commands.discard, instance_name)
+        result = tpool.execute(commands.discard, instance_name)
         LOG.debug(_("Called commands.discard with name=%s"), instance_name)
 
     def extract_mac_addresses(self, network_info):
@@ -117,6 +111,7 @@ class VmsConnection:
             vif += 1
 
         return mac_addresses
+
     def launch(self, context, instance_name, mem_target,
                new_instance_ref, network_info, migration_url=None):
         """
@@ -128,17 +123,21 @@ class VmsConnection:
         # Launch the new VM.
         LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
                   instance_name, newname, mem_target, str(migration_url))
-        result = self.safe_run(commands.launch,
+
+        result = tpool.execute(commands.launch,
                                instance_name,
                                newname,
                                str(mem_target),
                                network=migration_url,
                                migration=(migration_url and True))
+
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
                   instance_name, newname, mem_target, str(migration_url))
 
         # Take care of post-launch.
-        self.post_launch(context, new_instance_ref, network_info,
+        self.post_launch(context,
+                         new_instance_ref,
+                         network_info,
                          migration=(migration_url and True))
         return result
 
@@ -149,24 +148,30 @@ class VmsConnection:
         # We want to unplug the vifs before adding the new ones so that we do
         # not mess around with the interfaces exposed inside the guest.
         LOG.debug(_("Calling vms.replug with name=%s"), instance_name)
-        result = self.safe_run(commands.replug,
+        result = tpool.execute(commands.replug,
                                instance_name,
                                plugin_first=False,
                                mac_addresses=mac_addresses)
         LOG.debug(_("Called vms.replug with name=%s"), instance_name)
 
-    def pre_launch(self, context, new_instance_ref, network_info=None,
-                   block_device_info=None, migration=False):
+    def pre_launch(self, context,
+                   new_instance_ref,
+                   network_info=None,
+                   block_device_info=None,
+                   migration=False):
         return new_instance_ref.name
 
-    def post_launch(self, context, new_instance_ref, network_info=None,
-                    block_device_info=None, migration=False):
+    def post_launch(self, context,
+                    new_instance_ref,
+                    network_info=None,
+                    block_device_info=None,
+                    migration=False):
         pass
 
-    def pre_migration(self, instance_ref, network_info):
+    def pre_migration(self, instance_ref, network_info, migration_url):
         pass
 
-    def post_migration(self, instance_ref, network_info):
+    def post_migration(self, instance_ref, network_info, migration_url):
         # We call a normal discard to ensure the artifacts are cleaned up.
         self.discard(instance_ref.name)
 
@@ -189,10 +194,13 @@ class XenApiConnection(VmsConnection):
         config.MANAGEMENT['connection_password'] = FLAGS.xenapi_connection_password
         select_hypervisor('xcp')
 
-    def post_launch(self, context, instance, network_info=None,
-                    block_device_info=None, migration=False):
+    def post_launch(self, context,
+                    new_instance_ref,
+                    network_info=None,
+                    block_device_info=None,
+                    migration=False):
         if network_info:
-            self.replug(instance.name, self.extract_mac_addresses(network_info))
+            self.replug(new_instance_ref.name, self.extract_mac_addresses(network_info))
 
 class LibvirtConnection(VmsConnection):
     """
@@ -297,12 +305,15 @@ class LibvirtConnection(VmsConnection):
                             "permissions for user %s. Error: %s" %
                             (FLAGS.libvirt_user, str(e)))
 
-    def pre_launch(self, context, instance, network_info=None,
-                   block_device_info=None, migration=False):
+    def pre_launch(self, context,
+                   new_instance_ref,
+                   network_info=None,
+                   block_device_info=None,
+                   migration=False):
 
         # We need to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
-        working_dir = os.path.join(FLAGS.instances_path, instance['name'])
+        working_dir = os.path.join(FLAGS.instances_path, new_instance_ref['name'])
         disk_file = os.path.join(working_dir, "disk")
         libvirt_file = os.path.join(working_dir, "libvirt.xml")
 
@@ -322,10 +333,10 @@ class LibvirtConnection(VmsConnection):
         # copy of the instance and clearing out some entries. Since Openstack
         # uses dictionary-list accessors, we can pass this dictionary through
         # that code.
-        instance_dict = dict(instance.iteritems())
+        instance_dict = dict(new_instance_ref.iteritems())
         # The name attribute is special and does not carry over like the rest of the
         # attributes.
-        instance_dict['name'] = instance['name']
+        instance_dict['name'] = new_instance_ref['name']
         instance_dict['key_data'] = None
         instance_dict['metadata'] = []
         for network_ref, mapping in network_info:
@@ -350,20 +361,36 @@ class LibvirtConnection(VmsConnection):
         # special case.
         return libvirt_file
 
-    def post_launch(self, context, instance, network_info=None,
-                    block_device_info=None, migration=False):
-        self.libvirt_conn.firewall_driver.apply_instance_filter(instance, network_info)
+    def post_launch(self, context,
+                    new_instance_ref,
+                    network_info=None,
+                    block_device_info=None,
+                    migration=False):
+        self.libvirt_conn.firewall_driver.apply_instance_filter(new_instance_ref, network_info)
 
-    def pre_migration(self, instance_ref, network_info):
+    def pre_migration(self, instance_ref, network_info, migration_url):
         # Make sure that the disk reflects all current state for this VM.
         # It's times like these that I wish there was a way to do this on a
         # per-file basis, but we have no choice here but to sync() globally.
         utilities.call_command(["sync"])
 
-    def post_migration(self, instance_ref, network_info):
-        # We call a normal discard to ensure the artifacts are cleaned up.
-        self.discard(instance_ref.name)
-
         # We want to remove the instance from libvirt, but keep all of the
         # artifacts around which is why we use cleanup=False.
         self.libvirt_conn.destroy(instance_ref, network_info, cleanup=False)
+
+    def post_migration(self, instance_ref, network_info, migration_url):
+        # We call a normal discard to ensure the artifacts are cleaned up.
+        self.discard(instance_ref.name)
+
+        # We make sure that all the memory servers are gone that need it.
+        # This looks for any servers that are providing the migration_url we
+        # used above -- since we no longer need it. This is done this way
+        # because the domain has already been destroyed and wiped away.  In
+        # fact, we don't even know it's old PID and a new domain might have
+        # appeared at the same PID in the meantime.
+        for ctrl in control.probe():
+            try:
+                if ctrl.get("network") == migration_url:
+                    ctrl.kill(timeout=1.0)
+            except control.ControlException:
+                pass
