@@ -42,6 +42,13 @@ import vms.config as config
 import vms.utilities as utilities
 import vms.control as control
 
+class AttribDictionary(dict):
+    """ A subclass of the python Dictionary that will allow us to add attribute. """
+    def __init__(self, base):
+        for key, value in base.iteritems():
+            self[key] = value
+
+
 def get_vms_connection(connection_type):
     # Configure the logger regardless of the type of connection that will be used.
     logger.setup_console_defaults()
@@ -333,10 +340,12 @@ class LibvirtConnection(VmsConnection):
         # copy of the instance and clearing out some entries. Since Openstack
         # uses dictionary-list accessors, we can pass this dictionary through
         # that code.
-        instance_dict = dict(new_instance_ref.iteritems())
+        instance_dict = AttribDictionary(dict(new_instance_ref.iteritems()))
         # The name attribute is special and does not carry over like the rest of the
         # attributes.
         instance_dict['name'] = new_instance_ref['name']
+        instance_dict.os_type = new_instance_ref.os_type
+
         instance_dict['key_data'] = None
         instance_dict['metadata'] = []
         for network_ref, mapping in network_info:
