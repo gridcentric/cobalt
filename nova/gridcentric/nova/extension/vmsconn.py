@@ -340,11 +340,11 @@ class LibvirtConnection(VmsConnection):
         # copy of the instance and clearing out some entries. Since Openstack
         # uses dictionary-list accessors, we can pass this dictionary through
         # that code.
-        instance_dict = AttribDictionary(dict(instance.iteritems()))
+        instance_dict = AttribDictionary(dict(new_instance_ref.iteritems()))
         # The name attribute is special and does not carry over like the rest of the
         # attributes.
-        instance_dict['name'] = instance['name']
-        instance_dict.os_type = instance.os_type
+        instance_dict['name'] = new_instance_ref['name']
+        instance_dict.os_type = new_instance_ref.os_type
 
         instance_dict['key_data'] = None
         instance_dict['metadata'] = []
