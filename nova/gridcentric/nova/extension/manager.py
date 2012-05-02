@@ -272,8 +272,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Grab the network info (to be used for cleanup later on the host).
         network_info = self.network_api.get_instance_nw_info(context, instance_ref)
 
-        # Bless this instance, given the db_copy=False here, the bless
-        # will use the same name and no files will be shift around.
+        # Bless this instance for migration.
         migration_url = self.bless_instance(context, instance_id,
                                             migration_url="mcdist://%s" % devname)
 
