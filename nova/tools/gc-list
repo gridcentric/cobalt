@@ -21,12 +21,18 @@ from novaclient.v1_1.client import Client
 import hashlib
 import os
 import sys
+import argparse
+
+from subprocess import check_output
 
 def hostname_to_id(hostname):
     return hashlib.sha224(hostname).hexdigest()
 
 def id_to_hostname(id):
     return hostmap[id]
+
+def libvirt_name(server):
+    return 'instance-%08x' % int(server.id)
 
 def create_nova_client():
     '''Creates a nova client from the environment variables.'''
@@ -59,7 +65,9 @@ class Table(object):
     def set_header(self):
         self.row.header = True
 
-    def add(self, data):
+    def add(self, data, default=None):
+        if data == None:
+            data = default
         text = str(data)
         col = len(self.row)
         self.row.append(text)
@@ -110,8 +118,13 @@ class Table(object):
                 hline()
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='List openstack servers.')
+    parser.add_argument('--vnc', action='store_true', help='show vnc displays')
+    args = parser.parse_args()
+
     client = create_nova_client()
-    servers = reversed(client.servers.list())
+    servers = client.servers.list()
+    servers.reverse()
     table = Table()
     table.add('ID')
     table.add('Hex ID')
@@ -119,8 +132,32 @@ if __name__ == '__main__':
     table.add('Status')
     table.add('Networks')
     table.add('Host')
+    if args.vnc:
+        table.add('VNC')
     table.set_header()
     table.next_row()
+
+    host_servers = {}
+    for server in servers:
+        setattr(server, 'vncdisplay', None)
+        try:
+            hostname = id_to_hostname(server.hostId)
+            host_servers.setdefault(hostname, []).append(server)
+        except KeyError:
+            hostname = None
+        setattr(server, 'hostname', hostname)
+
+    if args.vnc:
+        for hostname, ss in host_servers.iteritems():
+            commands = ['virsh vncdisplay %s' % libvirt_name(s) for s in ss]
+            command = 'ssh %s "%s" 2>/dev/null' % \
+                        (hostname, '; echo XX;'.join(commands))
+            try:
+                vncs = check_output(command, shell=True).split('XX')
+                for server, vnc in zip(ss, vncs):
+                    server.vncdisplay = vnc.strip()
+            except Exception:
+                pass
 
     for server in servers:
         table.add(server.id)
@@ -131,10 +168,9 @@ if __name__ == '__main__':
         for name, ips in server.networks.iteritems():
             networks.append('%s=%s' % (name, ','.join(ips)))
         table.add(';'.join(networks))
-        try:
-            table.add(id_to_hostname(server.hostId))
-        except KeyError:
-            table.add('?')
+        table.add(server.hostname, '?')
+        if args.vnc:
+            table.add(server.vncdisplay, '?')
         table.next_row()
 
     table.write(sys.stdout)
