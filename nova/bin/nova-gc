@@ -19,8 +19,20 @@
 
 """Starter script for Nova GridCentric extension manager."""
 
+# (amscanne): Normally, a nova service would import eventlet here and
+# monkey_patch the core libraries so use the greenthread-friendly versions.
+# However, we've encountered several strange problems that seem to stem from
+# eventlet-style handling of events. In the manager workflow, the control flow
+# seems to fall off a cliff at arbitrary points and never return. This is very
+# bad, as it means that we get VMs that are stuck in the network allocation
+# stage or the BUILD stage. We actually already have natural greenthread
+# friendly cut points in our code (vmsconn uses the eventlet tpool methods to
+# execute the underlying vms routines) so code paths will not block for
+# excessive amounts of time and the greenthreads will still work as expected.
+# Thus, we do *NOT* monkey patch the core routines, and instead allow them to
+# block as normal.
 import eventlet
-eventlet.monkey_patch()
+eventlet.monkey_patch(all=False)
 
 import gettext
 import os
