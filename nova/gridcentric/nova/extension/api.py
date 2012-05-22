@@ -17,11 +17,13 @@
 """Handles all requests relating to GridCentric functionality."""
 
 from nova import compute
+from nova.compute import vm_states
 from nova import flags
 from nova import log as logging
 from nova.db import base
 from nova import quota
 from nova import rpc
+from nova import utils
 
 LOG = logging.getLogger('gridcentric.nova.api')
 FLAGS = flags.FLAGS
@@ -108,9 +110,108 @@ class API(base.Base):
         metadata = self.db.instance_metadata_get(context, instance_id)
         self.compute_api._check_metadata_properties_quota(context, metadata)
 
+    def _copy_instance(self, context, instance_id, new_suffix, launch=False):
+        # (dscannell): Basically we want to copy all of the information from
+        # instance with id=instance_id into a new instance. This is because we
+        # are basically "cloning" the vm as far as all the properties are
+        # concerned.
+
+        instance_ref = self.db.instance_get(context, instance_id)
+        image_ref = instance_ref.get('image_ref', '')
+        if image_ref == '':
+            image_ref = instance_ref.get('image_id', '')
+
+        if launch:
+            metadata = {'launched_from':'%s' % (instance_id)}
+        else:
+            metadata = {'blessed_from':'%s' % (instance_id)}
+
+        instance = {
+           'reservation_id': utils.generate_uid('r'),
+           'image_ref': image_ref,
+           'state': 0,
+           'state_description': 'halted',
+           'user_id': context.user_id,
+           'project_id': context.project_id,
+           'launch_time': '',
+           'instance_type_id': instance_ref['instance_type_id'],
+           'memory_mb': instance_ref['memory_mb'],
+           'vcpus': instance_ref['vcpus'],
+           'local_gb': instance_ref['local_gb'],
+           'display_name': "%s-%s" % (instance_ref['display_name'], new_suffix),
+           'display_description': instance_ref['display_description'],
+           'user_data': instance_ref.get('user_data', ''),
+           'key_name': instance_ref.get('key_name', ''),
+           'key_data': instance_ref.get('key_data', ''),
+           'locked': False,
+           'metadata': metadata,
+           'availability_zone': instance_ref['availability_zone'],
+           'os_type': instance_ref['os_type'],
+           'host': None,
+        }
+        new_instance_ref = self.db.instance_create(context, instance)
+
+        elevated = context.elevated()
+
+        security_groups = self.db.security_group_get_by_instance(context, instance_id)
+        for security_group in security_groups:
+            self.db.instance_add_security_group(elevated,
+                                                new_instance_ref.id,
+                                                security_group['id'])
+
+        return new_instance_ref
+
+    def _next_clone_num(self, context, instance_id):
+        """ Returns the next clone number for the instance_id """
+
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        clone_num = int(metadata.get('last_clone_num', -1)) + 1
+        metadata['last_clone_num'] = clone_num
+        self.db.instance_metadata_update(context, instance_id, metadata, True)
+
+        LOG.debug(_("Instance %s has new clone num=%s"), instance_id, clone_num)
+        return clone_num
+
+    def _is_instance_blessed(self, context, instance_id):
+        """ Returns True if this instance is blessed, False otherwise. """
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        return metadata.get('blessed', False)
+
+    def _is_instance_launched(self, context, instance_id):
+        """ Returns True if this instance is launched, False otherwise """
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        return "launched_from" in metadata
+
     def bless_instance(self, context, instance_id):
+
+         # Setup the DB representation for the new VM.
+        instance_ref = self.db.instance_get(context, instance_id)
+
+        is_blessed = self._is_instance_blessed(context, instance_id)
+        is_launched = self._is_instance_launched(context, instance_id)
+        if is_blessed:
+            # The instance is already blessed. We can't rebless it.
+            raise exception.Error(_(("Instance %s is already blessed. " +
+                                     "Cannot rebless an instance.") % instance_id))
+        elif is_launched:
+            # The instance is a launched one. We cannot bless launched instances.
+            raise exception.Error(_(("Instance %s has been launched. " +
+                                     "Cannot bless a launched instance.") % instance_id))
+        elif instance_ref['vm_state'] != vm_states.ACTIVE:
+            # The instance is not active. We cannot bless a non-active instance.
+             raise exception.Error(_(("Instance %s is not active. " +
+                                      "Cannot bless a non-active instance.") % instance_id))
+
+        clonenum = self._next_clone_num(context, instance_id)
+        new_instance_ref = self._copy_instance(context, instance_id, str(clonenum), launch=False)
+
         LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
-        self._call_gridcentric_message('bless_instance', context, instance_id)
+        self._call_gridcentric_message('bless_instance', context, instance_id,
+                                       params={'blessed_instance_id': new_instance_ref['id']})
+
+        # We reload the instance because the manager may have change its state (most likely it 
+        # did).
+        return self.get(context, new_instance_ref['id'])
 
     def discard_instance(self, context, instance_id):
         LOG.debug(_("Casting gridcentric message for discard_instance") % locals())
@@ -122,13 +223,25 @@ class API(base.Base):
 
         self._check_quota(context, instance_id)
 
+        if not(self._is_instance_blessed(context, instance_id)):
+            # The instance is not blessed. We can't launch new instances from it.
+            raise exception.Error(
+                  _(("Instance %s is not blessed. " +
+                     "Please bless the instance before launching from it.") % instance_id))
+
+        # Create a new launched instance.
+        new_instance_ref = self._copy_instance(context, instance_id, "clone", launch=True)
+
         LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
                     " instance %(instance_id)s") % locals())
         rpc.cast(context,
                      FLAGS.scheduler_topic,
                      {"method": "launch_instance",
                       "args": {"topic": FLAGS.gridcentric_topic,
-                               "instance_id": instance_id}})
+                               "instance_id": instance_id,
+                               "launch_instance_id": new_instance_ref['id']}})
+
+        return dict(new_instance_ref)
 
     def migrate_instance(self, context, instance_id, dest):
         LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
@@ -150,3 +263,14 @@ class API(base.Base):
                   }
         blessed_instances = self.compute_api.get_all(context, filter)
         return blessed_instances
+
+    def _is_instance_blessed(self, context, instance_id):
+        """ Returns True if this instance is blessed, False otherwise. """
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        return metadata.get('blessed', False)
+
+    def _is_instance_launched(self, context, instance_id):
+        """ Returns True if this instance is launched, False otherwise """
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        return "launched_from" in metadata
+
