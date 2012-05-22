@@ -129,7 +129,7 @@ class API(base.Base):
         instance = {
            'reservation_id': utils.generate_uid('r'),
            'image_ref': image_ref,
-           'state': 0,
+           'vm_state': vm_states.BUILDING,
            'state_description': 'halted',
            'user_id': context.user_id,
            'project_id': context.project_id,
@@ -206,8 +206,8 @@ class API(base.Base):
         new_instance_ref = self._copy_instance(context, instance_id, str(clonenum), launch=False)
 
         LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
-        self._call_gridcentric_message('bless_instance', context, instance_id,
-                                       params={'blessed_instance_id': new_instance_ref['id']})
+        self._call_gridcentric_message('bless_instance', context, new_instance_ref['id'],
+                                       host=instance_ref['host'])
 
         # We reload the instance because the manager may have change its state (most likely it 
         # did).
@@ -238,8 +238,7 @@ class API(base.Base):
                      FLAGS.scheduler_topic,
                      {"method": "launch_instance",
                       "args": {"topic": FLAGS.gridcentric_topic,
-                               "instance_id": instance_id,
-                               "launch_instance_id": new_instance_ref['id']}})
+                               "instance_id": new_instance_ref['id']}})
 
         return dict(new_instance_ref)
 
