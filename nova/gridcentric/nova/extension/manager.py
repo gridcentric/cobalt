@@ -145,59 +145,43 @@ class GridCentricManager(manager.SchedulerDependentManager):
         metadata = self.db.instance_metadata_get(context, instance_id)
         return "launched_from" in metadata
 
-    def bless_instance(self, context, instance_id, migration_url=None):
+    def bless_instance(self, context, instance_id, blessed_instance_id, migration_url=None):
         """
-        Blesses an instance, which will create a new instance from which
-        further instances can be launched from it.
+        Construct the blessed instance, with the id blessed_instance_id, from the instance
+        with id instance_id. If migration_url is specified then instance_id should equal
+        blessed_instance_id.
         """
+        LOG.debug(_("bless instance called: instance_id=%s,"
+                    " blessed_instance_id=%s, migration_url=%s"),
+                    instance_id, blessed_instance_id, migration_url)
 
-        LOG.debug(_("bless instance called: instance_id=%s"), instance_id)
-
-        # Setup the DB representation for the new VM.
         instance_ref = self.db.instance_get(context, instance_id)
-
-        is_blessed = self._is_instance_blessed(context, instance_id)
-        is_launched = self._is_instance_launched(context, instance_id)
-        if is_blessed:
-            # The instance is already blessed. We can't rebless it.
-            raise exception.Error(_(("Instance %s is already blessed. " +
-                                     "Cannot rebless an instance.") % instance_id))
-        elif is_launched:
-            # The instance is a launched one. We cannot bless launched instances.
-            raise exception.Error(_(("Instance %s has been launched. " +
-                                     "Cannot bless a launched instance.") % instance_id))
-        elif instance_ref['vm_state'] != vm_states.ACTIVE:
-            # The instance is not active. We cannot bless a non-active instance.
-             raise exception.Error(_(("Instance %s is not active. " +
-                                      "Cannot bless a non-active instance.") % instance_id))
-
-        context.elevated()
 
         if migration_url:
             # Tweak only this instance directly.
-            new_instance_ref = instance_ref
+            blessed_instance_ref = instance_ref
         else:
-            # Create a new blessed instance.
-            clonenum = self._next_clone_num(context, instance_id)
-            new_instance_ref = self._copy_instance(context, instance_id, str(clonenum), launch=False)
+            blessed_instance_ref = self.db.instance_get(context, blessed_instance_id)
 
         try:
             # Create a new 'blessed' VM with the given name.
             name, migration_url = self.vms_conn.bless(instance_ref.name,
-                                                new_instance_ref.name,
+                                                blessed_instance_ref.name,
                                                 migration_url=migration_url)
+            self._instance_update(context, blessed_instance_ref.id,
+                                  vm_state="blessed", task_state=None)
         except Exception, e:
             LOG.debug(_("Error during bless %s: %s"), str(e), traceback.format_exc())
-            self._instance_update(context, new_instance_ref.id,
+            self._instance_update(context, blessed_instance_ref.id,
                                   vm_state=vm_states.ERROR, task_state=None)
             # Short-circuit, nothing to be done.
             return
 
         if not(migration_url):
             # Mark this new instance as being 'blessed'.
-            metadata = self.db.instance_metadata_get(context, new_instance_ref.id)
+            metadata = self.db.instance_metadata_get(context, blessed_instance_ref.id)
             metadata['blessed'] = True
-            self.db.instance_metadata_update(context, new_instance_ref.id, metadata, True)
+            self.db.instance_metadata_update(context, blessed_instance_ref.id, metadata, True)
 
         # Return the memory URL (will be None for a normal bless).
         return migration_url
@@ -274,7 +258,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # Bless this instance, given the db_copy=False here, the bless
         # will use the same name and no files will be shift around.
-        migration_url = self.bless_instance(context, instance_id,
+        migration_url = self.bless_instance(context, instance_id, instance_id,
                                             migration_url="mcdist://%s" % devname)
 
         # Run our premigration hook.
@@ -287,6 +271,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             rpc.call(context, queue,
                     {"method": "launch_instance",
                      "args": {'instance_id': instance_id,
+                              'launch_instance_id': instance_id,
                               'migration_url': migration_url}})
 
             # Teardown on this host (and delete the descriptor).
@@ -346,19 +331,16 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Remove the instance.
         self.db.instance_destroy(context, instance_id)
 
-    def launch_instance(self, context, instance_id, migration_url=None):
+    def launch_instance(self, context, instance_id, launch_instance_id, migration_url=None):
         """
-        Launches a new virtual machine instance that is based off of the
-        instance referred by instance_id.
+        Construct the launched instance, with id launch_instance_id, based off of the blessed
+        instance with id instance_id. If migration_url is not none then instance_id should
+        equal launch_instance_id.
         """
 
-        LOG.debug(_("Launching new instance: instance_id=%s"), instance_id)
-
-        if not(migration_url) and not(self._is_instance_blessed(context, instance_id)):
-            # The instance is not blessed. We can't launch new instances from it.
-            raise exception.Error(
-                  _(("Instance %s is not blessed. " +
-                     "Please bless the instance before launching from it.") % instance_id))
+        LOG.debug(_("Launching new instance: instance_id=%s,"
+                    "launch_instance_id=%s, migration_url=%s"),
+                    instance_id, launch_instance_id, migration_url)
 
         context.elevated()
 
@@ -380,7 +362,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   task_state=task_states.SPAWNING)
         else:
             # Create a new launched instance.
-            new_instance_ref = self._copy_instance(context, instance_id, "clone", launch=True)
+            new_instance_ref = self.db.instance_get(context, launch_instance_id)
 
             if not FLAGS.stub_network:
                 # TODO(dscannell): We need to set the is_vpn parameter correctly.
@@ -416,7 +398,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Update the instance state to be in the building state.
             self._instance_update(context, new_instance_ref.id,
                                   vm_state=vm_states.BUILDING,
-                                  task_state=task_states.SPAWNING)
+                                  task_state=task_states.SPAWNING,
+                                  host=self.host)
 
         # TODO(dscannell): Need to figure out what the units of measurement
         # for the target should be (megabytes, kilobytes, bytes, etc).
