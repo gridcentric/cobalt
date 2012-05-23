@@ -1,0 +1,176 @@
+#!/usr/bin/env python
+
+# Copyright 2011 GridCentric Inc.
+# All Rights Reserved.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+# A clone of "nova list" that provides some more information for developers.
+
+from novaclient.v1_1.client import Client
+import hashlib
+import os
+import sys
+import argparse
+
+from subprocess import check_output
+
+def hostname_to_id(hostname):
+    return hashlib.sha224(hostname).hexdigest()
+
+def id_to_hostname(id):
+    return hostmap[id]
+
+def libvirt_name(server):
+    return 'instance-%08x' % int(server.id)
+
+def create_nova_client():
+    '''Creates a nova client from the environment variables.'''
+    return Client(username=os.environ['NOVA_USERNAME'],
+                  api_key=os.environ['NOVA_API_KEY'],
+                  project_id=os.environ['NOVA_PROJECT_ID'],
+                  auth_url=os.environ['NOVA_URL'])
+
+def cluster_hosts():
+    try:
+        return os.environ['NOVA_HOSTS'].split()
+    except KeyError:
+        return ['node%d' % n for n in range(100)]
+
+hostmap = {}
+for host in cluster_hosts():
+    hostmap[hostname_to_id(host)] = host
+hostmap[''] = ''
+
+class Table(object):
+    
+    class Row(list):
+        header = False
+
+    def __init__(self):
+        self.row = Table.Row()
+        self.rows = []
+        self.colmax = []
+
+    def set_header(self):
+        self.row.header = True
+
+    def add(self, data, default=None):
+        if data == None:
+            data = default
+        text = str(data)
+        col = len(self.row)
+        self.row.append(text)
+        if col >= len(self.colmax):
+            self.colmax.append(len(text))
+        else:
+            self.colmax[col] = max(self.colmax[col], len(text))
+
+    def next_row(self):
+        if len(self.rows) > 0:
+            if len(self.row) != len(self.rows[0]):
+                raise ValueError()
+        self.rows.append(self.row)
+        self.row = Table.Row()
+
+    def write(self, out):
+        first_row = 0
+        last_row = len(self.rows) - 1
+
+        def hline():
+            for c in range(len(self.rows[0])):
+                out.write('+' + '-' * (2 + self.colmax[c]))
+            out.write('+\n')
+
+        def center(cell, width):
+            left = (width - len(cell)) / 2
+            right = width - len(cell) - left
+            out.write(' ' * left)
+            out.write(cell)
+            out.write(' ' * right)
+
+        def left(cell, width):
+            out.write(('%%-%ds' % width) % cell)
+
+        for r in range(len(self.rows)):
+            if r == first_row or self.rows[r].header:
+                hline()
+            for c in range(len(self.rows[0])):
+                if self.rows[r].header:
+                    fmt = center
+                else:
+                    fmt = left
+                out.write('| ')
+                fmt(self.rows[r][c], self.colmax[c])
+                out.write(' ')
+            out.write('|\n')
+            if r == last_row or self.rows[r].header:
+                hline()
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='List openstack servers.')
+    parser.add_argument('--vnc', action='store_true', help='show vnc displays')
+    args = parser.parse_args()
+
+    client = create_nova_client()
+    servers = client.servers.list()
+    servers.reverse()
+    table = Table()
+    table.add('ID')
+    table.add('Hex ID')
+    table.add('Name')
+    table.add('Status')
+    table.add('Networks')
+    table.add('Host')
+    if args.vnc:
+        table.add('VNC')
+    table.set_header()
+    table.next_row()
+
+    host_servers = {}
+    for server in servers:
+        setattr(server, 'vncdisplay', None)
+        try:
+            hostname = id_to_hostname(server.hostId)
+            host_servers.setdefault(hostname, []).append(server)
+        except KeyError:
+            hostname = None
+        setattr(server, 'hostname', hostname)
+
+    if args.vnc:
+        for hostname, ss in host_servers.iteritems():
+            commands = ['virsh vncdisplay %s' % libvirt_name(s) for s in ss]
+            command = 'ssh %s "%s" 2>/dev/null' % \
+                        (hostname, '; echo XX;'.join(commands))
+            try:
+                vncs = check_output(command, shell=True).split('XX')
+                for server, vnc in zip(ss, vncs):
+                    server.vncdisplay = vnc.strip()
+            except Exception:
+                pass
+
+    for server in servers:
+        table.add(server.id)
+        table.add('%08x' % int(server.id))
+        table.add(server.name)
+        table.add(server.status)
+        networks = []
+        for name, ips in server.networks.iteritems():
+            networks.append('%s=%s' % (name, ','.join(ips)))
+        table.add(';'.join(networks))
+        table.add(server.hostname, '?')
+        if args.vnc:
+            table.add(server.vncdisplay, '?')
+        table.next_row()
+
+    table.write(sys.stdout)

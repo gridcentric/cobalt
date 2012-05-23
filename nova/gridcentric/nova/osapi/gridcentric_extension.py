@@ -1,4 +1,4 @@
-# Copyright 2011 GridCentric Inc.
+# Copyright 2011 Gridcentric Inc.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -28,6 +28,17 @@ from gridcentric.nova.extension import API
 LOG = logging.getLogger("nova.api.extensions.gridcentric")
 
 class GridcentricServerControllerExtension(wsgi.Controller):
+    """
+    The Openstack Extension definition for the Gridcentric capabilities. Currently this includes:
+
+        * Bless an existing virtual machine (creates a new server snapshot
+          of the virtual machine and enables the user to launch new copies
+          nearly instantaneously).
+
+        * Launch new virtual machines from a blessed copy above.
+
+        * Discard blessed VMs.
+    """
 
     _view_builder_class = views_servers.ViewBuilder
 
@@ -55,6 +66,15 @@ class GridcentricServerControllerExtension(wsgi.Controller):
             return webob.Response(status_int=200, body=json.dumps(result))
         except novaexc.QuotaError as error:
             self._handle_quota_error(error)
+
+    @wsgi.action('gc_migrate')
+    def _migrate_instance(self, req, id, dest, body):
+        context = req.environ["nova.context"]
+        try:
+            result = self.gridcentric_api.migrate_instance(context, id, dest)
+            return webob.Response(status_int=200, body=json.dumps(result))
+        except quota.QuotaError as error:
+            self.server_helper._handle_quota_error(error)
 
     @wsgi.action('gc_list_launched')
     def _list_launched_instances(self, req, id, body):
@@ -121,7 +141,7 @@ class GridcentricServerControllerExtension(wsgi.Controller):
 
 class Gridcentric_extension(object):
     """ 
-    The Openstack Extension definition for the GridCentric capabilities. Currently this includes:
+    The Openstack Extension definition for the Gridcentric capabilities. Currently this includes:
         
         * Bless an existing virtual machine (creates a new server snapshot
           of the virtual machine and enables the user to launch new copies
@@ -134,7 +154,7 @@ class Gridcentric_extension(object):
         * List launched VMs (per blessed VM).
     """
 
-    name = "GridCentric"
+    name = "Gridcentric"
     alias = "GC"
     namespace = "http://www.gridcentric.com"
     updated = '2012-03-14T18:33:34-07:00' ##TIMESTAMP##
@@ -154,4 +174,3 @@ class Gridcentric_extension(object):
             extension_list.append(ext)
 
         return extension_list
-
