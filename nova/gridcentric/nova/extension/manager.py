@@ -73,63 +73,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
         """Update an instance in the database using kwargs as value."""
         return self.db.instance_update(context, instance_uuid, kwargs)
 
-    def _copy_instance(self, context, instance_uuid, new_suffix, launch=False):
-        # (dscannell): Basically we want to copy all of the information from
-        # instance with id=instance_uuid into a new instance. This is because we
-        # are basically "cloning" the vm as far as all the properties are
-        # concerned.
-
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
-        image_ref = instance_ref.get('image_ref', '')
-        if image_ref == '':
-            image_ref = instance_ref.get('image_id', '')
-
-        if launch:
-            metadata = {'launched_from':'%s' % (instance_ref['uuid'])}
-            host = self.host
-        else:
-            metadata = {'blessed_from':'%s' % (instance_ref['uuid'])}
-            host = None
-
-        instance = {
-           'reservation_id': utils.generate_uid('r'),
-           'image_ref': image_ref,
-           'state': 0,
-           'state_description': 'halted',
-           'user_id': context.user_id,
-           'project_id': context.project_id,
-           'launch_time': '',
-           'instance_type_id': instance_ref['instance_type_id'],
-           'memory_mb': instance_ref['memory_mb'],
-           'vcpus': instance_ref['vcpus'],
-           'root_gb': instance_ref['root_gb'],
-           'ephemeral_gb': instance_ref['ephemeral_gb'],
-           'display_name': "%s-%s" % (instance_ref['display_name'], new_suffix),
-           'display_description': instance_ref['display_description'],
-           'user_data': instance_ref.get('user_data', ''),
-           'key_name': instance_ref.get('key_name', ''),
-           'key_data': instance_ref.get('key_data', ''),
-           'locked': False,
-           'metadata': metadata,
-           'availability_zone': instance_ref['availability_zone'],
-           'os_type': instance_ref['os_type'],
-           'host': host,
-        }
-        new_instance_ref = self.db.instance_create(context, instance)
-
-        # (dscannell) We need to reload the instance_ref in order for it to be associated with
-        # the database session of lazy-loading.
-        new_instance_ref = self.db.instance_get(context, new_instance_ref.id)
-
-        elevated = context.elevated()
-        security_groups = self.db.security_group_get_by_instance(context, instance_uuid)
-        for security_group in security_groups:
-            self.db.instance_add_security_group(elevated,
-                                                new_instance_ref.id,
-                                                security_group['id'])
-
-        return new_instance_ref
-
     def _instance_metadata(self, context, instance_uuid):
         """ Looks up and returns the instance metadata """
 
@@ -142,81 +85,60 @@ class GridCentricManager(manager.SchedulerDependentManager):
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
         return self.db.instance_metadata_update(context, instance_ref['id'], metadata, True)
 
-    def _next_clone_num(self, context, instance_uuid):
-        """ Returns the next clone number for the instance_uuid """
-
+    def _get_source_instance(self, context, instance_uuid):
+        """ 
+        Returns a the instance reference for the source instance of instance_id. In other words:
+        if instance_id is a BLESSED instance, it returns the instance that was blessed
+        if instance_id is a LAUNCH instance, it returns the blessed instance.
+        if instance_id is neither, it returns NONE.
+        """
         metadata = self._instance_metadata(context, instance_uuid)
-        clone_num = int(metadata.get('last_clone_num', -1)) + 1
-        metadata['last_clone_num'] = clone_num
-        self._instance_metadata_update(context, instance_uuid, metadata)
+        if "launched_from" in metadata:
+            source_instance_id = int(metadata["launched_from"])
+        elif "blessed_from" in metadata:
+            source_instance_id = int(metadata["blessed_from"])
+        else:
+            source_instance_id = None
 
-        LOG.debug(_("Instance %s has new clone num=%s"), instance_uuid, clone_num)
-        return clone_num
-
-    def _is_instance_blessed(self, context, instance_uuid):
-        """ Returns True if this instance is blessed, False otherwise. """
-        metadata = self._instance_metadata(context, instance_uuid)
-        return metadata.get('blessed', False)
-
-    def _is_instance_launched(self, context, instance_uuid):
-        """ Returns True if this instance is launched, False otherwise """
-        metadata = self._instance_metadata(context, instance_uuid)
-        return "launched_from" in metadata
+        if source_instance_id != None:
+            return self.db.instance_get_by_uuid(context, instance_uuid)
+        return None
 
     def bless_instance(self, context, instance_uuid, migration_url=None):
         """
-        Blesses an instance, which will create a new instance from which
-        further instances can be launched from it.
+        Construct the blessed instance, with the id instance_id. If migration_url is specified then 
+        bless will ensure a memory server is available at the given migration url.
         """
+        LOG.debug(_("bless instance called: instance_uuid=%s, migration_url=%s"),
+                    instance_id, migration_url)
 
-        LOG.debug(_("bless instance called: instance_uuid=%s"), instance_uuid)
-
-        # Setup the DB representation for the new VM.
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
-
-        is_blessed = self._is_instance_blessed(context, instance_uuid)
-        is_launched = self._is_instance_launched(context, instance_uuid)
-        if is_blessed:
-            # The instance is already blessed. We can't rebless it.
-            raise exception.Error(_(("Instance %s is already blessed. " +
-                                     "Cannot rebless an instance.") % instance_uuid))
-        elif is_launched:
-            # The instance is a launched one. We cannot bless launched instances.
-            raise exception.Error(_(("Instance %s has been launched. " +
-                                     "Cannot bless a launched instance.") % instance_uuid))
-        elif instance_ref['vm_state'] != vm_states.ACTIVE:
-            # The instance is not active. We cannot bless a non-active instance.
-             raise exception.Error(_(("Instance %s is not active. " +
-                                      "Cannot bless a non-active instance.") % instance_uuid))
-
-        context.elevated()
-
         if migration_url:
             # Tweak only this instance directly.
-            new_instance_ref = instance_ref
+            source_instance_ref = instance_ref
         else:
-            # Create a new blessed instance.
-            clonenum = self._next_clone_num(context, instance_uuid)
-            new_instance_ref = self._copy_instance(context, instance_uuid, str(clonenum), launch=False)
+            source_instance_ref = self._get_source_instance(context, instance_uuid)
 
         self._instance_update(context, new_instance_ref.id, vm_state=vm_states.BUILDING)
         try:
             # Create a new 'blessed' VM with the given name.
-            name, migration_url = self.vms_conn.bless(instance_ref.name,
-                                                new_instance_ref.name,
+            name, migration_url = self.vms_conn.bless(source_instance_ref.name,
+                                                instance_ref.name,
                                                 migration_url=migration_url)
+            self._instance_update(context, instance_ref.id,
+                                  vm_state="blessed", task_state=None)
         except Exception, e:
             LOG.debug(_("Error during bless %s: %s"), str(e), traceback.format_exc())
-            self._instance_update(context, new_instance_ref.id,
+            self._instance_update(context, instance_ref.id,
                                   vm_state=vm_states.ERROR, task_state=None)
             # Short-circuit, nothing to be done.
             return
 
         if not(migration_url):
             # Mark this new instance as being 'blessed'.
-            metadata = self.db.instance_metadata_get(context, new_instance_ref['uuid'])
+            metadata = self.db.instance_metadata_get(context, instance_ref['uuid'])
             metadata['blessed'] = True
-            self.db.instance_metadata_update(context, new_instance_ref['uuid'], metadata, True)
+            self.db.instance_metadata_update(context, instance_ref['uuid'], metadata, True)
 
         # Return the memory URL (will be None for a normal bless).
         return migration_url
@@ -305,6 +227,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             rpc.call(context, queue,
                     {"method": "launch_instance",
                      "args": {'instance_id': instance_id,
+                              'launch_instance_id': instance_id,
                               'migration_url': migration_url}})
 
             # Teardown on this host (and delete the descriptor).
@@ -366,26 +289,19 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def launch_instance(self, context, instance_uuid, migration_url=None):
         """
-        Launches a new virtual machine instance that is based off of the
-        instance referred by instance_id.
+        Construct the launched instance, with id instance_id. If migration_url is not none then 
+        the instance will be launched using the memory server at the migration_url
         """
+        LOG.debug(_("Launching new instance: instance_uuid=%s, migration_url=%s"),
+                    instance_uuid, migration_url)
 
-        LOG.debug(_("Launching new instance: instance_uuid=%s"), instance_uuid)
-
-        if not(migration_url) and not(self._is_instance_blessed(context, instance_uuid)):
-            # The instance is not blessed. We can't launch new instances from it.
-            raise exception.Error(
-                  _(("Instance %s is not blessed. " +
-                     "Please bless the instance before launching from it.") % instance_uuid))
-
-        context.elevated()
 
         # Grab the DB representation for the VM.
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
 
         if migration_url:
             # Just launch the given blessed instance.
-            new_instance_ref = instance_ref
+            source_instance_ref = instance_ref
 
             # Load the old network info.
             network_info = self.network_api.get_instance_nw_info(context, instance_ref)
@@ -398,7 +314,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   task_state=task_states.SPAWNING)
         else:
             # Create a new launched instance.
-            new_instance_ref = self._copy_instance(context, instance_uuid, "clone", launch=True)
+            source_instance_ref = self._get_source_instance(context, instance_uuid)
 
             if not FLAGS.stub_network:
                 # TODO(dscannell): We need to set the is_vpn parameter correctly.
@@ -406,9 +322,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 # have to specify it. Also, we might be able to convert this to a
                 # cast because we are not waiting on any return value.
                 LOG.debug(_("Making call to network for launching instance=%s"), \
-                          new_instance_ref.name)
+                          instance_ref.name)
 
-                self._instance_update(context, new_instance_ref.id,
+                self._instance_update(context, instance_ref.id,
                                       vm_state=vm_states.BUILDING,
                                       task_state=task_states.NETWORKING)
                 is_vpn = False
@@ -416,25 +332,26 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
                 try:
                     network_info = self.network_api.allocate_for_instance(context,
-                                                new_instance_ref, vpn=is_vpn,
+                                                instance_ref, vpn=is_vpn,
                                                 requested_networks=requested_networks)
                 except Exception, e:
                     LOG.debug(_("Error during network allocation: %s"), str(e))
-                    self._instance_update(context, new_instance_ref.id,
+                    self._instance_update(context, instance_ref.id,
                                           vm_state=vm_states.ERROR,
                                           task_state=None)
                     # Short-circuit, can't proceed.
                     return
 
                 LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"),
-                          new_instance_ref.name, network_info)
+                          instance_ref.name, network_info)
             else:
                 network_info = []
 
             # Update the instance state to be in the building state.
-            self._instance_update(context, new_instance_ref.id,
+            self._instance_update(context, instance_ref.id,
                                   vm_state=vm_states.BUILDING,
-                                  task_state=task_states.SPAWNING)
+                                  task_state=task_states.SPAWNING,
+                                  host=self.host)
 
     def extract_mac_addresses(self, network_info):
         # TODO(dscannell) We should be using the network_info object. This is
@@ -451,23 +368,23 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Also, target should probably be an optional parameter that the
         # user can pass down.  The target memory settings for the launch
         # virtual machine.
-        target = new_instance_ref['memory_mb']
+        target = instance_ref['memory_mb']
 
         try:
             self.vms_conn.launch(context,
-                                 instance_ref.name,
+                                 source_instance_ref.name,
                                  str(target),
-                                 new_instance_ref,
+                                 instance_ref,
                                  network_info,
                                  migration_url=migration_url)
 
             # Perform our database update.
             self._instance_update(context,
-                                  new_instance_ref.id,
+                                  instance_ref.id,
                                   vm_state=vm_states.ACTIVE,
                                   host=self.host,
                                   task_state=None)
         except Exception, e:
             LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
-            self._instance_update(context, new_instance_ref.id,
+            self._instance_update(context, instance_ref.id,
                                   vm_state=vm_states.ERROR, task_state=None)
