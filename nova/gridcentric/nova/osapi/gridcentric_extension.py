@@ -69,8 +69,8 @@ class GridcentricServerControllerExtension(wsgi.Controller):
         try:
             result = self.gridcentric_api.launch_instance(context, id)
             return self._build_instance_list(req, [result])
-        except quota.QuotaError as error:
-            self.server_helper._handle_quota_error(error)
+        except novaexc.QuotaError as error:
+            self._handle_quota_error(error)
 
     @wsgi.action('gc_migrate')
     def _migrate_instance(self, req, id, dest, body):

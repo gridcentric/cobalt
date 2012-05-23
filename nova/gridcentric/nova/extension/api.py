@@ -19,6 +19,7 @@
 from nova import compute
 from nova.compute import vm_states
 from nova import flags
+from nova import exception
 from nova import log as logging
 from nova.db import base
 from nova import quota
@@ -135,7 +136,7 @@ class API(base.Base):
         instance = {
            'reservation_id': utils.generate_uid('r'),
            'image_ref': image_ref,
-           'state': 0,
+           'vm_state': vm_states.BUILDING,
            'state_description': 'halted',
            'user_id': context.user_id,
            'project_id': context.project_id,
@@ -197,19 +198,20 @@ class API(base.Base):
     def _is_instance_blessed(self, context, instance_uuid):
         """ Returns True if this instance is blessed, False otherwise. """
         metadata = self._instance_metadata(context, instance_uuid)
-        return metadata.get('blessed', False)
+        return 'blessed_from' in metadata
 
     def _is_instance_launched(self, context, instance_uuid):
         """ Returns True if this instance is launched, False otherwise """
         metadata = self._instance_metadata(context, instance_uuid)
         return "launched_from" in metadata
+
     def bless_instance(self, context, instance_uuid):
 
          # Setup the DB representation for the new VM.
         instance_ref = self.get(context, instance_uuid)
 
-        is_blessed = self._is_instance_blessed(context, instance_ref['id'])
-        is_launched = self._is_instance_launched(context, instance_ref['id'])
+        is_blessed = self._is_instance_blessed(context, instance_uuid)
+        is_launched = self._is_instance_launched(context, instance_uuid)
         if is_blessed:
             # The instance is already blessed. We can't rebless it.
             raise exception.Error(_(("Instance %s is already blessed. " +
@@ -223,11 +225,11 @@ class API(base.Base):
              raise exception.Error(_(("Instance %s is not active. " +
                                       "Cannot bless a non-active instance.") % instance_uuid))
 
-        clonenum = self._next_clone_num(context, instance_ref['id'])
+        clonenum = self._next_clone_num(context, instance_uuid)
         new_instance_ref = self._copy_instance(context, instance_uuid, str(clonenum), launch=False)
 
         LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
-        self._call_gridcentric_message('bless_instance', context, new_instance_ref['uuid'],
+        self._cast_gridcentric_message('bless_instance', context, new_instance_ref['uuid'],
                                        host=instance_ref['host'])
 
         # We reload the instance because the manager may have change its state (most likely it 
@@ -236,6 +238,17 @@ class API(base.Base):
 
     def discard_instance(self, context, instance_uuid):
         LOG.debug(_("Casting gridcentric message for discard_instance") % locals())
+
+        if not self._is_instance_blessed(context, instance_uuid):
+            # The instance is not blessed. We can't discard it.
+            raise exception.Error(_(("Instance %s is not blessed. " +
+                                     "Cannot discard an non-blessed instance.") % instance_uuid))
+        elif len(self.list_launched_instances(context, instance_uuid)) > 0:
+            # There are still launched instances based off of this one.
+            raise exception.Error(_(("Instance %s still has launched instances. " +
+                                     "Cannot discard an instance with remaining launched ones.") %
+                                     instance_uuid))
+
         self._cast_gridcentric_message('discard_instance', context, instance_uuid)
 
     def launch_instance(self, context, instance_uuid):
@@ -245,7 +258,7 @@ class API(base.Base):
         self._check_quota(context, instance_uuid)
         instance = self.get(context, instance_uuid)
 
-        if not(self._is_instance_blessed(context, instance['id'])):
+        if not(self._is_instance_blessed(context, instance_uuid)):
             # The instance is not blessed. We can't launch new instances from it.
             raise exception.Error(
                   _(("Instance %s is not blessed. " +
@@ -262,7 +275,7 @@ class API(base.Base):
                       "args": {"topic": FLAGS.gridcentric_topic,
                                "instance_uuid": new_instance_ref['uuid']}})
 
-        return dict(new_instance_ref)
+        return self.get(context, new_instance_ref['uuid'])
 
     def migrate_instance(self, context, instance_uuid, dest):
         LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
