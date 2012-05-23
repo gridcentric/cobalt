@@ -98,7 +98,7 @@ client = NovaClient(url, user, key, project)
 
 if command == 'bless':
     instance_id = get_arg(1)
-    client.bless_instance(instance_id)
+    print client.bless_instance(instance_id)
 
 elif command == 'discard':
     instance_id = get_arg(1)
@@ -106,7 +106,7 @@ elif command == 'discard':
 
 elif command == 'launch':
     instance_id = get_arg(1)
-    client.launch_instance(instance_id)
+    print client.launch_instance(instance_id)
 
 elif command == 'list-launched':
     instance_id = get_arg(1)

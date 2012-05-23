@@ -25,6 +25,7 @@ import nova.api.openstack.views.addresses
 import nova.api.openstack.views.flavors
 import nova.api.openstack.views.images
 import nova.api.openstack.views.servers
+import nova.api.openstack.common as common
 
 from gridcentric.nova.extension import API
 
@@ -49,6 +50,9 @@ class Gridcentric_extension(object):
         self.gridcentric_api = API()
         # This is used to convert exception to consistent HTTP errors
         self.server_helper = server_helper.CreateInstanceHelper(None)
+
+        # Add the gridcentric-specific states to the state map
+        common._STATE_MAP['blessed'] = {'default': 'BLESSED'}
 
     def get_name(self):
         return "GridCentric"
@@ -91,7 +95,7 @@ class Gridcentric_extension(object):
     def _bless_instance(self, input_dict, req, id):
         context = req.environ["nova.context"]
         result = self.gridcentric_api.bless_instance(context, id)
-        return webob.Response(status_int=200, body=json.dumps(result))
+        return self._build_instance_list(req, [result])
 
     def _discard_instance(self, input_dict, req, id):
         context = req.environ["nova.context"]
@@ -102,7 +106,7 @@ class Gridcentric_extension(object):
         context = req.environ["nova.context"]
         try:
             result = self.gridcentric_api.launch_instance(context, id)
-            return webob.Response(status_int=200, body=json.dumps(result))
+            return self._build_instance_list(req, [result])
         except quota.QuotaError as error:
             self.server_helper._handle_quota_error(error)
 
@@ -138,25 +142,10 @@ class Gridcentric_extension(object):
                 addresses_builder, flavor_builder, image_builder,
                 base_url, project_id)
             return builder.build(instance, is_detail=is_detail)
-        instances = [_build_view(req, inst)['server']
+        if len(instances) == 1:
+            result = _build_view(req, instances[0])['server']
+        elif len(instances) == 1:
+            result = [_build_view(req, inst)['server']
                     for inst in instances]
-        return webob.Response(status_int=200, body=json.dumps(instances))
 
-    def get_request_extensions(self):
-        request_exts = []
-        def _show_servers(req, res):
-            #NOTE: This only handles JSON responses.
-            # You can use content type header to test for XML.
-            data = json.loads(res.body)
-            servers = data['servers']
-            for server in servers:
-                metadata = server['metadata']
-                is_blessed = metadata.get('blessed', False)
-                if is_blessed:
-                    server['status'] = 'BLESSED'
-            return data
-
-        req_ext = extensions.RequestExtension('GET', '/:(project_id)/servers/detail',
-                                                _show_servers)
-        request_exts.append(req_ext)
-        return request_exts
+        return webob.Response(status_int=200, body=json.dumps(result))
