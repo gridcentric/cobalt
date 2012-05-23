@@ -94,23 +94,23 @@ class GridCentricManager(manager.SchedulerDependentManager):
         """
         metadata = self._instance_metadata(context, instance_uuid)
         if "launched_from" in metadata:
-            source_instance_id = int(metadata["launched_from"])
+            source_instance_uuid = metadata["launched_from"]
         elif "blessed_from" in metadata:
-            source_instance_id = int(metadata["blessed_from"])
+            source_instance_uuid = metadata["blessed_from"]
         else:
-            source_instance_id = None
+            source_instance_uuid = None
 
-        if source_instance_id != None:
-            return self.db.instance_get_by_uuid(context, instance_uuid)
+        if source_instance_uuid != None:
+            return self.db.instance_get_by_uuid(context, source_instance_uuid)
         return None
 
     def bless_instance(self, context, instance_uuid, migration_url=None):
         """
-        Construct the blessed instance, with the id instance_id. If migration_url is specified then 
+        Construct the blessed instance, with the uuid instance_uuid. If migration_url is specified then 
         bless will ensure a memory server is available at the given migration url.
         """
         LOG.debug(_("bless instance called: instance_uuid=%s, migration_url=%s"),
-                    instance_id, migration_url)
+                    instance_uuid, migration_url)
 
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
         if migration_url:
@@ -119,7 +119,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         else:
             source_instance_ref = self._get_source_instance(context, instance_uuid)
 
-        self._instance_update(context, new_instance_ref.id, vm_state=vm_states.BUILDING)
+        self._instance_update(context, instance_ref.id, vm_state=vm_states.BUILDING)
         try:
             # Create a new 'blessed' VM with the given name.
             name, migration_url = self.vms_conn.bless(source_instance_ref.name,
@@ -262,15 +262,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         LOG.debug(_("discard instance called: instance_uuid=%s"), instance_uuid)
 
-        if not self._is_instance_blessed(context, instance_uuid):
-            # The instance is not blessed. We can't discard it.
-            raise exception.Error(_(("Instance %s is not blessed. " +
-                                     "Cannot discard an non-blessed instance.") % instance_uuid))
-        elif len(self.gridcentric_api.list_launched_instances(context, instance_uuid)) > 0:
-            # There are still launched instances based off of this one.
-            raise exception.Error(_(("Instance %s still has launched instances. " +
-                                     "Cannot discard an instance with remaining launched ones.") %
-                                     instance_uuid))
         context.elevated()
 
         # Grab the DB representation for the VM.
@@ -289,7 +280,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def launch_instance(self, context, instance_uuid, migration_url=None):
         """
-        Construct the launched instance, with id instance_id. If migration_url is not none then 
+        Construct the launched instance, with uuid instance_uuid. If migration_url is not none then 
         the instance will be launched using the memory server at the migration_url
         """
         LOG.debug(_("Launching new instance: instance_uuid=%s, migration_url=%s"),
@@ -309,7 +300,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Update the instance state to be migrating. This will be set to
             # active again once it is completed in do_launch() as per all
             # normal launched instances.
-            self._instance_update(context, instance_ref.id,
+            self._instance_update(context, instance_ref['uuid'],
                                   vm_state=vm_states.MIGRATING,
                                   task_state=task_states.SPAWNING)
         else:
@@ -336,7 +327,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                 requested_networks=requested_networks)
                 except Exception, e:
                     LOG.debug(_("Error during network allocation: %s"), str(e))
-                    self._instance_update(context, instance_ref.id,
+                    self._instance_update(context, instance_ref['uuid'],
                                           vm_state=vm_states.ERROR,
                                           task_state=None)
                     # Short-circuit, can't proceed.
@@ -348,20 +339,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 network_info = []
 
             # Update the instance state to be in the building state.
-            self._instance_update(context, instance_ref.id,
+            self._instance_update(context, instance_ref['uuid'],
                                   vm_state=vm_states.BUILDING,
                                   task_state=task_states.SPAWNING,
                                   host=self.host)
-
-    def extract_mac_addresses(self, network_info):
-        # TODO(dscannell) We should be using the network_info object. This is
-        # just here until we figure out how to use it.
-        network_info = compute_utils.legacy_network_info(network_info)
-        mac_addresses = {}
-        vif = 0
-        for network in network_info:
-            mac_addresses[str(vif)] = network[1]['mac']
-            vif += 1
 
         # TODO(dscannell): Need to figure out what the units of measurement
         # for the target should be (megabytes, kilobytes, bytes, etc).
@@ -380,11 +361,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
             # Perform our database update.
             self._instance_update(context,
-                                  instance_ref.id,
+                                  instance_ref['uuid'],
                                   vm_state=vm_states.ACTIVE,
                                   host=self.host,
                                   task_state=None)
         except Exception, e:
             LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
-            self._instance_update(context, instance_ref.id,
+            self._instance_update(context, instance_ref['uuid'],
                                   vm_state=vm_states.ERROR, task_state=None)
