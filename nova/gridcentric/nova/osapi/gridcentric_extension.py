@@ -20,8 +20,11 @@ from nova import log as logging
 from nova import exception as novaexc
 
 from nova.api.openstack import extensions
+
 from nova.api.openstack import wsgi
 from nova.api.openstack.compute.views import servers as views_servers
+import nova.api.openstack.common as common
+
 
 from gridcentric.nova.extension import API
 
@@ -45,12 +48,14 @@ class GridcentricServerControllerExtension(wsgi.Controller):
     def __init__(self):
         super(GridcentricServerControllerExtension, self).__init__()
         self.gridcentric_api = API()
+        # Add the gridcentric-specific states to the state map
+        common._STATE_MAP['blessed'] = {'default': 'BLESSED'}
 
     @wsgi.action('gc_bless')
     def _bless_instance(self, req, id, body):
         context = req.environ["nova.context"]
         result = self.gridcentric_api.bless_instance(context, id)
-        return webob.Response(status_int=200, body=json.dumps(result))
+        return self._build_instance_list(req, [result])
 
     @wsgi.action('gc_discard')
     def _discard_instance(self, req, id, body):
@@ -63,9 +68,9 @@ class GridcentricServerControllerExtension(wsgi.Controller):
         context = req.environ["nova.context"]
         try:
             result = self.gridcentric_api.launch_instance(context, id)
-            return webob.Response(status_int=200, body=json.dumps(result))
-        except novaexc.QuotaError as error:
-            self._handle_quota_error(error)
+            return self._build_instance_list(req, [result])
+        except quota.QuotaError as error:
+            self.server_helper._handle_quota_error(error)
 
     @wsgi.action('gc_migrate')
     def _migrate_instance(self, req, id, dest, body):
@@ -101,18 +106,6 @@ class GridcentricServerControllerExtension(wsgi.Controller):
             return builder.build(instance, is_detail=is_detail)
         instances = self._view_builder.detail(req, instances)['servers']
         return webob.Response(status_int=200, body=json.dumps(instances))
-
-    @wsgi.extends
-    def detail(self, req, resp_obj, **kwargs):
-            #NOTE: This only handles JSON responses.
-            # You can use content type header to test for XML.
-            data = resp_obj.obj
-            servers = data['servers']
-            for server in servers:
-                metadata = server['metadata']
-                is_blessed = metadata.get('blessed', False)
-                if is_blessed:
-                    server['status'] = 'BLESSED'
 
     ## Utility methods taken from nova core ##
     def _handle_quota_error(self, error):
