@@ -392,16 +392,12 @@ class LibvirtConnection(VmsConnection):
         # special case.
         return libvirt_file
 
-<<<<<<< HEAD
-    def post_launch(self, context, instance, network_info=None, block_device_info=None):
-        self.libvirt_conn._enable_hairpin(instance)
-        self.libvirt_conn.firewall_driver.apply_instance_filter(instance, network_info)
-=======
     def post_launch(self, context,
                     new_instance_ref,
                     network_info=None,
                     block_device_info=None,
                     migration=False):
+        self.libvirt_conn._enable_hairpin(new_instance_ref)
         self.libvirt_conn.firewall_driver.apply_instance_filter(new_instance_ref, network_info)
 
     def pre_migration(self, instance_ref, network_info, migration_url):
@@ -430,4 +426,3 @@ class LibvirtConnection(VmsConnection):
                     ctrl.kill(timeout=1.0)
             except control.ControlException:
                 pass
->>>>>>> master
