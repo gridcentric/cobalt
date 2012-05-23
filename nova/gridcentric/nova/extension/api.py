@@ -61,7 +61,10 @@ class API(base.Base):
         if not host:
             instance = self.get(context, instance_uuid)
             host = instance['host']
-        queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, host)
+        if not host:
+            queue = FLAGS.gridcentric_topic
+        else:
+            queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, host)
         params['instance_uuid'] = instance_uuid
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
@@ -79,9 +82,9 @@ class API(base.Base):
         if not params:
             params = {}
         if not host:
-            instance = self.get(context, instance_uuid)
-            host = instance['host']
-        queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, host)
+            queue = FLAGS.gridcentric_topic
+        else:
+            queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, host)
         params['instance_uuid'] = instance_uuid
         kwargs = {'method': method, 'args': params}
         rpc.call(context, queue, kwargs)
@@ -132,6 +135,11 @@ class API(base.Base):
                      {"method": "launch_instance",
                       "args": {"topic": FLAGS.gridcentric_topic,
                                "instance_uuid": instance_uuid}})
+
+    def migrate_instance(self, context, instance_uuid, dest):
+        LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
+        self._call_gridcentric_message('migrate_instance', context,
+                                       instance_uuid, params={"dest" : dest})
 
     def list_launched_instances(self, context, instance_uuid):
         filter = {

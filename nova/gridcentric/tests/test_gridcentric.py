@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # Copyright 2011 GridCentric Inc.
 # All Rights Reserved.
 #
@@ -13,7 +12,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-
 
 import unittest
 import os
@@ -56,7 +54,7 @@ class GridCentricTestCase(unittest.TestCase):
         vmsconfig.SHARED = os.getcwd()
 
         # For the sake of the unit test we substitute the thread submission to just execute the
-        # function instead. This is important for 2 reasons: 
+        # function instead. This is important for 2 reasons:
         #   1. Its hard to unit test and reason against concurrent behaviour.
         #   2. We do not want another thread to be executing and hitting the db while we are
         #      in the process fo cleaning it up.
