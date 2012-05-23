@@ -19,12 +19,12 @@ import logging
 import gridcentric.nova.client.exceptions as exceptions
 
 class NovaClient(httplib2.Http):
-    
+
     USER_AGENT="gridcentric-novaclient"
-    
+
     def __init__(self, auth_url, user, apikey, project=None, default_version='v1.0', region=None):
         super(NovaClient, self).__init__()
-        
+
         self.auth_url = auth_url
         self.user = user
         self.apikey = apikey
@@ -35,7 +35,7 @@ class NovaClient(httplib2.Http):
         self.default_version = 'v1.0'
         self.auth_token = None
         self.management_url = None
-        
+
         # Need to set for the httplib2 library.
         self.force_exception_to_status_code = True
 
@@ -47,6 +47,11 @@ class NovaClient(httplib2.Http):
     def launch_instance(self, blessed_instance_id):
         resp, body = self.authenticated_request('/servers/%s/action' % blessed_instance_id,
                                                 'POST', body={'gc_launch':{}})
+        return body
+
+    def migrate_instance(self, instance_id, dest):
+        resp, body = self.authenticated_request('/servers/%s/action' % instance_id,
+                                                'POST', body={'gc_migrate':{'dest':str(dest)}})
         return body
 
     def delete_instance(self, instance_id):
@@ -71,7 +76,7 @@ class NovaClient(httplib2.Http):
     def authenticated_request(self, url, method, **kwargs):
         if not self.management_url:
             self._authenticate()
-        
+
         # Perform the request once. If we get a 401 back then it
         # might be because the auth token expired, so try to
         # re-authenticate and try again. If it still fails, bail.
@@ -89,7 +94,7 @@ class NovaClient(httplib2.Http):
             if ex.code == 401:
                 """
                 This is an unauthorized exception. Reauthenticate and try again
-                """ 
+                """
                 self._authenticate()
                 logging.debug("Sending request to %s (body=%s) [REAUTHENTICATED]" %(url, kwargs['body']))
                 resp, body = self.request(self.management_url + url, method,
@@ -136,7 +141,7 @@ class NovaClient(httplib2.Http):
         """
         Authenticates the client against the nova server
         """
-        
+
         self.determine_version()
         auth_url = self.auth_url
         if self.version == "v2.0":
@@ -221,7 +226,7 @@ def create_exception_from_response(resp, body):
         error = body[body.keys()[0]]
         message = error.get('message', None)
         details = error.get('details', None)
-        
+
     return exceptions.HttpException(code=resp.status, message=message, details=details)
 
 class ServiceCatalog:
