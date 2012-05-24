@@ -57,13 +57,17 @@ from nova import flags
 from nova import log as logging
 from nova import service
 from nova import utils
+from nova.openstack.common import cfg
 
 if __name__ == '__main__':
     utils.default_flagfile()
     flags.FLAGS(sys.argv)
-    flags.DEFINE_string('gridcentric_manager',
-                        'gridcentric.nova.extension.manager.GridCentricManager',
-                        'Manager for gridcentric')
+    gridcentric_opts = [
+               cfg.StrOpt('gridcentric_manager',
+               default='gridcentric.nova.extension.manager.GridCentricManager',
+               help='Manager for gridcentric') ]
+    flags.FLAGS.register_opts(gridcentric_opts)
+
     logging.setup()
     server = service.Service.create(binary='nova-gridcentric')
     service.serve(server)
