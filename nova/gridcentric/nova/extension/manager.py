@@ -74,7 +74,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
     def _is_instance_blessed(self, context, instance_id):
         """ Returns True if this instance is blessed, False otherwise. """
         metadata = self.db.instance_metadata_get(context, instance_id)
-        return metadata.get('blessed', False)
+        return "blessed_from" in metadata
 
     def _get_source_instance(self, context, instance_id):
         """ 

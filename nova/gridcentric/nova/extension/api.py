@@ -18,6 +18,7 @@
 
 from nova import compute
 from nova.compute import vm_states
+from nova import exception
 from nova import flags
 from nova import log as logging
 from nova.db import base
@@ -175,7 +176,7 @@ class API(base.Base):
     def _is_instance_blessed(self, context, instance_id):
         """ Returns True if this instance is blessed, False otherwise. """
         metadata = self.db.instance_metadata_get(context, instance_id)
-        return metadata.get('blessed', False)
+        return "blessed_from" in metadata
 
     def _is_instance_launched(self, context, instance_id):
         """ Returns True if this instance is launched, False otherwise """
@@ -262,14 +263,4 @@ class API(base.Base):
                   }
         blessed_instances = self.compute_api.get_all(context, filter)
         return blessed_instances
-
-    def _is_instance_blessed(self, context, instance_id):
-        """ Returns True if this instance is blessed, False otherwise. """
-        metadata = self.db.instance_metadata_get(context, instance_id)
-        return metadata.get('blessed', False)
-
-    def _is_instance_launched(self, context, instance_id):
-        """ Returns True if this instance is launched, False otherwise """
-        metadata = self.db.instance_metadata_get(context, instance_id)
-        return "launched_from" in metadata
 
