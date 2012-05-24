@@ -67,18 +67,6 @@ def select_hypervisor(hypervisor):
     virt.select(hypervisor)
     LOG.debug(_("Virt initialized as auto=%s"), virt.AUTO)
 
-class LogCleaner(threading.Thread):
-    def __init__(self, interval=60.0):
-        threading.Thread.__init__(self)
-        self.interval = interval
-        self.daemon = True
-
-    def run(self):
-        while True:
-            # Call cleanlogs to make sure things are reasonable.
-            commands.cleanlogs()
-            time.sleep(float(self.interval))
-
 class VmsConnection:
     def configure(self):
         """
@@ -224,13 +212,6 @@ class LibvirtConnection(VmsConnection):
         self.libvirt_conn = libvirt_connection.get_connection(False)
         config.MANAGEMENT['connection_url'] = self.libvirt_conn.get_uri()
         select_hypervisor('libvirt')
-
-        # We're typically on the local host and the logs may get out
-        # of control after a while. We install a simple log cleaning
-        # service which cleans out excessive logs when they are older
-        # than an hour.
-        self.log_cleaner = LogCleaner()
-        self.log_cleaner.start()
 
     def configure_path_permissions(self):
         """
