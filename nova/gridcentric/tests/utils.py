@@ -54,4 +54,4 @@ def create_instance(context, instance={}):
         instance.setdefault('vm_state', vm_states.ACTIVE)
 
         context.elevated()
-        return db.instance_create(context, instance)['id']
+        return db.instance_create(context, instance)['uuid']
