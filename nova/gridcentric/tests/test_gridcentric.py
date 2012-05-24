@@ -22,6 +22,7 @@ from nova.db import migration
 from nova import flags
 from nova import context
 from nova import exception
+from nova import rpc
 from nova.compute import vm_states
 
 # Setup VMS environment.
@@ -34,16 +35,31 @@ import vms.threadpool
 import gridcentric.nova.extension as gridcentric
 import gridcentric.nova.extension.manager as gc_manager
 
+
 import gridcentric.tests.utils as utils
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string('stub_network', False,
-                    'Stub network related code (primarily used for testing)')
+
+class MockRpc(object):
+    """
+    A simple mock Rpc that used to tests that the proper messages are placed on the queue. In all
+    cases this will return with a None result to ensure that tests do not hang waiting for a 
+    response.
+    """
+
+    def __init__(self):
+        self.call_log = []
+        self.cast_log = []
+
+    def call(self, context, queue, kwargs):
+        self.call_log.append((queue, kwargs))
+
+    def cast(self, context, queue, kwargs):
+        self.cast_log.append((queue, kwargs))
 
 class GridCentricTestCase(unittest.TestCase):
 
     def setUp(self):
-
         FLAGS.connection_type = 'fake'
         FLAGS.stub_network = True
         # Copy the clean database over
@@ -55,27 +71,20 @@ class GridCentricTestCase(unittest.TestCase):
         # to worry about leftover artifacts.
         vmsconfig.SHARED = os.getcwd()
 
-        # For the sake of the unit test we substitute the thread submission to just execute the
-        # function instead. This is important for 2 reasons:
-        #   1. Its hard to unit test and reason against concurrent behaviour.
-        #   2. We do not want another thread to be executing and hitting the db while we are
-        #      in the process fo cleaning it up.
-        self.old_vms_thread_submit = vms.threadpool.submit
-        vms.threadpool.submit = lambda x: x()
+        self.mock_rpc = MockRpc()
+        rpc.call = self.mock_rpc.call
+        rpc.cast = self.mock_rpc.cast
 
         self.gridcentric = gc_manager.GridCentricManager()
         self.gridcentric_api = gridcentric.API()
         self.context = context.RequestContext('fake', 'fake', True)
 
-    def tearDown(self):
-        # Bring things back to normal.
-        vms.threadpool.submit = self.old_vms_thread_submit
 
     def test_bless_instance(self):
         instance_id = utils.create_instance(self.context)
 
         num_instance_before = len(db.instance_get_all(self.context))
-        self.gridcentric.bless_instance(self.context, instance_id)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_id)
 
         # Ensure that we have a 2nd instance in the database that is a "clone"
         # of our original instance.
@@ -84,20 +93,20 @@ class GridCentricTestCase(unittest.TestCase):
                         "There should be one new instances after blessing.")
 
         # The virtual machine should be marked that it is now blessed.
-        metadata = db.instance_metadata_get(self.context, instance_id + 1)
-        self.assertTrue(metadata.has_key('blessed'),
-                        "The instance should have a bless metadata after being blessed.")
-        self.assertTrue(metadata['blessed'] == '1',
-            "The instance should have the bless metadata set to true after being blessed. " \
-          + "(value=%s)" % (metadata['blessed']))
+        metadata = db.instance_metadata_get(self.context, blessed_instance['id'])
+        self.assertTrue(metadata.has_key('blessed_from'),
+                        "The instance should have a bless_from metadata after being blessed.")
+        self.assertTrue(metadata['blessed_from'] == '%s' % (instance_id),
+            "The instance should have the blessed_from metadata set to instance_id after being blessed. " \
+          + "(value=%s)" % (metadata['blessed_from']))
 
     def test_bless_instance_twice(self):
 
         instance_id = utils.create_instance(self.context)
 
         num_instance_before = len(db.instance_get_all(self.context))
-        self.gridcentric.bless_instance(self.context, instance_id)
-        self.gridcentric.bless_instance(self.context, instance_id)
+        self.gridcentric_api.bless_instance(self.context, instance_id)
+        self.gridcentric_api.bless_instance(self.context, instance_id)
 
         instances = db.instance_get_all(self.context)
         self.assertTrue(len(instances) == num_instance_before + 2,
@@ -105,7 +114,7 @@ class GridCentricTestCase(unittest.TestCase):
 
     def test_bless_nonexisting_instance(self):
         try:
-            self.gridcentric.bless_instance(self.context, 1500)
+            self.gridcentric_api.bless_instance(self.context, 1500)
             self.fail("Suspending a non-existing instance should fail.")
         except exception.InstanceNotFound, e:
             pass # Success
@@ -113,12 +122,12 @@ class GridCentricTestCase(unittest.TestCase):
     def test_bless_a_blessed_instance(self):
 
         instance_id = utils.create_instance(self.context)
-        self.gridcentric.bless_instance(self.context, instance_id)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_id)
 
-        blessed_id = instance_id + 1
+        blessed_id = blessed_instance['id']
         no_exception = False
         try:
-            self.gridcentric.bless_instance(self.context, blessed_id)
+            self.gridcentric_api.bless_instance(self.context, blessed_id)
             no_exception = True
         except Exception, e:
             pass # success
@@ -129,15 +138,15 @@ class GridCentricTestCase(unittest.TestCase):
     def test_bless_a_launched_instance(self):
 
         instance_id = utils.create_instance(self.context)
-        self.gridcentric.bless_instance(self.context, instance_id)
-        blessed_id = instance_id + 1
+        blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_id)
+        blessed_id = blessed_instance['id']
 
-        self.gridcentric.launch_instance(self.context, blessed_id)
-        launched_id = blessed_id + 1
+        launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_id)
+        launched_id = launched_instance['id']
 
         no_exception = False
         try:
-            self.gridcentric.bless_instance(self.context, launched_id)
+            self.gridcentric_api_.bless_instance(self.context, launched_id)
             no_exception = True
         except:
             pass # success
@@ -151,7 +160,7 @@ class GridCentricTestCase(unittest.TestCase):
 
         no_exception = False
         try:
-            self.gridcentric.bless_instance(self.context, instance_id)
+            self.gridcentric_api.bless_instance(self.context, instance_id)
             no_exception = True
         except:
             pass # success
@@ -162,8 +171,8 @@ class GridCentricTestCase(unittest.TestCase):
     def test_discard_a_blessed_instance(self):
 
         instance_id = utils.create_instance(self.context)
-        self.gridcentric.bless_instance(self.context, instance_id)
-        blessed_id = instance_id + 1
+        blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_id)
+        blessed_id = blessed_instance['id']
 
         self.gridcentric.discard_instance(self.context, blessed_id)
 
@@ -176,10 +185,10 @@ class GridCentricTestCase(unittest.TestCase):
     def test_discard_a_blessed_instance_with_remaining_launched_ones(self):
 
         instance_id = utils.create_instance(self.context)
-        self.gridcentric.bless_instance(self.context, instance_id)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_id)
         blessed_id = instance_id + 1
 
-        self.gridcentric.launch_instance(self.context, blessed_id)
+        self.gridcentric_api.launch_instance(self.context, blessed_id)
 
         no_exception = False
         try:
@@ -194,11 +203,12 @@ class GridCentricTestCase(unittest.TestCase):
     def test_launch_instance(self):
 
         instance_id = utils.create_instance(self.context)
-        self.gridcentric.bless_instance(self.context, instance_id)
-        blessed_instance_id = instance_id + 1
-        self.gridcentric.launch_instance(self.context, blessed_instance_id)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_id)
+        blessed_instance_id = blessed_instance['id']
 
-        launched_instance_id = blessed_instance_id + 1
+        launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_instance_id)
+
+        launched_instance_id = launched_instance['id']
         metadata = db.instance_metadata_get(self.context, launched_instance_id)
         self.assertTrue(metadata.has_key('launched_from'),
                         "The instance should have a 'launched from' metadata after being launched.")
@@ -211,7 +221,7 @@ class GridCentricTestCase(unittest.TestCase):
         instance_id = utils.create_instance(self.context)
 
         try:
-            self.gridcentric.launch_instance(self.context, instance_id)
+            self.gridcentric_api.launch_instance(self.context, instance_id)
             self.fail("Should not be able to launch and instance that has not been blessed.")
         except exception.Error, e:
             pass # Success!
@@ -219,11 +229,11 @@ class GridCentricTestCase(unittest.TestCase):
     def test_launch_instance_twice(self):
 
         instance_id = utils.create_instance(self.context)
-        self.gridcentric.bless_instance(self.context, instance_id)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_id)
+        blessed_instance_id = blessed_instance['id']
 
-        blessed_instance_id = instance_id + 1
-        self.gridcentric.launch_instance(self.context, blessed_instance_id)
-        launched_instance_id = blessed_instance_id + 1
+        launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_instance_id)
+        launched_instance_id = launched_instance['id']
         metadata = db.instance_metadata_get(self.context, launched_instance_id)
         self.assertTrue(metadata.has_key('launched_from'),
                         "The instance should have a 'launched from' metadata after being launched.")
@@ -231,8 +241,8 @@ class GridCentricTestCase(unittest.TestCase):
             "The instance should have the 'launched from' metadata set to blessed instanced id after being launched. " \
           + "(value=%s)" % (metadata['launched_from']))
 
-        self.gridcentric.launch_instance(self.context, blessed_instance_id)
-        launched_instance_id = blessed_instance_id + 2
+        launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_instance_id)
+        launched_instance_id = launched_instance['id']
         metadata = db.instance_metadata_get(self.context, launched_instance_id)
         self.assertTrue(metadata.has_key('launched_from'),
                         "The instance should have a 'launched from' metadata after being launched.")
