@@ -227,7 +227,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
             rpc.call(context, queue,
                     {"method": "launch_instance",
                      "args": {'instance_id': instance_id,
-                              'launch_instance_id': instance_id,
                               'migration_url': migration_url}})
 
             # Teardown on this host (and delete the descriptor).
