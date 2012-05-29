@@ -142,10 +142,7 @@ class Gridcentric_extension(object):
                 addresses_builder, flavor_builder, image_builder,
                 base_url, project_id)
             return builder.build(instance, is_detail=is_detail)
-        if len(instances) == 1:
-            result = _build_view(req, instances[0])['server']
-        elif len(instances) == 1:
-            result = [_build_view(req, inst)['server']
+        result = [_build_view(req, inst)['server']
                     for inst in instances]
 
         return webob.Response(status_int=200, body=json.dumps(result))
