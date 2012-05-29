@@ -116,7 +116,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
             name, migration_url = self.vms_conn.bless(source_instance_ref.name,
                                                 instance_ref.name,
                                                 migration_url=migration_url)
-            self._instance_update(context, instance_ref.id,
+            if not(migration_url):
+                self._instance_update(context, instance_ref.id,
                                   vm_state="blessed", task_state=None)
         except Exception, e:
             LOG.debug(_("Error during bless %s: %s"), str(e), traceback.format_exc())
@@ -242,7 +243,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             LOG.debug(_("Error during migration: %s"), traceback.format_exc())
 
             # Prepare to relaunch here (this is the nasty bit as per above).
-            self.vms_conn.post_migration(instance_ref, network_info)
+            self.vms_conn.post_migration(instance_ref, network_info, migration_url)
 
             # Rollback is launching here again.
             self.launch_instance(context, instance_id, migration_url=migration_url)
