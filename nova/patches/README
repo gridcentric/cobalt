@@ -1,0 +1,9 @@
+This directory contains patches that can be applied to the core nova application in order to enable
+particular features. All of these partches are optional and are not required for the proper 
+functioning of the extension.
+
+multi_scheduler.patch
+    This patch provides the ability for a default scheduler driver to be used for 
+    non-compute/volume related requests. By default this driver will be the ChanceScheduler, but 
+    can be changed using the --default_scheduler_driver flag value. Note that without this patch
+    the extension will not be able to schedule launch requests when using the multi-scheduler.
