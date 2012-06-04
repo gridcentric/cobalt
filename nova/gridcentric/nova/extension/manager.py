@@ -302,7 +302,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # normal launched instances.
             self._instance_update(context, instance_ref['uuid'],
                                   vm_state=vm_states.MIGRATING,
-                                  task_state=task_states.SPAWNING)
+                                  task_state=task_states.SPAWNING,
+                                  host=self.host)
         else:
             # Create a new launched instance.
             source_instance_ref = self._get_source_instance(context, instance_uuid)
@@ -317,7 +318,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
                 self._instance_update(context, instance_ref.id,
                                       vm_state=vm_states.BUILDING,
-                                      task_state=task_states.NETWORKING)
+                                      task_state=task_states.NETWORKING,
+                                      host=self.host)
                 is_vpn = False
                 requested_networks = None
 
@@ -341,8 +343,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Update the instance state to be in the building state.
             self._instance_update(context, instance_ref['uuid'],
                                   vm_state=vm_states.BUILDING,
-                                  task_state=task_states.SPAWNING,
-                                  host=self.host)
+                                  task_state=task_states.SPAWNING)
 
         # TODO(dscannell): Need to figure out what the units of measurement
         # for the target should be (megabytes, kilobytes, bytes, etc).
