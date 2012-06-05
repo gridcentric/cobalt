@@ -241,7 +241,7 @@ class API(base.Base):
                       "args": {"topic": FLAGS.gridcentric_topic,
                                "instance_id": new_instance_ref['id']}})
 
-        return dict(new_instance_ref)
+        return self.get(context, new_instance_ref['id'])
 
     def migrate_instance(self, context, instance_id, dest):
         LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
