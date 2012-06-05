@@ -31,6 +31,8 @@ from nova import flags
 from nova import log as logging
 LOG = logging.getLogger('gridcentric.nova.manager')
 FLAGS = flags.FLAGS
+flags.DEFINE_bool('gridcentric_use_image_service', False,
+                  'Gridcentric should use the image service to store disk copies and descriptors.')
 
 from nova import manager
 from nova import utils
@@ -113,9 +115,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         try:
             # Create a new 'blessed' VM with the given name.
-            name, migration_url = self.vms_conn.bless(source_instance_ref.name,
-                                                instance_ref.name,
-                                                migration_url=migration_url)
+            name, migration_url, blessed_files = self.vms_conn.bless(context,
+                                                source_instance_ref.name,
+                                                instance_ref,
+                                                migration_url=migration_url,
+                                                use_image_service=FLAGS.gridcentric_use_image_service)
             if not(migration_url):
                 self._instance_update(context, instance_ref.id,
                                   vm_state="blessed", task_state=None)
@@ -129,6 +133,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
         if not(migration_url):
             # Mark this new instance as being 'blessed'.
             metadata = self.db.instance_metadata_get(context, instance_ref.id)
+            LOG.debug("blessed_files = %s" % (blessed_files))
+            metadata['images'] = ','.join(blessed_files)
             metadata['blessed'] = True
             self.db.instance_metadata_update(context, instance_ref.id, metadata, True)
 
@@ -267,11 +273,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Grab the DB representation for the VM.
         instance_ref = self.db.instance_get(context, instance_id)
 
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        image_refs = metadata.get('images', []).split(',')
         # Call discard in the backend.
-        self.vms_conn.discard(instance_ref.name)
+        self.vms_conn.discard(context, instance_ref.name,
+                              use_image_service=FLAGS.gridcentric_use_image_service,
+                              image_refs=image_refs)
 
         # Update the instance metadata (for completeness).
-        metadata = self.db.instance_metadata_get(context, instance_id)
         metadata['blessed'] = False
         self.db.instance_metadata_update(context, instance_id, metadata, True)
 
@@ -352,13 +361,18 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # virtual machine.
         target = instance_ref['memory_mb']
 
+        # Extract out the image ids from the source instance's metadata. 
+        metadata = self.db.instance_metadata_get(context, source_instance_ref['id'])
+        image_refs = metadata.get('images', []).split(',')
         try:
             self.vms_conn.launch(context,
                                  source_instance_ref.name,
                                  str(target),
                                  instance_ref,
                                  network_info,
-                                 migration_url=migration_url)
+                                 migration_url=migration_url,
+                                 use_image_service=FLAGS.gridcentric_use_image_service,
+                                 image_refs=image_refs)
 
             # Perform our database update.
             self._instance_update(context,
