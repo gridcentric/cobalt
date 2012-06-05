@@ -28,6 +28,7 @@ import tempfile
 import nova
 from nova import exception
 from nova import flags
+from nova.virt import images
 from nova import log as logging
 from nova.compute import utils as compute_utils
 from nova.openstack.common import cfg
