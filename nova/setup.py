@@ -24,6 +24,7 @@ setup(name='nova-gridcentric',
       packages=['gridcentric',
                 'gridcentric.nova',
                 'gridcentric.nova.client',
+                'gridcentric.nova.osapi',
                 'gridcentric.nova.extension'],
       scripts=['bin/nova-gc',
                'tools/gc-api'])
