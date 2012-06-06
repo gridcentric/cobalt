@@ -137,7 +137,7 @@ class VmsConnection:
         """
         Launch a blessed instance
         """
-        newname = self.pre_launch(context, new_instance_ref, network_info,
+        newname, path = self.pre_launch(context, new_instance_ref, network_info,
                                   migration=(migration_url and True),
                                   use_image_service=use_image_service,
                                   image_refs=image_refs)
@@ -150,6 +150,7 @@ class VmsConnection:
                                instance_name,
                                newname,
                                str(mem_target),
+                               path=path,
                                network=migration_url,
                                migration=(migration_url and True))
 
@@ -183,7 +184,7 @@ class VmsConnection:
                    migration=False,
                    use_image_service=False,
                    image_refs=[]):
-        return new_instance_ref.name
+        return (new_instance_ref.name, None)
 
     def post_launch(self, context,
                     new_instance_ref,
@@ -341,15 +342,16 @@ class LibvirtConnection(VmsConnection):
                    use_image_service=False,
                    image_refs=[]):
 
+        image_base_path = None
         if use_image_service:
             # We need to first download the descriptor and the disk files
             # from the image service.
             LOG.debug("Downloading images %s from the image service." % (image_refs))
+            image_base_path = os.path.join(FLAGS.instances_path, '_base')
             image_service = nova.image.get_default_image_service()
             for image_ref in image_refs:
                 image = image_service.show(context, image_ref)
-                target = os.path.join(config.SHARED, image['name'])
-
+                target = os.path.join(image_base_path, image['name'])
                 if not os.path.exists(target):
                     # If the path does not exist fetch the data from the image service.
                     images.fetch(context,
@@ -414,7 +416,7 @@ class LibvirtConnection(VmsConnection):
         # Return the libvirt file, this will be passed in as the name. This
         # parameter is overloaded in the management interface as a libvirt
         # special case.
-        return libvirt_file
+        return (libvirt_file, image_base_path)
 
     def post_launch(self, context,
                     new_instance_ref,

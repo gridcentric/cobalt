@@ -90,6 +90,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
         return self.db.instance_metadata_update(context, instance_ref['id'], metadata, True)
 
+    def _extract_image_refs(self, metadata):
+        image_refs = metadata.get('images', '').split(',')
+        if len(image_refs) == 0 and image_refs[0] == '':
+            image_refs = []
+        return image_refs
+
     def _get_source_instance(self, context, instance_uuid):
         """ 
         Returns a the instance reference for the source instance of instance_id. In other words:
@@ -277,7 +283,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
 
         metadata = self._instance_metadata(context, instance_uuid)
-        image_refs = metadata.get('images', []).split(',')
+        image_refs = self._extract_image_refs(metadata)
         # Call discard in the backend.
         self.vms_conn.discard(context, instance_ref.name,
                               use_image_service=FLAGS.gridcentric_use_image_service,
@@ -366,7 +372,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # Extract out the image ids from the source instance's metadata. 
         metadata = self.db.instance_metadata_get(context, source_instance_ref['id'])
-        image_refs = metadata.get('images', []).split(',')
+        image_refs = self._extract_image_refs(metadata)
         try:
             self.vms_conn.launch(context,
                                  source_instance_ref.name,
