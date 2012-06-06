@@ -56,9 +56,6 @@ package : rpm deb
 # Installs the python packages
 install : 
 	@$(PYTHON) setup.py install --prefix=$(DISTDIR)/usr
-	@$(INSTALL_DIR) $(DISTDIR)/var/lib/nova/extensions
-	@$(INSTALL_BIN) gridcentric/nova/osapi/gridcentric_extension.py \
-	    $(DISTDIR)/var/lib/nova/extensions
 	@$(INSTALL_DIR) $(DISTDIR)/etc/init
 	@$(INSTALL_DATA) etc/nova-gridcentric.conf \
 	    $(DISTDIR)/etc/init
