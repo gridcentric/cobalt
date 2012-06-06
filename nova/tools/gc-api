@@ -65,19 +65,19 @@ def get_parser():
     parser = argparse.ArgumentParser(prog='gc-api')
          
     parser.add_argument('--username',
-            default=env('NOVA_USERNAME'),
-            help='Defaults to env[NOVA_USERNAME].')
+            default=env('OS_USERNAME'),
+            help='Defaults to env[OS_USERNAME].')
 
     parser.add_argument('--apikey',
-            default=env('NOVA_API_KEY'),
-            help='Defaults to env[NOVA_API_KEY].')
+            default=env('OS_PASSWORD'),
+            help='Defaults to env[OS_PASSWORD].')
 
     parser.add_argument('--projectid',
-            default=env('NOVA_PROJECT_ID'),
-            help='Defaults to env[NOVA_PROJECT_ID].')
+            default=env('OS_TENANT_ID'),
+            help='Defaults to env[OS_TENANT_ID].')
 
     parser.add_argument('--url',
-            default=env('NOVA_URL'),
+            default=env('OS_AUTH_URL'),
             help='Defaults to env[NOVA_URL].')
 
     return parser
