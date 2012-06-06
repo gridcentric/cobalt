@@ -32,7 +32,12 @@ def id_to_hostname(id):
     return hostmap[id]
 
 def libvirt_name(server):
-    return 'instance-%08x' % int(server.id)
+    try:
+        # Diablo Id.
+        return 'instance-%08x' % int(server.id)
+    except:
+        # Essex name.
+        return server._info["OS-EXT-SRV-ATTR:instance_name"]
 
 def create_nova_client():
     '''Creates a nova client from the environment variables.'''
@@ -161,7 +166,12 @@ if __name__ == '__main__':
 
     for server in servers:
         table.add(server.id)
-        table.add('%08x' % int(server.id))
+        try:
+            # Diablo numeric Id.
+            table.add('%08x' % int(server.id))
+        except:
+            # Essex requires extraction from name.
+            table.add(server._info["OS-EXT-SRV-ATTR:instance_name"].split("-")[1])
         table.add(server.name)
         table.add(server.status)
         networks = []
