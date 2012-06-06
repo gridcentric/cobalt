@@ -20,7 +20,7 @@ import gridcentric.nova.client.exceptions as exceptions
 
 class NovaClient(httplib2.Http):
 
-    USER_AGENT="gridcentric-novaclient"
+    USER_AGENT = "gridcentric-novaclient"
 
     def __init__(self, auth_url, user, apikey, project=None, default_version='v1.0', region=None):
         super(NovaClient, self).__init__()
@@ -85,10 +85,10 @@ class NovaClient(httplib2.Http):
             if self.project:
                 kwargs['headers']['X-Auth-Project-Id'] = self.project
 
-            logging.debug("Sending request to %s (body=%s)" %(url, kwargs.get('body','')))
+            logging.debug("Sending request to %s (body=%s)" % (url, kwargs.get('body', '')))
             resp, body = self.request(self.management_url + url, method,
                                       **kwargs)
-            logging.debug("Response from %s (body=%s)" %(url, body))
+            logging.debug("Response from %s (body=%s)" % (url, body))
             return resp, body
         except exceptions.HttpException, ex:
             if ex.code == 401:
@@ -96,7 +96,7 @@ class NovaClient(httplib2.Http):
                 This is an unauthorized exception. Reauthenticate and try again
                 """
                 self._authenticate()
-                logging.debug("Sending request to %s (body=%s) [REAUTHENTICATED]" %(url, kwargs['body']))
+                logging.debug("Sending request to %s (body=%s) [REAUTHENTICATED]" % (url, kwargs['body']))
                 resp, body = self.request(self.management_url + url, method,
                                           **kwargs)
                 return resp, body
@@ -116,7 +116,7 @@ class NovaClient(httplib2.Http):
             try:
                 body = json.loads(body)
             except ValueError, e:
-                logging.warn("Request (%s) body failed to be parsed as json: body='%s'" %(args[0],body))
+                logging.warn("Request (%s) body failed to be parsed as json: body='%s'" % (args[0], body))
                 pass
         else:
             body = None
