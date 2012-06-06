@@ -127,7 +127,7 @@ class NovaClient(httplib2.Http):
         return resp, body
 
     def determine_version(self):
-        if self.version != None:
+        if self.version == None:
             magic_tuple = urlparse.urlsplit(self.auth_url)
             scheme, netloc, path, query, frag = magic_tuple
             path_parts = path.split('/')
@@ -189,7 +189,7 @@ class NovaClient(httplib2.Http):
         if self.project:
             body['auth']['tenantName'] = self.project
 
-        token_url = urlparse.urljoin(url, "tokens")
+        token_url = url + "/tokens"
         resp, body = self.request(token_url, "POST", body=body)
         return self._extract_service_catalog(url, resp, body)
 
