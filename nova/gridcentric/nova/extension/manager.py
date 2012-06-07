@@ -222,7 +222,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                             migration_url="mcdist://%s" % devname)
 
         # Run our premigration hook.
-        self.vms_conn.pre_migration(instance_ref, network_info, migration_url)
+        self.vms_conn.pre_migration(context, instance_ref, network_info, migration_url)
 
         try:
             # Launch on the different host. With the non-null migration_url,
@@ -234,7 +234,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
                               'migration_url': migration_url}})
 
             # Teardown on this host (and delete the descriptor).
-            self.vms_conn.post_migration(instance_ref, network_info, migration_url)
+            metadata = self.db.instance_metadata_get(context, instance_id)
+            image_refs = self._extract_image_refs(metadata)
+            self.vms_conn.post_migration(context, instance_ref, network_info, migration_url,
+                                         use_image_service=FLAGS.gridcentric_use_image_service,
+                                         image_refs=image_refs)
 
             # Perform necessary compute post-migration tasks.
             self.compute_manager.post_live_migration(\
@@ -255,7 +259,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
             LOG.debug(_("Error during migration: %s"), traceback.format_exc())
 
             # Prepare to relaunch here (this is the nasty bit as per above).
-            self.vms_conn.post_migration(instance_ref, network_info, migration_url)
+            metadata = self.db.instance_metadata_get(context, instance_id)
+            image_refs = self._extract_image_refs(metadata)
+            self.vms_conn.post_migration(context, instance_ref, network_info, migration_url,
+                                         use_image_service=FLAGS.gridcentric_use_image_service,
+                                         image_refs=image_refs)
 
             # Rollback is launching here again.
             self.launch_instance(context, instance_id, migration_url=migration_url)
