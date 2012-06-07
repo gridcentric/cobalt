@@ -322,6 +322,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   vm_state=vm_states.MIGRATING,
                                   task_state=task_states.SPAWNING,
                                   host=self.host)
+            instance_ref['host'] = self.host
         else:
             # Create a new launched instance.
             source_instance_ref = self._get_source_instance(context, instance_uuid)
@@ -338,6 +339,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                       vm_state=vm_states.BUILDING,
                                       task_state=task_states.NETWORKING,
                                       host=self.host)
+                instance_ref['host'] = self.host
                 is_vpn = False
                 requested_networks = None
 
