@@ -92,7 +92,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def _extract_image_refs(self, metadata):
         image_refs = metadata.get('images', '').split(',')
-        if len(image_refs) == 0 and image_refs[0] == '':
+        if len(image_refs) == 1 and image_refs[0] == '':
             image_refs = []
         return image_refs
 
