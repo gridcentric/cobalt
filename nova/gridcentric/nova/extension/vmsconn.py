@@ -98,7 +98,7 @@ class VmsConnection:
 
     def upload_files(self, context, instance_ref, bless_files):
         """ Upload the bless files into nova's image service (e.g. glance). """
-        raise Exception("Uploading files to the image service is supported.")
+        raise Exception("Uploading files to the image service is not supported.")
 
     def discard(self, context, instance_name, use_image_service=False, image_refs=[]):
         """
