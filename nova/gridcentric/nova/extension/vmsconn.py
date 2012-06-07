@@ -193,12 +193,14 @@ class VmsConnection:
                     migration=False):
         pass
 
-    def pre_migration(self, instance_ref, network_info, migration_url):
+    def pre_migration(self, context, instance_ref, network_info, migration_url):
         pass
 
-    def post_migration(self, instance_ref, network_info, migration_url):
+    def post_migration(self, context, instance_ref, network_info, migration_url,
+                       use_image_service=False, image_refs=[]):
         # We call a normal discard to ensure the artifacts are cleaned up.
-        self.discard(instance_ref.name)
+        self.discard(context, instance_ref.name, use_image_service=use_image_service,
+                     image_refs=image_refs)
 
 class DummyConnection(VmsConnection):
     def configure(self):
@@ -426,7 +428,7 @@ class LibvirtConnection(VmsConnection):
         self.libvirt_conn._enable_hairpin(new_instance_ref)
         self.libvirt_conn.firewall_driver.apply_instance_filter(new_instance_ref, network_info)
 
-    def pre_migration(self, instance_ref, network_info, migration_url):
+    def pre_migration(self, context, instance_ref, network_info, migration_url):
         # Make sure that the disk reflects all current state for this VM.
         # It's times like these that I wish there was a way to do this on a
         # per-file basis, but we have no choice here but to sync() globally.
@@ -436,9 +438,11 @@ class LibvirtConnection(VmsConnection):
         # artifacts around which is why we use cleanup=False.
         self.libvirt_conn.destroy(instance_ref, network_info, cleanup=False)
 
-    def post_migration(self, instance_ref, network_info, migration_url):
+    def post_migration(self, context, instance_ref, network_info, migration_url,
+                       use_image_service=False, image_refs=[]):
         # We call a normal discard to ensure the artifacts are cleaned up.
-        self.discard(instance_ref.name)
+        self.discard(context, instance_ref.name, use_image_service=use_image_service,
+                     image_refs=image_refs)
 
         # We make sure that all the memory servers are gone that need it.
         # This looks for any servers that are providing the migration_url we
