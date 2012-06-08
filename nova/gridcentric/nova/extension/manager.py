@@ -32,6 +32,11 @@ from nova.openstack.common import cfg
 from nova import log as logging
 LOG = logging.getLogger('gridcentric.nova.manager')
 FLAGS = flags.FLAGS
+gridcentric_opts = [
+               cfg.BoolOpt('gridcentric_use_image_service',
+               default=False,
+               help='Gridcentric should use the image service to store disk copies and descriptors.') ]
+FLAGS.register_opts(gridcentric_opts)
 
 from nova import manager
 from nova import utils
@@ -85,6 +90,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
         return self.db.instance_metadata_update(context, instance_ref['id'], metadata, True)
 
+    def _extract_image_refs(self, metadata):
+        image_refs = metadata.get('images', '').split(',')
+        if len(image_refs) == 1 and image_refs[0] == '':
+            image_refs = []
+        return image_refs
+
     def _get_source_instance(self, context, instance_uuid):
         """ 
         Returns a the instance reference for the source instance of instance_id. In other words:
@@ -122,9 +133,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self._instance_update(context, instance_ref.id, vm_state=vm_states.BUILDING)
         try:
             # Create a new 'blessed' VM with the given name.
-            name, migration_url = self.vms_conn.bless(source_instance_ref.name,
-                                                instance_ref.name,
-                                                migration_url=migration_url)
+            name, migration_url, blessed_files = self.vms_conn.bless(context,
+                                                source_instance_ref.name,
+                                                instance_ref,
+                                                migration_url=migration_url,
+                                                use_image_service=FLAGS.gridcentric_use_image_service)
             if not(migration_url):
                 self._instance_update(context, instance_ref.id,
                                   vm_state="blessed", task_state=None)
@@ -137,9 +150,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         if not(migration_url):
             # Mark this new instance as being 'blessed'.
-            metadata = self.db.instance_metadata_get(context, instance_ref['uuid'])
+            metadata = self._instance_metadata(context, instance_ref['uuid'])
+            LOG.debug("blessed_files = %s" % (blessed_files))
+            metadata['images'] = ','.join(blessed_files)
             metadata['blessed'] = True
-            self.db.instance_metadata_update(context, instance_ref['uuid'], metadata, True)
+            self._instance_metadata_update(context, instance_ref['uuid'], metadata)
 
         # Return the memory URL (will be None for a normal bless).
         return migration_url
@@ -219,7 +234,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                             migration_url="mcdist://%s" % devname)
 
         # Run our premigration hook.
-        self.vms_conn.pre_migration(instance_ref, network_info, migration_url)
+        self.vms_conn.pre_migration(context, instance_ref, network_info, migration_url)
 
         try:
             # Launch on the different host. With the non-null migration_url,
@@ -231,7 +246,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
                               'migration_url': migration_url}})
 
             # Teardown on this host (and delete the descriptor).
-            self.vms_conn.post_migration(instance_ref, network_info, migration_url)
+            metadata = self._instance_metadata(context, instance_uuid)
+            image_refs = self._extract_image_refs(metadata)
+            self.vms_conn.post_migration(context, instance_ref, network_info, migration_url,
+                                         use_image_service=FLAGS.gridcentric_use_image_service,
+                                         image_refs=image_refs)
 
             # Perform necessary compute post-migration tasks.
             self.compute_manager.post_live_migration(\
@@ -252,7 +271,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
             LOG.debug(_("Error during migration: %s"), traceback.format_exc())
 
             # Prepare to relaunch here (this is the nasty bit as per above).
-            self.vms_conn.post_migration(instance_ref, network_info, migration_url)
+            metadata = self._instance_metadata(context, instance_uuid)
+            image_refs = self._extract_image_refs(metadata)
+            self.vms_conn.post_migration(context, instance_ref, network_info, migration_url,
+                                         use_image_service=FLAGS.gridcentric_use_image_service,
+                                         image_refs=image_refs)
 
             # Rollback is launching here again.
             self.launch_instance(context, instance_id, migration_url=migration_url)
@@ -267,11 +290,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Grab the DB representation for the VM.
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
 
+        metadata = self._instance_metadata(context, instance_uuid)
+        image_refs = self._extract_image_refs(metadata)
         # Call discard in the backend.
-        self.vms_conn.discard(instance_ref.name)
+        self.vms_conn.discard(context, instance_ref.name,
+                              use_image_service=FLAGS.gridcentric_use_image_service,
+                              image_refs=image_refs)
 
         # Update the instance metadata (for completeness).
-        metadata = self._instance_metadata(context, instance_uuid)
         metadata['blessed'] = False
         self._instance_metadata_update(context, instance_uuid, metadata)
 
@@ -304,6 +330,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   vm_state=vm_states.MIGRATING,
                                   task_state=task_states.SPAWNING,
                                   host=self.host)
+            instance_ref['host'] = self.host
         else:
             # Create a new launched instance.
             source_instance_ref = self._get_source_instance(context, instance_uuid)
@@ -320,6 +347,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                       vm_state=vm_states.BUILDING,
                                       task_state=task_states.NETWORKING,
                                       host=self.host)
+                instance_ref['host'] = self.host
                 is_vpn = False
                 requested_networks = None
 
@@ -352,13 +380,18 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # virtual machine.
         target = instance_ref['memory_mb']
 
+        # Extract out the image ids from the source instance's metadata. 
+        metadata = self.db.instance_metadata_get(context, source_instance_ref['id'])
+        image_refs = self._extract_image_refs(metadata)
         try:
             self.vms_conn.launch(context,
                                  source_instance_ref.name,
                                  str(target),
                                  instance_ref,
                                  network_info,
-                                 migration_url=migration_url)
+                                 migration_url=migration_url,
+                                 use_image_service=FLAGS.gridcentric_use_image_service,
+                                 image_refs=image_refs)
 
             # Perform our database update.
             self._instance_update(context,

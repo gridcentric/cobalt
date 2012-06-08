@@ -25,8 +25,10 @@ import glob
 import threading
 import tempfile
 
+import nova
 from nova import exception
 from nova import flags
+from nova.virt import images
 from nova import log as logging
 from nova.compute import utils as compute_utils
 from nova.openstack.common import cfg
@@ -79,29 +81,42 @@ class VmsConnection:
         """
         pass
 
-    def bless(self, instance_name, new_instance_name, migration_url=None):
+    def bless(self, context, instance_name, new_instance_ref,
+              migration_url=None, use_image_service=False):
         """
         Create a new blessed VM from the instance with name instance_name and gives the blessed
         instance the name new_instance_name.
         """
+        new_instance_name = new_instance_ref['name']
         LOG.debug(_("Calling commands.bless with name=%s, new_name=%s, migration_url=%s"),
                     instance_name, new_instance_name, str(migration_url))
-        result = tpool.execute(commands.bless,
+        (newname, network, blessed_files) = tpool.execute(commands.bless,
                                instance_name,
                                new_instance_name,
                                network=migration_url,
                                migration=(migration_url and True))
         LOG.debug(_("Called commands.bless with name=%s, new_name=%s, migration_url=%s"),
                     instance_name, new_instance_name, str(migration_url))
-        return result
+        if use_image_service:
+            blessed_files = self.upload_files(context, new_instance_ref, blessed_files)
+        return (newname, network, blessed_files)
 
-    def discard(self, instance_name):
+    def upload_files(self, context, instance_ref, bless_files):
+        """ Upload the bless files into nova's image service (e.g. glance). """
+        raise Exception("Uploading files to the image service is not supported.")
+
+    def discard(self, context, instance_name, use_image_service=False, image_refs=[]):
         """
         Dicard all of the vms artifacts associated with a blessed instance
         """
         LOG.debug(_("Calling commands.discard with name=%s"), instance_name)
         result = tpool.execute(commands.discard, instance_name)
         LOG.debug(_("Called commands.discard with name=%s"), instance_name)
+        if use_image_service:
+            self._delete_images(context, image_refs)
+
+    def _delete_images(self, image_refs):
+        pass
 
     def extract_mac_addresses(self, network_info):
         # TODO(dscannell) We should be using the network_info object. This is
@@ -117,12 +132,15 @@ class VmsConnection:
 
 
     def launch(self, context, instance_name, mem_target,
-               new_instance_ref, network_info, migration_url=None):
+               new_instance_ref, network_info, migration_url=None,
+               use_image_service=False, image_refs=[]):
         """
         Launch a blessed instance
         """
-        newname = self.pre_launch(context, new_instance_ref, network_info,
-                                  migration=(migration_url and True))
+        newname, path = self.pre_launch(context, new_instance_ref, network_info,
+                                  migration=(migration_url and True),
+                                  use_image_service=use_image_service,
+                                  image_refs=image_refs)
 
         # Launch the new VM.
         LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
@@ -132,6 +150,7 @@ class VmsConnection:
                                instance_name,
                                newname,
                                str(mem_target),
+                               path=path,
                                network=migration_url,
                                migration=(migration_url and True))
 
@@ -162,8 +181,10 @@ class VmsConnection:
                    new_instance_ref,
                    network_info=None,
                    block_device_info=None,
-                   migration=False):
-        return new_instance_ref.name
+                   migration=False,
+                   use_image_service=False,
+                   image_refs=[]):
+        return (new_instance_ref.name, None)
 
     def post_launch(self, context,
                     new_instance_ref,
@@ -172,12 +193,14 @@ class VmsConnection:
                     migration=False):
         pass
 
-    def pre_migration(self, instance_ref, network_info, migration_url):
+    def pre_migration(self, context, instance_ref, network_info, migration_url):
         pass
 
-    def post_migration(self, instance_ref, network_info, migration_url):
+    def post_migration(self, context, instance_ref, network_info, migration_url,
+                       use_image_service=False, image_refs=[]):
         # We call a normal discard to ensure the artifacts are cleaned up.
-        self.discard(instance_ref.name)
+        self.discard(context, instance_ref.name, use_image_service=use_image_service,
+                     image_refs=image_refs)
 
 class DummyConnection(VmsConnection):
     def configure(self):
@@ -317,7 +340,27 @@ class LibvirtConnection(VmsConnection):
                    new_instance_ref,
                    network_info=None,
                    block_device_info=None,
-                   migration=False):
+                   migration=False,
+                   use_image_service=False,
+                   image_refs=[]):
+
+        image_base_path = None
+        if use_image_service:
+            # We need to first download the descriptor and the disk files
+            # from the image service.
+            LOG.debug("Downloading images %s from the image service." % (image_refs))
+            image_base_path = os.path.join(FLAGS.instances_path, '_base')
+            image_service = nova.image.get_default_image_service()
+            for image_ref in image_refs:
+                image = image_service.show(context, image_ref)
+                target = os.path.join(image_base_path, image['name'])
+                if not os.path.exists(target):
+                    # If the path does not exist fetch the data from the image service.
+                    images.fetch(context,
+                                 image_ref,
+                                 target,
+                                 new_instance_ref['user_id'],
+                                 new_instance_ref['project_id'])
 
         # (dscannell) Check to see if we need to convert the network_info
         # object into the legacy format.
@@ -375,7 +418,7 @@ class LibvirtConnection(VmsConnection):
         # Return the libvirt file, this will be passed in as the name. This
         # parameter is overloaded in the management interface as a libvirt
         # special case.
-        return libvirt_file
+        return (libvirt_file, image_base_path)
 
     def post_launch(self, context,
                     new_instance_ref,
@@ -385,7 +428,7 @@ class LibvirtConnection(VmsConnection):
         self.libvirt_conn._enable_hairpin(new_instance_ref)
         self.libvirt_conn.firewall_driver.apply_instance_filter(new_instance_ref, network_info)
 
-    def pre_migration(self, instance_ref, network_info, migration_url):
+    def pre_migration(self, context, instance_ref, network_info, migration_url):
         # Make sure that the disk reflects all current state for this VM.
         # It's times like these that I wish there was a way to do this on a
         # per-file basis, but we have no choice here but to sync() globally.
@@ -395,9 +438,11 @@ class LibvirtConnection(VmsConnection):
         # artifacts around which is why we use cleanup=False.
         self.libvirt_conn.destroy(instance_ref, network_info, cleanup=False)
 
-    def post_migration(self, instance_ref, network_info, migration_url):
+    def post_migration(self, context, instance_ref, network_info, migration_url,
+                       use_image_service=False, image_refs=[]):
         # We call a normal discard to ensure the artifacts are cleaned up.
-        self.discard(instance_ref.name)
+        self.discard(context, instance_ref.name, use_image_service=use_image_service,
+                     image_refs=image_refs)
 
         # We make sure that all the memory servers are gone that need it.
         # This looks for any servers that are providing the migration_url we
@@ -411,3 +456,49 @@ class LibvirtConnection(VmsConnection):
                     ctrl.kill(timeout=1.0)
             except control.ControlException:
                 pass
+
+    def create_image(self, context, image_service, instance_ref, image_name):
+        # Create the image in the image_service.
+        properties = {'instance_uuid': instance_ref['uuid'],
+                  'user_id': str(context.user_id),
+                  'image_state': 'creating'}
+
+        sent_meta = {'name': image_name, 'is_public': False,
+                     'status': 'creating', 'properties': properties}
+        recv_meta = image_service.create(context, sent_meta)
+        image_id = recv_meta['id']
+        return str(image_id)
+
+    def upload_files(self, context, instance_ref, bless_files):
+        image_service = nova.image.get_default_image_service()
+        blessed_image_refs = []
+        for bless_file in bless_files:
+
+            image_name = bless_file.split("/")[-1]
+            image_ref = self.create_image(context, image_service, instance_ref, image_name)
+            blessed_image_refs.append(image_ref)
+            # Send up the file data to the newly created image.
+
+            metadata = {'is_public': False,
+                        'status': 'active',
+                        'name': image_name,
+                        'properties': {
+                                       'image_state': 'available',
+                                       'owner_id': instance_ref['project_id']}
+                        }
+
+            metadata['disk_format'] = "raw"
+            metadata['container_format'] = "bare"
+
+            # Upload that image to the image service
+            with open(bless_file) as image_file:
+                image_service.update(context,
+                                     image_ref,
+                                     metadata,
+                                     image_file)
+        return blessed_image_refs
+
+    def _delete_images(self, context, image_refs):
+        image_service = nova.image.get_default_image_service()
+        for image_ref in image_refs:
+            image_service.delete(context, image_ref)
