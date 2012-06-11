@@ -127,8 +127,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
         if migration_url:
             # Tweak only this instance directly.
             source_instance_ref = instance_ref
+            migration = True
         else:
             source_instance_ref = self._get_source_instance(context, instance_uuid)
+            migration = False
 
         self._instance_update(context, instance_ref.id, vm_state=vm_states.BUILDING)
         try:
@@ -138,7 +140,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                 instance_ref,
                                                 migration_url=migration_url,
                                                 use_image_service=FLAGS.gridcentric_use_image_service)
-            if not(migration_url):
+            if not(migration):
                 self._instance_update(context, instance_ref.id,
                                   vm_state="blessed", task_state=None)
         except Exception, e:
@@ -148,7 +150,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Short-circuit, nothing to be done.
             return
 
-        if not(migration_url):
+        if not(migration):
             # Mark this new instance as being 'blessed'.
             metadata = self._instance_metadata(context, instance_ref['uuid'])
             LOG.debug("blessed_files = %s" % (blessed_files))
