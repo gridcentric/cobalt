@@ -29,7 +29,7 @@ from nova.openstack.common import cfg
 from nova import utils
 
 
-LOG = logging.getLogger('gridcentric.nova.api')
+LOG = logging.getLogger('nova.gridcentric.api')
 FLAGS = flags.FLAGS
 
 gridcentric_api_opts = [

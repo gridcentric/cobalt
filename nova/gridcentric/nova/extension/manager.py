@@ -30,7 +30,7 @@ from nova import exception
 from nova import flags
 from nova.openstack.common import cfg
 from nova import log as logging
-LOG = logging.getLogger('gridcentric.nova.manager')
+LOG = logging.getLogger('nova.gridcentric.manager')
 FLAGS = flags.FLAGS
 gridcentric_opts = [
                cfg.BoolOpt('gridcentric_use_image_service',
