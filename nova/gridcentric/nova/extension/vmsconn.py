@@ -32,7 +32,7 @@ from nova.virt import images
 from nova import log as logging
 from nova.compute import utils as compute_utils
 from nova.openstack.common import cfg
-LOG = logging.getLogger('gridcentric.nova.extension.vmsconn')
+LOG = logging.getLogger('nova.gridcentric.vmsconn')
 FLAGS = flags.FLAGS
 vmsconn_opts = [
                cfg.StrOpt('libvirt_user',
