@@ -30,9 +30,10 @@ INSTALL_BIN := install -m0755 -p
 INSTALL_DATA := install -m0644 -p 
 
 # The version of the extension
-VERSION:=1.0
+VERSION?=1.0
+RELEASE?=0
 # This matches the Openstack release version
-RELEASE?=unknown
+NOVA_RELEASE?=unknown
 # The timestamp release for the extension
 TIMESTAMP:=$(shell date "+%Y-%m-%dT%H:%M:%S%:z")
 
@@ -55,9 +56,6 @@ package : rpm deb
 # Installs the python packages
 install : 
 	@$(PYTHON) setup.py install --prefix=$(DISTDIR)/usr
-	@$(INSTALL_DIR) $(DISTDIR)/var/lib/nova/extensions
-	@$(INSTALL_BIN) gridcentric/nova/osapi/gridcentric_extension.py \
-	    $(DISTDIR)/var/lib/nova/extensions
 	@$(INSTALL_DIR) $(DISTDIR)/etc/init
 	@$(INSTALL_DATA) etc/nova-gridcentric.conf \
 	    $(DISTDIR)/etc/init
@@ -65,8 +63,8 @@ install :
 
 rpm: rpmbuild install
 	@rpmbuild -bb --buildroot $(PWD)/rpmbuild/BUILDROOT \
-	  --define="%_topdir $(PWD)/rpmbuild" --define="%version $(VERSION)" \
-	  --define="%release $(RELEASE)py$(PYTHON_VERSION)" packagers/rpm/nova-gridcentric.spec
+	  --define="%_topdir $(PWD)/rpmbuild" --define="%version $(VERSION).$(RELEASE)" \
+	  --define="%release $(NOVA_RELEASE)py$(PYTHON_VERSION)" packagers/rpm/nova-gridcentric.spec
 .PHONY : rpm
 
 rpmbuild:
@@ -83,10 +81,10 @@ rpmbuild:
 deb: debbuild install
 	@rsync -ruav --delete packagers/deb/ debbuild/
 	@rsync -ruav dist/ debbuild/
-	@sed -i "s/\(^Version:\).*/\1 $(VERSION)-$(RELEASE)py$(PYTHON_VERSION)/" debbuild/DEBIAN/control
+	@sed -i "s/\(^Version:\).*/\1 $(VERSION).$(RELEASE)-$(NOVA_RELEASE)py$(PYTHON_VERSION)/" debbuild/DEBIAN/control
 	@dpkg -b debbuild/ .
 	LIBDIR=`ls -1d debbuild/usr/lib*/python*`; mv $$LIBDIR/site-packages $$LIBDIR/dist-packages
-	@sed -i "s/\(^Version:\).*/\1 $(VERSION)-ubuntu$(RELEASE)py$(PYTHON_VERSION)/" debbuild/DEBIAN/control
+	@sed -i "s/\(^Version:\).*/\1 $(VERSION).$(RELEASE)-ubuntu$(NOVA_RELEASE)py$(PYTHON_VERSION)/" debbuild/DEBIAN/control
 	@dpkg -b debbuild/ .
 .PHONY : deb
 
