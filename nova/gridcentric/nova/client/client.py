@@ -44,9 +44,9 @@ class NovaClient(httplib2.Http):
                                                 'POST', body={'gc_bless':{}})
         return body
 
-    def launch_instance(self, blessed_instance_id):
+    def launch_instance(self, blessed_instance_id, params={}):
         resp, body = self.authenticated_request('/servers/%s/action' % blessed_instance_id,
-                                                'POST', body={'gc_launch':{}})
+                                                'POST', body={'gc_launch':params})
         return body
 
     def migrate_instance(self, instance_id, dest):
