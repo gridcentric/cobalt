@@ -27,13 +27,13 @@ def usage():
     sys.stderr.write("usage: gc-api [options] <command>\n")
     sys.stderr.write("where options is any of the follwing:\n")
     sys.stderr.write("\n")
-    sys.stderr.write("    --username <username> (defaults to NOVA_USER)\n")
+    sys.stderr.write("    --username <username> (defaults to OS_USERNAME)\n")
     sys.stderr.write("\n")
-    sys.stderr.write("    --apikey <apikey/password> (defaults to NOVA_API_KEY)\n")
+    sys.stderr.write("    --apikey <apikey/password> (defaults to OS_PASSWORD)\n")
     sys.stderr.write("\n")
-    sys.stderr.write("    --projectid <project> (defaults to NOVA_PROJECT_ID)\n")
+    sys.stderr.write("    --tenantid <tenant> (defaults to OS_TENANT_ID)\n")
     sys.stderr.write("\n")
-    sys.stderr.write("    --url <url> (defaults to NOVA_URL)\n")
+    sys.stderr.write("    --url <url> (defaults to OS_AUTH_URL)\n")
     sys.stderr.write("\n")
     sys.stderr.write("where command is one of the following:\n")
     sys.stderr.write("\n")
@@ -72,13 +72,13 @@ def get_parser():
             default=env('OS_PASSWORD'),
             help='Defaults to env[OS_PASSWORD].')
 
-    parser.add_argument('--projectid',
+    parser.add_argument('--tenantid',
             default=env('OS_TENANT_ID'),
             help='Defaults to env[OS_TENANT_ID].')
 
     parser.add_argument('--url',
             default=env('OS_AUTH_URL'),
-            help='Defaults to env[NOVA_URL].')
+            help='Defaults to env[OS_AUTH_URL].')
 
     return parser
 
@@ -93,7 +93,7 @@ def get_arg(n):
 
 command = get_arg(0)
 
-url, user, key, project = options.url, options.username, options.apikey, options.projectid
+url, user, key, project = options.url, options.username, options.apikey, options.tenantid
 client = NovaClient(url, user, key, project)
 
 if command == 'bless':
