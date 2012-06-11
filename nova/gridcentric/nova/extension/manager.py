@@ -127,8 +127,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
         if migration_url:
             # Tweak only this instance directly.
             source_instance_ref = instance_ref
+            migration = True
         else:
             source_instance_ref = self._get_source_instance(context, instance_uuid)
+            migration = False
 
         self._instance_update(context, instance_ref.id, vm_state=vm_states.BUILDING)
         try:
@@ -138,7 +140,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                 instance_ref,
                                                 migration_url=migration_url,
                                                 use_image_service=FLAGS.gridcentric_use_image_service)
-            if not(migration_url):
+            if not(migration):
                 self._instance_update(context, instance_ref.id,
                                   vm_state="blessed", task_state=None)
         except Exception, e:
@@ -148,7 +150,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Short-circuit, nothing to be done.
             return
 
-        if not(migration_url):
+        if not(migration):
             # Mark this new instance as being 'blessed'.
             metadata = self._instance_metadata(context, instance_ref['uuid'])
             LOG.debug("blessed_files = %s" % (blessed_files))
@@ -304,7 +306,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Remove the instance.
         self.db.instance_destroy(context, instance_uuid)
 
-    def launch_instance(self, context, instance_uuid, migration_url=None):
+    def launch_instance(self, context, instance_uuid, params={}, migration_url=None):
         """
         Construct the launched instance, with uuid instance_uuid. If migration_url is not none then 
         the instance will be launched using the memory server at the migration_url
@@ -378,7 +380,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Also, target should probably be an optional parameter that the
         # user can pass down.  The target memory settings for the launch
         # virtual machine.
-        target = instance_ref['memory_mb']
+        target = params.get("target", instance_ref['memory_mb'])
 
         # Extract out the image ids from the source instance's metadata. 
         metadata = self.db.instance_metadata_get(context, source_instance_ref['id'])

@@ -67,7 +67,9 @@ class GridcentricServerControllerExtension(wsgi.Controller):
     def _launch_instance(self, req, id, body):
         context = req.environ["nova.context"]
         try:
-            result = self.gridcentric_api.launch_instance(context, id)
+            params = body.get('gc_launch', {})
+            result = self.gridcentric_api.launch_instance(context, id,
+                                                          params=params)
             return self._build_instance_list(req, [result])
         except novaexc.QuotaError as error:
             self._handle_quota_error(error)
