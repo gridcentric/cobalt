@@ -31,7 +31,7 @@ def usage():
     sys.stderr.write("\n")
     sys.stderr.write("    --password <password> (defaults to OS_PASSWORD)\n")
     sys.stderr.write("\n")
-    sys.stderr.write("    --tenant_name <tenant> (defaults to OS_TENANT_ID)\n")
+    sys.stderr.write("    --tenant_name <tenant> (defaults to OS_TENANT_NAME)\n")
     sys.stderr.write("\n")
     sys.stderr.write("    --url <url> (defaults to OS_AUTH_URL)\n")
     sys.stderr.write("\n")
@@ -73,8 +73,8 @@ def get_parser():
             help='Defaults to env[OS_PASSWORD].')
 
     parser.add_argument('--tenant_name',
-            default=env('OS_TENANT_ID'),
-            help='Defaults to env[OS_TENANT_ID].')
+            default=env('OS_TENANT_NAME'),
+            help='Defaults to env[OS_TENANT_NAME].')
 
     parser.add_argument('--url',
             default=env('OS_AUTH_URL'),
