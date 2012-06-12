@@ -231,7 +231,7 @@ class API(base.Base):
 
         self._cast_gridcentric_message('discard_instance', context, instance_uuid)
 
-    def launch_instance(self, context, instance_uuid):
+    def launch_instance(self, context, instance_uuid, params={}):
         pid = context.project_id
         uid = context.user_id
 
@@ -253,7 +253,8 @@ class API(base.Base):
                      FLAGS.scheduler_topic,
                      {"method": "launch_instance",
                       "args": {"topic": FLAGS.gridcentric_topic,
-                               "instance_uuid": new_instance_ref['uuid']}})
+                               "instance_uuid": new_instance_ref['uuid'],
+                               "params": params}})
 
         return self.get(context, new_instance_ref['uuid'])
 
