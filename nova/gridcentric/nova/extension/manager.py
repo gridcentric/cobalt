@@ -238,14 +238,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # really just the machine dying or the service dying unexpectedly.
             rpc.call(context, queue,
                     {"method": "launch_instance",
-<<<<<<< HEAD
                      "args": {'instance_id': instance_id,
-                              'migration_url': migration_url}})
-=======
-                     "args": {'instance_uuid': instance_uuid,
                               'migration_url': migration_url}},
                     timeout=1800.0)
->>>>>>> 61c5df0945aaaf103b4057cfdf62f2f86aa25fdf
 
             # Teardown on this host (and delete the descriptor).
             metadata = self.db.instance_metadata_get(context, instance_id)
