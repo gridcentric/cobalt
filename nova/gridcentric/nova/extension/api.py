@@ -73,26 +73,6 @@ class API(base.Base):
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
 
-    def _call_gridcentric_message(self, method, context, instance_uuid, host=None,
-                              params=None):
-        """Generic handler for RPC call to gridcentric. This will block for a response.
-
-        :param params: Optional dictionary of arguments to be passed to the
-                       gridcentric worker
-
-        :returns: None
-        """
-
-        if not params:
-            params = {}
-        if not host:
-            queue = FLAGS.gridcentric_topic
-        else:
-            queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, host)
-        params['instance_uuid'] = instance_uuid
-        kwargs = {'method': method, 'args': params}
-        rpc.call(context, queue, kwargs)
-
     def _check_quota(self, context, instance_uuid):
         # Check the quota to see if we can launch a new instance.
         instance = self.get(context, instance_uuid)
@@ -282,8 +262,8 @@ class API(base.Base):
         instance_ref = self.get(context, instance_uuid)
 
         LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
-        self._call_gridcentric_message('migrate_instance', context,
-                                       instance_uuid, host=instance_ref['host'],
+        self._cast_gridcentric_message('migrate_instance', context,
+                                       instance_ref['uuid'], host=instance_ref['host'],
                                        params={"dest" : dest})
 
     def list_launched_instances(self, context, instance_uuid):

@@ -242,10 +242,17 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Launch on the different host. With the non-null migration_url,
             # the launch will assume that all the files are the same places are
             # before (and not in special launch locations).
+            #
+            # FIXME: Currently we fix a timeout for this operation at 30 minutes.
+            # This is a long, long time. Ideally, this should be a function of the
+            # disk size or some other parameter. But we will get a response if an
+            # exception occurs in the remote thread, so the worse case here is 
+            # really just the machine dying or the service dying unexpectedly.
             rpc.call(context, queue,
                     {"method": "launch_instance",
                      "args": {'instance_uuid': instance_uuid,
-                              'migration_url': migration_url}})
+                              'migration_url': migration_url}},
+                    timeout=1800.0)
 
             # Teardown on this host (and delete the descriptor).
             metadata = self._instance_metadata(context, instance_uuid)
