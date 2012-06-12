@@ -75,13 +75,17 @@ class GridcentricServerControllerExtension(wsgi.Controller):
             self._handle_quota_error(error)
 
     @wsgi.action('gc_migrate')
-    def _migrate_instance(self, req, id, dest, body):
+    def _migrate_instance(self, req, id, body):
         context = req.environ["nova.context"]
+        try:
+            dest = body['gc_migrate']['dest']
+        except:
+            return webob.Response(status_int=401, body='Invalid destination')
         try:
             result = self.gridcentric_api.migrate_instance(context, id, dest)
             return webob.Response(status_int=200, body=json.dumps(result))
-        except quota.QuotaError as error:
-            self.server_helper._handle_quota_error(error)
+        except novaexc.QuotaError as error:
+            self._handle_quota_error(error)
 
     @wsgi.action('gc_list_launched')
     def _list_launched_instances(self, req, id, body):
