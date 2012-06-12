@@ -93,7 +93,7 @@ class VmsConnection:
         (newname, network, blessed_files) = tpool.execute(commands.bless,
                                instance_name,
                                new_instance_name,
-                               network=migration_url,
+                               mem_url=migration_url,
                                migration=(migration_url and True))
         LOG.debug(_("Called commands.bless with name=%s, new_name=%s, migration_url=%s"),
                     instance_name, new_instance_name, str(migration_url))
@@ -151,7 +151,7 @@ class VmsConnection:
                                newname,
                                str(mem_target),
                                path=path,
-                               network=migration_url,
+                               mem_url=migration_url,
                                migration=(migration_url and True))
 
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
