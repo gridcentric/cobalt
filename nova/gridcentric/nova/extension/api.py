@@ -207,7 +207,7 @@ class API(base.Base):
 
     def bless_instance(self, context, instance_uuid):
 
-         # Setup the DB representation for the new VM.
+        # Setup the DB representation for the new VM.
         instance_ref = self.get(context, instance_uuid)
 
         is_blessed = self._is_instance_blessed(context, instance_uuid)
@@ -278,9 +278,13 @@ class API(base.Base):
         return self.get(context, new_instance_ref['uuid'])
 
     def migrate_instance(self, context, instance_uuid, dest):
+        # Grab the DB representation for the new VM.
+        instance_ref = self.get(context, instance_uuid)
+
         LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
         self._call_gridcentric_message('migrate_instance', context,
-                                       instance_uuid, params={"dest" : dest})
+                                       instance_uuid, host=instance_ref['host'],
+                                       params={"dest" : dest})
 
     def list_launched_instances(self, context, instance_uuid):
         filter = {

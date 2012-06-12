@@ -172,11 +172,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 hosts.append(srv['host'])
         return hosts
 
-    def migrate_instance(self, context, instance_id, dest):
+    def migrate_instance(self, context, instance_uuid, dest):
         """
         Migrates an instance, dealing with special streaming cases as necessary.
         """
-        LOG.debug(_("migrate instance called: instance_id=%s"), instance_id)
+        LOG.debug(_("migrate instance called: instance_uuid=%s"), instance_uuid)
 
         # FIXME: This live migration code does not currently support volumes,
         # nor floating IPs. Both of these would be fairly straight-forward to
@@ -193,18 +193,18 @@ class GridCentricManager(manager.SchedulerDependentManager):
             raise exception.Error(_("Unable to migrate to the same host."))
 
         # Grab a reference to the instance.
-        instance_ref = self.db.instance_get(context, instance_id)
+        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
 
         src = instance_ref['host']
         if instance_ref['volumes']:
             rpc.call(context,
                       FLAGS.volume_topic,
                       {"method": "check_for_export",
-                       "args": {'instance_id': instance_id}})
+                       "args": {'instance_id': instance_ref.id}})
         rpc.call(context,
                  self.db.queue_get_for(context, FLAGS.compute_topic, dest),
                  {"method": "pre_live_migration",
-                  "args": {'instance_id': instance_id,
+                  "args": {'instance_id': instance_ref.id,
                            'block_migration': False,
                            'disk': None}})
 
@@ -232,7 +232,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         network_info = self.network_api.get_instance_nw_info(context, instance_ref)
 
         # Bless this instance for migration.
-        migration_url = self.bless_instance(context, instance_id,
+        migration_url = self.bless_instance(context, instance_uuid,
                                             migration_url="mcdist://%s" % devname)
 
         # Run our premigration hook.
@@ -244,7 +244,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # before (and not in special launch locations).
             rpc.call(context, queue,
                     {"method": "launch_instance",
-                     "args": {'instance_id': instance_id,
+                     "args": {'instance_uuid': instance_uuid,
                               'migration_url': migration_url}})
 
             # Teardown on this host (and delete the descriptor).
@@ -280,7 +280,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                          image_refs=image_refs)
 
             # Rollback is launching here again.
-            self.launch_instance(context, instance_id, migration_url=migration_url)
+            self.launch_instance(context, instance_uuid, migration_url=migration_url)
 
     def discard_instance(self, context, instance_uuid):
         """ Discards an instance so that and no further instances maybe be launched from it. """

@@ -434,12 +434,18 @@ class LibvirtConnection(VmsConnection):
         # per-file basis, but we have no choice here but to sync() globally.
         utilities.call_command(["sync"])
 
+        # (amscanne) Check to see if we need to convert the network_info
+        # object into the legacy format.
+        if network_info and self.libvirt_conn.legacy_nwinfo():
+            network_info = compute_utils.legacy_network_info(network_info)
+
         # We want to remove the instance from libvirt, but keep all of the
         # artifacts around which is why we use cleanup=False.
-        self.libvirt_conn.destroy(instance_ref, network_info, cleanup=False)
+        self.libvirt_conn._destroy(instance_ref, network_info, cleanup=False)
 
     def post_migration(self, context, instance_ref, network_info, migration_url,
                        use_image_service=False, image_refs=[]):
+
         # We call a normal discard to ensure the artifacts are cleaned up.
         self.discard(context, instance_ref.name, use_image_service=use_image_service,
                      image_refs=image_refs)
