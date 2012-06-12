@@ -43,7 +43,7 @@ def usage():
     sys.stderr.write("    discard <blessed instance id>\n")
     sys.stderr.write("        Discard the state associated with a blessed instance.\n")
     sys.stderr.write("\n")
-    sys.stderr.write("    launch <blessed instance id>\n")
+    sys.stderr.write("    launch <blessed instance id> [OPTIONS...]\n")
     sys.stderr.write("        Launches a new clone instance from the given blessed id.\n")
     sys.stderr.write("\n")
     sys.stderr.write("    list-launched <instance id>\n")
@@ -63,7 +63,7 @@ def env(e):
 
 def get_parser():
     parser = argparse.ArgumentParser(prog='gc-api')
-         
+
     parser.add_argument('--username',
             default=env('NOVA_USERNAME'),
             help='Defaults to env[NOVA_USERNAME].')
@@ -89,7 +89,15 @@ def get_arg(n):
     if len(args) < n + 2:
         usage()
         exit()
-    return args[n+1]
+    return args[n + 1]
+
+def get_launch_params():
+    params = {}
+    if len(args) >= 3:
+        for param in args[3:]:
+            key, value = param.split("=")
+            params[key] = value
+    return params
 
 command = get_arg(0)
 
@@ -106,7 +114,8 @@ elif command == 'discard':
 
 elif command == 'launch':
     instance_id = get_arg(1)
-    print client.launch_instance(instance_id)
+    params = get_launch_params()
+    print client.launch_instance(instance_id, params)
 
 elif command == 'list-launched':
     instance_id = get_arg(1)

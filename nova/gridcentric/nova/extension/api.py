@@ -215,10 +215,20 @@ class API(base.Base):
         return self.get(context, new_instance_ref['id'])
 
     def discard_instance(self, context, instance_id):
+        if not self._is_instance_blessed(context, instance_id):
+            # The instance is not blessed. We can't discard it.
+            raise exception.Error(_(("Instance %s is not blessed. " +
+                                     "Cannot discard an non-blessed instance.") % instance_id))
+        elif len(self.list_launched_instances(context, instance_id)) > 0:
+            # There are still launched instances based off of this one.
+            raise exception.Error(_(("Instance %s still has launched instances. " +
+                                     "Cannot discard an instance with remaining launched ones.") %
+                                     instance_id))
+
         LOG.debug(_("Casting gridcentric message for discard_instance") % locals())
         self._cast_gridcentric_message('discard_instance', context, instance_id)
 
-    def launch_instance(self, context, instance_id):
+    def launch_instance(self, context, instance_id, params={}):
         pid = context.project_id
         uid = context.user_id
 
@@ -239,7 +249,8 @@ class API(base.Base):
                      FLAGS.scheduler_topic,
                      {"method": "launch_instance",
                       "args": {"topic": FLAGS.gridcentric_topic,
-                               "instance_id": new_instance_ref['id']}})
+                               "instance_id": new_instance_ref['id'],
+                               "params": params}})
 
         return self.get(context, new_instance_ref['id'])
 
