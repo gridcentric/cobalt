@@ -29,7 +29,7 @@ import subprocess
 from nova import exception
 from nova import flags
 from nova import log as logging
-LOG = logging.getLogger('gridcentric.nova.manager')
+LOG = logging.getLogger('nova.gridcentric.manager')
 FLAGS = flags.FLAGS
 flags.DEFINE_bool('gridcentric_use_image_service', False,
                   'Gridcentric should use the image service to store disk copies and descriptors.')

@@ -26,7 +26,7 @@ from nova import quota
 from nova import rpc
 from nova import utils
 
-LOG = logging.getLogger('gridcentric.nova.api')
+LOG = logging.getLogger('nova.gridcentric.api')
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string('gridcentric_topic', 'gridcentric', 'the topic gridcentric nodes listen on')
