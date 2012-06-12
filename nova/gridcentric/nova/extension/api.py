@@ -185,7 +185,7 @@ class API(base.Base):
 
     def bless_instance(self, context, instance_id):
 
-         # Setup the DB representation for the new VM.
+        # Setup the DB representation for the new VM.
         instance_ref = self.db.instance_get(context, instance_id)
 
         is_blessed = self._is_instance_blessed(context, instance_id)
