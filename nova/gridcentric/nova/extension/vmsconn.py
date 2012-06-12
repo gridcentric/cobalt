@@ -30,7 +30,7 @@ from nova import exception
 from nova import flags
 from nova.virt import images
 from nova import log as logging
-LOG = logging.getLogger('gridcentric.nova.extension.vmsconn')
+LOG = logging.getLogger('nova.gridcentric.vmsconn')
 FLAGS = flags.FLAGS
 flags.DEFINE_string('libvirt_user', 'libvirt-qemu',
                     'The user that libvirt runs qemu as.')
