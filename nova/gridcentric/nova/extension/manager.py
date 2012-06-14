@@ -282,15 +282,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         LOG.debug(_("discard instance called: instance_id=%s"), instance_id)
 
-        if not self._is_instance_blessed(context, instance_id):
-            # The instance is not blessed. We can't discard it.
-            raise exception.Error(_(("Instance %s is not blessed. " +
-                                     "Cannot discard an non-blessed instance.") % instance_id))
-        elif len(self.gridcentric_api.list_launched_instances(context, instance_id)) > 0:
-            # There are still launched instances based off of this one.
-            raise exception.Error(_(("Instance %s still has launched instances. " +
-                                     "Cannot discard an instance with remaining launched ones.") %
-                                     instance_id))
         context.elevated()
 
         # Grab the DB representation for the VM.
