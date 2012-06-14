@@ -129,8 +129,8 @@ collect :
 	[ -f build/$(TEST_REPORT) ] && \
 	    mkdir -p $(COLLECT_DIR)/test-reports/ && \
 	    cp build/$(TEST_REPORT) $(COLLECT_DIR)/test-reports/$(TEST_REPORT) || true
-	mkdir -p $(COLLECT_DIR)/rpm/ && cp rpmbuild/RPMS/noarch/*.rpm $(COLLECT_DIR)/rpm/
-	mkdir -p $(COLLECT_DIR)/deb/ && cp *.deb $(COLLECT_DIR)/deb/
-	mkdir -p $(COLLECT_DIR)/tgz/ && cp *.tgz $(COLLECT_DIR)/tgz
+	mkdir -p $(COLLECT_DIR)/rpm/ && cp rpmbuild/RPMS/noarch/*.rpm $(COLLECT_DIR)/rpm/ || true
+	mkdir -p $(COLLECT_DIR)/deb/ && cp *.deb $(COLLECT_DIR)/deb/ || true
+	mkdir -p $(COLLECT_DIR)/tgz/ && cp *.tgz $(COLLECT_DIR)/tgz || true
 
 .PHONE : collect
