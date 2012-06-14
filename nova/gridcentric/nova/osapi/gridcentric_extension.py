@@ -105,7 +105,9 @@ class Gridcentric_extension(object):
     def _launch_instance(self, input_dict, req, id):
         context = req.environ["nova.context"]
         try:
-            result = self.gridcentric_api.launch_instance(context, id)
+            params = body.get('gc_launch', {})
+            result = self.gridcentric_api.launch_instance(context, id,
+                                                          params=params)
             return self._build_instance_list(req, [result])
         except quota.QuotaError as error:
             self.server_helper._handle_quota_error(error)

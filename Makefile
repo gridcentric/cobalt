@@ -1,6 +1,6 @@
 #!/usr/bin/make -f
 
-build-all : gc-nova-extension
+build-all : nova-all
 .PHONY : build-all
 
 $(NOVA_PATH)/.venv/bin/activate :
@@ -8,13 +8,11 @@ $(NOVA_PATH)/.venv/bin/activate :
 
 build-full : $(NOVA_PATH)/.venv/bin/activate
 	$(NOVA_PATH)/tools/with_venv.sh $(MAKE) build-all
-	@$(MAKE) collect
 .PHONY : build-clean
 
-gc-nova-extension :
-	@echo Building the gridcentric nova extension
-	@cd nova && $(MAKE)
-.PHONY : gc-nova-extension
+nova-% :
+	@cd nova && $(MAKE) $*
+	@$(MAKE) collect
 
 clean :
 	@cd nova && $(MAKE) clean

@@ -26,7 +26,7 @@ from nova import quota
 from nova import rpc
 from nova import utils
 
-LOG = logging.getLogger('gridcentric.nova.api')
+LOG = logging.getLogger('nova.gridcentric.api')
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string('gridcentric_topic', 'gridcentric', 'the topic gridcentric nodes listen on')
@@ -64,28 +64,6 @@ class API(base.Base):
         params['instance_id'] = instance_id
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
-
-    def _call_gridcentric_message(self, method, context, instance_id,
-                                  host=None, params=None):
-        """Generic handler for RPC call to gridcentric. This will block for a response.
-
-        :param params: Optional dictionary of arguments to be passed to the
-                       gridcentric worker
-
-        :returns: None
-        """
-        if not params:
-            params = {}
-        if not host:
-            instance = self.get(context, instance_id)
-            host = instance['host']
-        if not host:
-            queue = FLAGS.gridcentric_topic
-        else:
-            queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, host)
-        params['instance_id'] = instance_id
-        kwargs = {'method': method, 'args': params}
-        rpc.call(context, queue, kwargs)
 
     def _check_quota(self, context, instance_id):
         # Check the quota to see if we can launch a new instance.
@@ -185,7 +163,7 @@ class API(base.Base):
 
     def bless_instance(self, context, instance_id):
 
-         # Setup the DB representation for the new VM.
+        # Setup the DB representation for the new VM.
         instance_ref = self.db.instance_get(context, instance_id)
 
         is_blessed = self._is_instance_blessed(context, instance_id)
@@ -207,7 +185,7 @@ class API(base.Base):
         new_instance_ref = self._copy_instance(context, instance_id, str(clonenum), launch=False)
 
         LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
-        self._call_gridcentric_message('bless_instance', context, new_instance_ref['id'],
+        self._cast_gridcentric_message('bless_instance', context, new_instance_ref['id'],
                                        host=instance_ref['host'])
 
         # We reload the instance because the manager may have change its state (most likely it 
@@ -215,10 +193,20 @@ class API(base.Base):
         return self.get(context, new_instance_ref['id'])
 
     def discard_instance(self, context, instance_id):
+        if not self._is_instance_blessed(context, instance_id):
+            # The instance is not blessed. We can't discard it.
+            raise exception.Error(_(("Instance %s is not blessed. " +
+                                     "Cannot discard an non-blessed instance.") % instance_id))
+        elif len(self.list_launched_instances(context, instance_id)) > 0:
+            # There are still launched instances based off of this one.
+            raise exception.Error(_(("Instance %s still has launched instances. " +
+                                     "Cannot discard an instance with remaining launched ones.") %
+                                     instance_id))
+
         LOG.debug(_("Casting gridcentric message for discard_instance") % locals())
         self._cast_gridcentric_message('discard_instance', context, instance_id)
 
-    def launch_instance(self, context, instance_id):
+    def launch_instance(self, context, instance_id, params={}):
         pid = context.project_id
         uid = context.user_id
 
@@ -239,14 +227,18 @@ class API(base.Base):
                      FLAGS.scheduler_topic,
                      {"method": "launch_instance",
                       "args": {"topic": FLAGS.gridcentric_topic,
-                               "instance_id": new_instance_ref['id']}})
+                               "instance_id": new_instance_ref['id'],
+                               "params": params}})
 
         return self.get(context, new_instance_ref['id'])
 
     def migrate_instance(self, context, instance_id, dest):
+        instance_ref = self.db.instance_get(context, instance_id)
+
         LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
-        self._call_gridcentric_message('migrate_instance', context,
-                                       instance_id, params={"dest" : dest})
+        self._cast_gridcentric_message('migrate_instance', context,
+                                       instance_ref['id'], host=instance_ref['host'],
+                                       params={"dest" : dest})
 
     def list_launched_instances(self, context, instance_id):
         filter = {

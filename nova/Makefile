@@ -54,7 +54,7 @@ package : rpm deb tgz
 .PHONY : package
 
 # Installs the python packages
-install : 
+install : build
 	@$(PYTHON) setup.py install --prefix=$(DISTDIR)/usr
 	@$(INSTALL_DIR) $(DISTDIR)/var/lib/nova/extensions
 	@$(INSTALL_BIN) gridcentric/nova/osapi/gridcentric_extension.py \
