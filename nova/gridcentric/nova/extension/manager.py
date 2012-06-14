@@ -29,7 +29,7 @@ import subprocess
 from nova import exception
 from nova import flags
 from nova import log as logging
-LOG = logging.getLogger('gridcentric.nova.manager')
+LOG = logging.getLogger('nova.gridcentric.manager')
 FLAGS = flags.FLAGS
 flags.DEFINE_bool('gridcentric_use_image_service', False,
                   'Gridcentric should use the image service to store disk copies and descriptors.')
@@ -230,10 +230,17 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Launch on the different host. With the non-null migration_url,
             # the launch will assume that all the files are the same places are
             # before (and not in special launch locations).
+            #
+            # FIXME: Currently we fix a timeout for this operation at 30 minutes.
+            # This is a long, long time. Ideally, this should be a function of the
+            # disk size or some other parameter. But we will get a response if an
+            # exception occurs in the remote thread, so the worse case here is 
+            # really just the machine dying or the service dying unexpectedly.
             rpc.call(context, queue,
                     {"method": "launch_instance",
                      "args": {'instance_id': instance_id,
-                              'migration_url': migration_url}})
+                              'migration_url': migration_url}},
+                    timeout=1800.0)
 
             # Teardown on this host (and delete the descriptor).
             metadata = self.db.instance_metadata_get(context, instance_id)
@@ -275,15 +282,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         LOG.debug(_("discard instance called: instance_id=%s"), instance_id)
 
-        if not self._is_instance_blessed(context, instance_id):
-            # The instance is not blessed. We can't discard it.
-            raise exception.Error(_(("Instance %s is not blessed. " +
-                                     "Cannot discard an non-blessed instance.") % instance_id))
-        elif len(self.gridcentric_api.list_launched_instances(context, instance_id)) > 0:
-            # There are still launched instances based off of this one.
-            raise exception.Error(_(("Instance %s still has launched instances. " +
-                                     "Cannot discard an instance with remaining launched ones.") %
-                                     instance_id))
         context.elevated()
 
         # Grab the DB representation for the VM.
@@ -303,7 +301,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Remove the instance.
         self.db.instance_destroy(context, instance_id)
 
-    def launch_instance(self, context, instance_id, migration_url=None):
+    def launch_instance(self, context, instance_id, params={}, migration_url=None):
         """
         Construct the launched instance, with id instance_id. If migration_url is not none then 
         the instance will be launched using the memory server at the migration_url
@@ -377,7 +375,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Also, target should probably be an optional parameter that the
         # user can pass down.  The target memory settings for the launch
         # virtual machine.
-        target = instance_ref['memory_mb']
+        target = params.get("target", instance_ref['memory_mb'])
 
         # Extract out the image ids from the source instance's metadata. 
         metadata = self.db.instance_metadata_get(context, source_instance_ref['id'])
