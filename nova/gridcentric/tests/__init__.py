@@ -31,17 +31,11 @@ def setup():
         os.unlink(testdb)
 
     from nova import flags
-    from nova.openstack.common import cfg
     from nova.db import migration
 
-    test_opts = [
-                 cfg.StrOpt('sqlite_clean_db',
-                 default='tests.clean.sqlite',
-                 help='File name of clean sqlite db') ]
-
     FLAGS = flags.FLAGS
-    FLAGS.register_opts(test_opts)
-
+    flags.DEFINE_string('sqlite_clean_db', 'tests.clean.sqlite',
+                    'File name of clean sqlite db')
     FLAGS.sqlite_db = sqlite_db
     FLAGS.state_path = state_path
     FLAGS.sql_connection = 'sqlite:///%s' % testdb

@@ -30,15 +30,10 @@ from nova import exception
 from nova import flags
 from nova.virt import images
 from nova import log as logging
-from nova.compute import utils as compute_utils
-from nova.openstack.common import cfg
 LOG = logging.getLogger('nova.gridcentric.vmsconn')
 FLAGS = flags.FLAGS
-vmsconn_opts = [
-               cfg.StrOpt('libvirt_user',
-               default='libvirt-qemu',
-               help='The user that libvirt runs qemu as.') ]
-FLAGS.register_opts(vmsconn_opts)
+flags.DEFINE_string('libvirt_user', 'libvirt-qemu',
+                    'The user that libvirt runs qemu as.')
 
 from eventlet import tpool
 
@@ -58,7 +53,7 @@ class AttribDictionary(dict):
 
 def get_vms_connection(connection_type):
     # Configure the logger regardless of the type of connection that will be used.
-    #logger.setup_console_defaults()
+    logger.setup_console_defaults()
     if connection_type == 'xenapi':
         return XenApiConnection()
     elif connection_type == 'libvirt':
@@ -119,9 +114,6 @@ class VmsConnection:
         pass
 
     def extract_mac_addresses(self, network_info):
-        # TODO(dscannell) We should be using the network_info object. This is
-        # just here until we figure out how to use it.
-        network_info = compute_utils.legacy_network_info(network_info)
         mac_addresses = {}
         vif = 0
         for network in network_info:
@@ -129,7 +121,6 @@ class VmsConnection:
             vif += 1
 
         return mac_addresses
-
 
     def launch(self, context, instance_name, mem_target,
                new_instance_ref, network_info, migration_url=None,
@@ -242,7 +233,7 @@ class LibvirtConnection(VmsConnection):
         self.configure_path_permissions()
 
         self.libvirt_conn = libvirt_connection.get_connection(False)
-        config.MANAGEMENT['connection_url'] = self.libvirt_conn.uri
+        config.MANAGEMENT['connection_url'] = self.libvirt_conn.get_uri()
         select_hypervisor('libvirt')
 
     def configure_path_permissions(self):
@@ -362,11 +353,6 @@ class LibvirtConnection(VmsConnection):
                                  new_instance_ref['user_id'],
                                  new_instance_ref['project_id'])
 
-        # (dscannell) Check to see if we need to convert the network_info
-        # object into the legacy format.
-        if network_info and self.libvirt_conn.legacy_nwinfo():
-            network_info = compute_utils.legacy_network_info(network_info)
-
         # We need to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
         working_dir = os.path.join(FLAGS.instances_path, new_instance_ref['name'])
@@ -390,9 +376,8 @@ class LibvirtConnection(VmsConnection):
         # uses dictionary-list accessors, we can pass this dictionary through
         # that code.
         instance_dict = AttribDictionary(dict(new_instance_ref.iteritems()))
-
-        # The name attribute is special and does not carry over like the rest
-        # of the attributes.
+        # The name attribute is special and does not carry over like the rest of the
+        # attributes.
         instance_dict['name'] = new_instance_ref['name']
         instance_dict.os_type = new_instance_ref.os_type
 
@@ -425,7 +410,6 @@ class LibvirtConnection(VmsConnection):
                     network_info=None,
                     block_device_info=None,
                     migration=False):
-        self.libvirt_conn._enable_hairpin(new_instance_ref)
         self.libvirt_conn.firewall_driver.apply_instance_filter(new_instance_ref, network_info)
 
     def pre_migration(self, context, instance_ref, network_info, migration_url):
@@ -434,18 +418,12 @@ class LibvirtConnection(VmsConnection):
         # per-file basis, but we have no choice here but to sync() globally.
         utilities.call_command(["sync"])
 
-        # (amscanne) Check to see if we need to convert the network_info
-        # object into the legacy format.
-        if network_info and self.libvirt_conn.legacy_nwinfo():
-            network_info = compute_utils.legacy_network_info(network_info)
-
         # We want to remove the instance from libvirt, but keep all of the
         # artifacts around which is why we use cleanup=False.
-        self.libvirt_conn._destroy(instance_ref, network_info, cleanup=False)
+        self.libvirt_conn.destroy(instance_ref, network_info, cleanup=False)
 
     def post_migration(self, context, instance_ref, network_info, migration_url,
                        use_image_service=False, image_refs=[]):
-
         # We call a normal discard to ensure the artifacts are cleaned up.
         self.discard(context, instance_ref.name, use_image_service=use_image_service,
                      image_refs=image_refs)

@@ -32,7 +32,7 @@
 # Thus, we do *NOT* monkey patch the core routines, and instead allow them to
 # block as normal.
 import eventlet
-eventlet.monkey_patch(all=False, socket=True, select=True)
+eventlet.monkey_patch(all=False)
 
 import gettext
 import os
@@ -57,17 +57,13 @@ from nova import flags
 from nova import log as logging
 from nova import service
 from nova import utils
-from nova.openstack.common import cfg
 
 if __name__ == '__main__':
     utils.default_flagfile()
     flags.FLAGS(sys.argv)
-    gridcentric_opts = [
-               cfg.StrOpt('gridcentric_manager',
-               default='gridcentric.nova.extension.manager.GridCentricManager',
-               help='Manager for gridcentric') ]
-    flags.FLAGS.register_opts(gridcentric_opts)
-
+    flags.DEFINE_string('gridcentric_manager',
+                        'gridcentric.nova.extension.manager.GridCentricManager',
+                        'Manager for gridcentric')
     logging.setup()
     server = service.Service.create(binary='nova-gridcentric')
     service.serve(server)

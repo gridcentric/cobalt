@@ -1,0 +1,32 @@
+--- nova/scheduler/multi.py
++++ nova/scheduler/multi.py
+@@ -33,6 +33,9 @@ flags.DEFINE_string('compute_scheduler_driver',
+ flags.DEFINE_string('volume_scheduler_driver',
+                     'nova.scheduler.chance.ChanceScheduler',
+                     'Driver to use for scheduling volume calls')
++flags.DEFINE_string('default_scheduler_driver',
++                    'nova.scheduler.chance.ChanceScheduler',
++                    'Default driver to use for scheduling calls')
+ 
+ 
+ # A mapping of methods to topics so we can figure out which driver to use.
+@@ -53,9 +56,11 @@ class MultiScheduler(driver.Scheduler):
+         super(MultiScheduler, self).__init__()
+         compute_driver = utils.import_object(FLAGS.compute_scheduler_driver)
+         volume_driver = utils.import_object(FLAGS.volume_scheduler_driver)
++        default_driver = utils.import_object(FLAGS.default_scheduler_driver)
+ 
+         self.drivers = {'compute': compute_driver,
+-                        'volume': volume_driver}
++                        'volume': volume_driver,
++                        'default': default_driver}
+ 
+     def __getattr__(self, key):
+         if not key.startswith('schedule_'):
+@@ -70,4 +75,5 @@ class MultiScheduler(driver.Scheduler):
+             v.set_zone_manager(zone_manager)
+ 
+     def schedule(self, context, topic, *_args, **_kwargs):
+-        return self.drivers[topic].schedule(context, topic, *_args, **_kwargs)
++        driver = self.drivers.get(topic, self.drivers['default'])
++        return driver.schedule(context, topic, *_args, **_kwargs)

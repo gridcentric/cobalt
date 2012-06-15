@@ -26,6 +26,7 @@ rsync -rav --delete ../../dist/* $RPM_BUILD_ROOT
 
 %files
 /usr/
+/var/lib/nova/extensions/gridcentric_extension.py
 /etc/init/nova-gridcentric.conf
 
 %changelog

@@ -17,7 +17,7 @@
 
 # A clone of "nova list" that provides some more information for developers.
 
-from novaclient.client import Client
+from novaclient.v1_1.client import Client
 import hashlib
 import os
 import sys
@@ -25,19 +25,21 @@ import argparse
 
 from subprocess import check_output
 
+def hostname_to_id(hostname):
+    return hashlib.sha224(hostname).hexdigest()
+
+def id_to_hostname(id):
+    return hostmap[id]
+
 def libvirt_name(server):
-    return server._info["OS-EXT-SRV-ATTR:instance_name"]
+    return 'instance-%08x' % int(server.id)
 
 def create_nova_client():
     '''Creates a nova client from the environment variables.'''
-    return Client('1.1',
-                  os.environ['OS_USERNAME'],
-                  os.environ['OS_PASSWORD'],
-                  os.environ['OS_TENANT_NAME'],
-                  os.environ['OS_AUTH_URL'],
-                  insecure=False,
-                  endpoint_type='publicURL',
-                  service_type='compute')
+    return Client(username=os.environ['NOVA_USERNAME'],
+                  api_key=os.environ['NOVA_API_KEY'],
+                  project_id=os.environ['NOVA_PROJECT_ID'],
+                  auth_url=os.environ['NOVA_URL'])
 
 def cluster_hosts():
     try:
@@ -46,19 +48,9 @@ def cluster_hosts():
         return ['node%d' % n for n in range(100)]
 
 hostmap = {}
-
-def hostname_to_id(tenant_id, hostname):
-    return hashlib.sha224(str(tenant_id) + hostname).hexdigest()
-
-def hostmap_for(tenant_id):
-    if not(hostmap.has_key(tenant_id)):
-        hostmap[tenant_id] = {}
-        for host in cluster_hosts():
-            hostmap[tenant_id][hostname_to_id(tenant_id, host)] = host
-    return hostmap[tenant_id]
-
-def id_to_hostname(tenant_id, hostid):
-    return hostmap_for(tenant_id).get(hostid)
+for host in cluster_hosts():
+    hostmap[hostname_to_id(host)] = host
+hostmap[''] = ''
 
 class Table(object):
     
@@ -149,7 +141,7 @@ if __name__ == '__main__':
     for server in servers:
         setattr(server, 'vncdisplay', None)
         try:
-            hostname = id_to_hostname(server.tenant_id, server.hostId)
+            hostname = id_to_hostname(server.hostId)
             host_servers.setdefault(hostname, []).append(server)
         except KeyError:
             hostname = None
@@ -169,7 +161,7 @@ if __name__ == '__main__':
 
     for server in servers:
         table.add(server.id)
-        table.add(server._info["OS-EXT-SRV-ATTR:instance_name"].split("-")[1])
+        table.add('%08x' % int(server.id))
         table.add(server.name)
         table.add(server.status)
         networks = []

@@ -28,15 +28,11 @@ import subprocess
 
 from nova import exception
 from nova import flags
-from nova.openstack.common import cfg
 from nova import log as logging
 LOG = logging.getLogger('nova.gridcentric.manager')
 FLAGS = flags.FLAGS
-gridcentric_opts = [
-               cfg.BoolOpt('gridcentric_use_image_service',
-               default=False,
-               help='Gridcentric should use the image service to store disk copies and descriptors.') ]
-FLAGS.register_opts(gridcentric_opts)
+flags.DEFINE_bool('gridcentric_use_image_service', False,
+                  'Gridcentric should use the image service to store disk copies and descriptors.')
 
 from nova import manager
 from nova import utils
@@ -50,7 +46,6 @@ from nova.network import manager as network_manager
 from nova.compute import power_state
 from nova.compute import task_states
 from nova.compute import vm_states
-from nova.compute import utils as compute_utils
 from nova.compute import manager as compute_manager
 
 from gridcentric.nova.extension import API
@@ -74,21 +69,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self.vms_conn = vmsconn.get_vms_connection(connection_type)
         self.vms_conn.configure()
 
-    def _instance_update(self, context, instance_uuid, **kwargs):
+    def _instance_update(self, context, instance_id, **kwargs):
         """Update an instance in the database using kwargs as value."""
-        return self.db.instance_update(context, instance_uuid, kwargs)
+        return self.db.instance_update(context, instance_id, kwargs)
 
-    def _instance_metadata(self, context, instance_uuid):
-        """ Looks up and returns the instance metadata """
-
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
-        return self.db.instance_metadata_get(context, instance_ref['id'])
-
-    def _instance_metadata_update(self, context, instance_uuid, metadata):
-        """ Updates the instance metadata """
-
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
-        return self.db.instance_metadata_update(context, instance_ref['id'], metadata, True)
+    def _is_instance_blessed(self, context, instance_id):
+        """ Returns True if this instance is blessed, False otherwise. """
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        return "blessed_from" in metadata
 
     def _extract_image_refs(self, metadata):
         image_refs = metadata.get('images', '').split(',')
@@ -96,43 +84,43 @@ class GridCentricManager(manager.SchedulerDependentManager):
             image_refs = []
         return image_refs
 
-    def _get_source_instance(self, context, instance_uuid):
+    def _get_source_instance(self, context, instance_id):
         """ 
         Returns a the instance reference for the source instance of instance_id. In other words:
         if instance_id is a BLESSED instance, it returns the instance that was blessed
         if instance_id is a LAUNCH instance, it returns the blessed instance.
         if instance_id is neither, it returns NONE.
         """
-        metadata = self._instance_metadata(context, instance_uuid)
+        metadata = self.db.instance_metadata_get(context, instance_id)
         if "launched_from" in metadata:
-            source_instance_uuid = metadata["launched_from"]
+            source_instance_id = int(metadata["launched_from"])
         elif "blessed_from" in metadata:
-            source_instance_uuid = metadata["blessed_from"]
+            source_instance_id = int(metadata["blessed_from"])
         else:
-            source_instance_uuid = None
+            source_instance_id = None
 
-        if source_instance_uuid != None:
-            return self.db.instance_get_by_uuid(context, source_instance_uuid)
+        if source_instance_id != None:
+            return self.db.instance_get(context, source_instance_id)
         return None
 
-    def bless_instance(self, context, instance_uuid, migration_url=None):
+    def bless_instance(self, context, instance_id, migration_url=None):
         """
-        Construct the blessed instance, with the uuid instance_uuid. If migration_url is specified then 
+        Construct the blessed instance, with the id instance_id. If migration_url is specified then 
         bless will ensure a memory server is available at the given migration url.
         """
-        LOG.debug(_("bless instance called: instance_uuid=%s, migration_url=%s"),
-                    instance_uuid, migration_url)
+        LOG.debug(_("bless instance called: instance_id=%s, migration_url=%s"),
+                    instance_id, migration_url)
 
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
+        instance_ref = self.db.instance_get(context, instance_id)
+
         if migration_url:
             # Tweak only this instance directly.
             source_instance_ref = instance_ref
             migration = True
         else:
-            source_instance_ref = self._get_source_instance(context, instance_uuid)
+            source_instance_ref = self._get_source_instance(context, instance_id)
             migration = False
 
-        self._instance_update(context, instance_ref.id, vm_state=vm_states.BUILDING)
         try:
             # Create a new 'blessed' VM with the given name.
             name, migration_url, blessed_files = self.vms_conn.bless(context,
@@ -152,11 +140,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         if not(migration):
             # Mark this new instance as being 'blessed'.
-            metadata = self._instance_metadata(context, instance_ref['uuid'])
+            metadata = self.db.instance_metadata_get(context, instance_ref.id)
             LOG.debug("blessed_files = %s" % (blessed_files))
             metadata['images'] = ','.join(blessed_files)
             metadata['blessed'] = True
-            self._instance_metadata_update(context, instance_ref['uuid'], metadata)
+            self.db.instance_metadata_update(context, instance_ref.id, metadata, True)
 
         # Return the memory URL (will be None for a normal bless).
         return migration_url
@@ -172,11 +160,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 hosts.append(srv['host'])
         return hosts
 
-    def migrate_instance(self, context, instance_uuid, dest):
+    def migrate_instance(self, context, instance_id, dest):
         """
         Migrates an instance, dealing with special streaming cases as necessary.
         """
-        LOG.debug(_("migrate instance called: instance_uuid=%s"), instance_uuid)
+        LOG.debug(_("migrate instance called: instance_id=%s"), instance_id)
 
         # FIXME: This live migration code does not currently support volumes,
         # nor floating IPs. Both of these would be fairly straight-forward to
@@ -193,18 +181,18 @@ class GridCentricManager(manager.SchedulerDependentManager):
             raise exception.Error(_("Unable to migrate to the same host."))
 
         # Grab a reference to the instance.
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
+        instance_ref = self.db.instance_get(context, instance_id)
 
         src = instance_ref['host']
         if instance_ref['volumes']:
             rpc.call(context,
                       FLAGS.volume_topic,
                       {"method": "check_for_export",
-                       "args": {'instance_id': instance_ref.id}})
+                       "args": {'instance_id': instance_id}})
         rpc.call(context,
                  self.db.queue_get_for(context, FLAGS.compute_topic, dest),
                  {"method": "pre_live_migration",
-                  "args": {'instance_id': instance_ref.id,
+                  "args": {'instance_id': instance_id,
                            'block_migration': False,
                            'disk': None}})
 
@@ -232,7 +220,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         network_info = self.network_api.get_instance_nw_info(context, instance_ref)
 
         # Bless this instance for migration.
-        migration_url = self.bless_instance(context, instance_uuid,
+        migration_url = self.bless_instance(context, instance_id,
                                             migration_url="mcdist://%s" % devname)
 
         # Run our premigration hook.
@@ -250,12 +238,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # really just the machine dying or the service dying unexpectedly.
             rpc.call(context, queue,
                     {"method": "launch_instance",
-                     "args": {'instance_uuid': instance_uuid,
+                     "args": {'instance_id': instance_id,
                               'migration_url': migration_url}},
                     timeout=1800.0)
 
             # Teardown on this host (and delete the descriptor).
-            metadata = self._instance_metadata(context, instance_uuid)
+            metadata = self.db.instance_metadata_get(context, instance_id)
             image_refs = self._extract_image_refs(metadata)
             self.vms_conn.post_migration(context, instance_ref, network_info, migration_url,
                                          use_image_service=FLAGS.gridcentric_use_image_service,
@@ -280,26 +268,26 @@ class GridCentricManager(manager.SchedulerDependentManager):
             LOG.debug(_("Error during migration: %s"), traceback.format_exc())
 
             # Prepare to relaunch here (this is the nasty bit as per above).
-            metadata = self._instance_metadata(context, instance_uuid)
+            metadata = self.db.instance_metadata_get(context, instance_id)
             image_refs = self._extract_image_refs(metadata)
             self.vms_conn.post_migration(context, instance_ref, network_info, migration_url,
                                          use_image_service=FLAGS.gridcentric_use_image_service,
                                          image_refs=image_refs)
 
             # Rollback is launching here again.
-            self.launch_instance(context, instance_uuid, migration_url=migration_url)
+            self.launch_instance(context, instance_id, migration_url=migration_url)
 
-    def discard_instance(self, context, instance_uuid):
-        """ Discards an instance so that and no further instances maybe be launched from it. """
+    def discard_instance(self, context, instance_id):
+        """ Discards an instance so that no further instances maybe be launched from it. """
 
-        LOG.debug(_("discard instance called: instance_uuid=%s"), instance_uuid)
+        LOG.debug(_("discard instance called: instance_id=%s"), instance_id)
 
         context.elevated()
 
         # Grab the DB representation for the VM.
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
+        instance_ref = self.db.instance_get(context, instance_id)
 
-        metadata = self._instance_metadata(context, instance_uuid)
+        metadata = self.db.instance_metadata_get(context, instance_id)
         image_refs = self._extract_image_refs(metadata)
         # Call discard in the backend.
         self.vms_conn.discard(context, instance_ref.name,
@@ -308,22 +296,22 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # Update the instance metadata (for completeness).
         metadata['blessed'] = False
-        self._instance_metadata_update(context, instance_uuid, metadata)
+        self.db.instance_metadata_update(context, instance_id, metadata, True)
 
         # Remove the instance.
-        self.db.instance_destroy(context, instance_uuid)
+        self.db.instance_destroy(context, instance_id)
 
-    def launch_instance(self, context, instance_uuid, params={}, migration_url=None):
+    def launch_instance(self, context, instance_id, params={}, migration_url=None):
         """
-        Construct the launched instance, with uuid instance_uuid. If migration_url is not none then 
+        Construct the launched instance, with id instance_id. If migration_url is not none then 
         the instance will be launched using the memory server at the migration_url
         """
-        LOG.debug(_("Launching new instance: instance_uuid=%s, migration_url=%s"),
-                    instance_uuid, migration_url)
 
+        LOG.debug(_("Launching new instance: instance_id=%s, migration_url=%s"),
+                    instance_id, migration_url)
 
         # Grab the DB representation for the VM.
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
+        instance_ref = self.db.instance_get(context, instance_id)
 
         if migration_url:
             # Just launch the given blessed instance.
@@ -335,14 +323,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Update the instance state to be migrating. This will be set to
             # active again once it is completed in do_launch() as per all
             # normal launched instances.
-            self._instance_update(context, instance_ref['uuid'],
+            self._instance_update(context, instance_ref.id,
                                   vm_state=vm_states.MIGRATING,
                                   task_state=task_states.SPAWNING,
                                   host=self.host)
             instance_ref['host'] = self.host
         else:
             # Create a new launched instance.
-            source_instance_ref = self._get_source_instance(context, instance_uuid)
+            source_instance_ref = self._get_source_instance(context, instance_id)
 
             if not FLAGS.stub_network:
                 # TODO(dscannell): We need to set the is_vpn parameter correctly.
@@ -366,7 +354,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                 requested_networks=requested_networks)
                 except Exception, e:
                     LOG.debug(_("Error during network allocation: %s"), str(e))
-                    self._instance_update(context, instance_ref['uuid'],
+                    self._instance_update(context, instance_ref.id,
                                           vm_state=vm_states.ERROR,
                                           task_state=None)
                     # Short-circuit, can't proceed.
@@ -378,7 +366,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 network_info = []
 
             # Update the instance state to be in the building state.
-            self._instance_update(context, instance_ref['uuid'],
+            self._instance_update(context, instance_ref.id,
                                   vm_state=vm_states.BUILDING,
                                   task_state=task_states.SPAWNING)
 
@@ -404,11 +392,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
             # Perform our database update.
             self._instance_update(context,
-                                  instance_ref['uuid'],
+                                  instance_ref.id,
                                   vm_state=vm_states.ACTIVE,
                                   host=self.host,
                                   task_state=None)
         except Exception, e:
             LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
-            self._instance_update(context, instance_ref['uuid'],
+            self._instance_update(context, instance_ref.id,
                                   vm_state=vm_states.ERROR, task_state=None)

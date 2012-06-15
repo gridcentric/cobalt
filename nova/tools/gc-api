@@ -27,13 +27,13 @@ def usage():
     sys.stderr.write("usage: gc-api [options] <command>\n")
     sys.stderr.write("where options is any of the follwing:\n")
     sys.stderr.write("\n")
-    sys.stderr.write("    --username <username> (defaults to OS_USERNAME)\n")
+    sys.stderr.write("    --username <username> (defaults to NOVA_USER)\n")
     sys.stderr.write("\n")
-    sys.stderr.write("    --password <password> (defaults to OS_PASSWORD)\n")
+    sys.stderr.write("    --apikey <apikey/password> (defaults to NOVA_API_KEY)\n")
     sys.stderr.write("\n")
-    sys.stderr.write("    --tenant_name <tenant> (defaults to OS_TENANT_NAME)\n")
+    sys.stderr.write("    --projectid <project> (defaults to NOVA_PROJECT_ID)\n")
     sys.stderr.write("\n")
-    sys.stderr.write("    --url <url> (defaults to OS_AUTH_URL)\n")
+    sys.stderr.write("    --url <url> (defaults to NOVA_URL)\n")
     sys.stderr.write("\n")
     sys.stderr.write("where command is one of the following:\n")
     sys.stderr.write("\n")
@@ -65,20 +65,20 @@ def get_parser():
     parser = argparse.ArgumentParser(prog='gc-api')
 
     parser.add_argument('--username',
-            default=env('OS_USERNAME'),
-            help='Defaults to env[OS_USERNAME].')
+            default=env('NOVA_USERNAME'),
+            help='Defaults to env[NOVA_USERNAME].')
 
-    parser.add_argument('--password',
-            default=env('OS_PASSWORD'),
-            help='Defaults to env[OS_PASSWORD].')
+    parser.add_argument('--apikey',
+            default=env('NOVA_API_KEY'),
+            help='Defaults to env[NOVA_API_KEY].')
 
-    parser.add_argument('--tenant_name',
-            default=env('OS_TENANT_NAME'),
-            help='Defaults to env[OS_TENANT_NAME].')
+    parser.add_argument('--projectid',
+            default=env('NOVA_PROJECT_ID'),
+            help='Defaults to env[NOVA_PROJECT_ID].')
 
     parser.add_argument('--url',
-            default=env('OS_AUTH_URL'),
-            help='Defaults to env[OS_AUTH_URL].')
+            default=env('NOVA_URL'),
+            help='Defaults to env[NOVA_URL].')
 
     return parser
 
@@ -101,7 +101,7 @@ def get_launch_params():
 
 command = get_arg(0)
 
-url, user, key, project = options.url, options.username, options.password, options.tenant_name
+url, user, key, project = options.url, options.username, options.apikey, options.projectid
 client = NovaClient(url, user, key, project)
 
 if command == 'bless':
