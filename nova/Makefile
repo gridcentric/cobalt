@@ -50,11 +50,11 @@ build : test
 .PHONY : build
 
 # Package the extension
-package : rpm deb
+package : rpm deb tgz
 .PHONY : package
 
 # Installs the python packages
-install : 
+install : build
 	@$(PYTHON) setup.py install --prefix=$(DISTDIR)/usr
 	@$(INSTALL_DIR) $(DISTDIR)/etc/init
 	@$(INSTALL_DATA) etc/nova-gridcentric.conf \
@@ -93,6 +93,10 @@ debbuild:
 	@$(INSTALL_DIR) debbuild
 .PHONY : debbuild
 
+tgz: install
+	tar -cvzf nova-gridcentric_$(VERSION).$(RELEASE)-$(NOVA_RELEASE)py$(PYTHON_VERSION).tgz -C dist .
+.PHONY: tgz
+
 # Runs pylint on the code base
 pylint:
 	@[ -f pylintrc ] && \
@@ -117,6 +121,7 @@ clean :
 	rm -f pylint.txt
 	rm -rf rpmbuild
 	rm -rf *.deb debbuild
+	rm -rf *.tgz
 .PHONY : clean
 
 # Note that COLLECT_DIR needs to be set
@@ -124,7 +129,8 @@ collect :
 	[ -f build/$(TEST_REPORT) ] && \
 	    mkdir -p $(COLLECT_DIR)/test-reports/ && \
 	    cp build/$(TEST_REPORT) $(COLLECT_DIR)/test-reports/$(TEST_REPORT) || true
-	mkdir -p $(COLLECT_DIR)/rpm/ && cp rpmbuild/RPMS/noarch/*.rpm $(COLLECT_DIR)/rpm/
-	mkdir -p $(COLLECT_DIR)/deb/ && cp *.deb $(COLLECT_DIR)/deb/
+	mkdir -p $(COLLECT_DIR)/rpm/ && cp rpmbuild/RPMS/noarch/*.rpm $(COLLECT_DIR)/rpm/ || true
+	mkdir -p $(COLLECT_DIR)/deb/ && cp *.deb $(COLLECT_DIR)/deb/ || true
+	mkdir -p $(COLLECT_DIR)/tgz/ && cp *.tgz $(COLLECT_DIR)/tgz || true
 
 .PHONE : collect

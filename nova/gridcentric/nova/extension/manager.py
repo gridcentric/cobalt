@@ -30,7 +30,7 @@ from nova import exception
 from nova import flags
 from nova.openstack.common import cfg
 from nova import log as logging
-LOG = logging.getLogger('gridcentric.nova.manager')
+LOG = logging.getLogger('nova.gridcentric.manager')
 FLAGS = flags.FLAGS
 gridcentric_opts = [
                cfg.BoolOpt('gridcentric_use_image_service',
@@ -142,7 +142,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                 use_image_service=FLAGS.gridcentric_use_image_service)
             if not(migration):
                 self._instance_update(context, instance_ref.id,
-                                  vm_state="blessed", task_state=None)
+                                  vm_state="blessed", task_state=None,
+                                  launched_at=utils.utcnow())
         except Exception, e:
             LOG.debug(_("Error during bless %s: %s"), str(e), traceback.format_exc())
             self._instance_update(context, instance_ref.id,
@@ -172,11 +173,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 hosts.append(srv['host'])
         return hosts
 
-    def migrate_instance(self, context, instance_id, dest):
+    def migrate_instance(self, context, instance_uuid, dest):
         """
         Migrates an instance, dealing with special streaming cases as necessary.
         """
-        LOG.debug(_("migrate instance called: instance_id=%s"), instance_id)
+        LOG.debug(_("migrate instance called: instance_uuid=%s"), instance_uuid)
 
         # FIXME: This live migration code does not currently support volumes,
         # nor floating IPs. Both of these would be fairly straight-forward to
@@ -193,18 +194,18 @@ class GridCentricManager(manager.SchedulerDependentManager):
             raise exception.Error(_("Unable to migrate to the same host."))
 
         # Grab a reference to the instance.
-        instance_ref = self.db.instance_get(context, instance_id)
+        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
 
         src = instance_ref['host']
         if instance_ref['volumes']:
             rpc.call(context,
                       FLAGS.volume_topic,
                       {"method": "check_for_export",
-                       "args": {'instance_id': instance_id}})
+                       "args": {'instance_id': instance_ref.id}})
         rpc.call(context,
                  self.db.queue_get_for(context, FLAGS.compute_topic, dest),
                  {"method": "pre_live_migration",
-                  "args": {'instance_id': instance_id,
+                  "args": {'instance_id': instance_ref.id,
                            'block_migration': False,
                            'disk': None}})
 
@@ -232,7 +233,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         network_info = self.network_api.get_instance_nw_info(context, instance_ref)
 
         # Bless this instance for migration.
-        migration_url = self.bless_instance(context, instance_id,
+        migration_url = self.bless_instance(context, instance_uuid,
                                             migration_url="mcdist://%s" % devname)
 
         # Run our premigration hook.
@@ -242,10 +243,17 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Launch on the different host. With the non-null migration_url,
             # the launch will assume that all the files are the same places are
             # before (and not in special launch locations).
+            #
+            # FIXME: Currently we fix a timeout for this operation at 30 minutes.
+            # This is a long, long time. Ideally, this should be a function of the
+            # disk size or some other parameter. But we will get a response if an
+            # exception occurs in the remote thread, so the worse case here is 
+            # really just the machine dying or the service dying unexpectedly.
             rpc.call(context, queue,
                     {"method": "launch_instance",
-                     "args": {'instance_id': instance_id,
-                              'migration_url': migration_url}})
+                     "args": {'instance_uuid': instance_uuid,
+                              'migration_url': migration_url}},
+                    timeout=1800.0)
 
             # Teardown on this host (and delete the descriptor).
             metadata = self._instance_metadata(context, instance_uuid)
@@ -280,7 +288,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                          image_refs=image_refs)
 
             # Rollback is launching here again.
-            self.launch_instance(context, instance_id, migration_url=migration_url)
+            self.launch_instance(context, instance_uuid, migration_url=migration_url)
 
     def discard_instance(self, context, instance_uuid):
         """ Discards an instance so that and no further instances maybe be launched from it. """
@@ -377,9 +385,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # TODO(dscannell): Need to figure out what the units of measurement
         # for the target should be (megabytes, kilobytes, bytes, etc).
-        # Also, target should probably be an optional parameter that the
-        # user can pass down.  The target memory settings for the launch
-        # virtual machine.
+        # The target memory settings for the launch virtual machine.
         target = params.get("target", instance_ref['memory_mb'])
 
         # Extract out the image ids from the source instance's metadata. 
@@ -400,6 +406,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   instance_ref['uuid'],
                                   vm_state=vm_states.ACTIVE,
                                   host=self.host,
+                                  launched_at=utils.utcnow(),
                                   task_state=None)
         except Exception, e:
             LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
