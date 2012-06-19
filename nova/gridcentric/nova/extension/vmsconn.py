@@ -380,7 +380,7 @@ class LibvirtConnection(VmsConnection):
         if not(os.path.exists(working_dir)):
             os.makedirs(working_dir)
 
-        if not(migration):
+        if not (os.path.exists(disk_file)):
             # (dscannell) We will write out a stub 'disk' file so that we don't end
             # up copying this file when setting up everything for libvirt.
             # Essentially, this file will be removed, and replaced by vms as an
