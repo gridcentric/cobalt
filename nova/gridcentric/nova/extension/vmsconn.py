@@ -377,13 +377,12 @@ class LibvirtConnection(VmsConnection):
         if not(os.path.exists(working_dir)):
             os.makedirs(working_dir)
 
-        if not(migration):
-            # (dscannell) We will write out a stub 'disk' file so that we don't end
-            # up copying this file when setting up everything for libvirt.
-            # Essentially, this file will be removed, and replaced by vms as an
-            # overlay on the blessed root image.
-            f = open(disk_file, 'w')
-            f.close()
+        # (dscannell) We will write out a stub 'disk' file so that we don't end
+        # up copying this file when setting up everything for libvirt.
+        # Essentially, this file will be removed, and replaced by vms as an
+        # overlay on the blessed root image.
+        f = open(disk_file, 'a')
+        f.close()
 
         # (dscannell) We want to disable any injection. We do this by making a
         # copy of the instance and clearing out some entries. Since Openstack
