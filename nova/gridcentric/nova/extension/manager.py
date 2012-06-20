@@ -372,7 +372,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # TODO(dscannell): Need to figure out what the units of measurement
         # for the target should be (megabytes, kilobytes, bytes, etc).
-        # The target memory settings for the launch virtual machine.
+        # Also, target should probably be an optional parameter that the
+        # user can pass down.  The target memory settings for the launch
+        # virtual machine.
         target = params.get("target", instance_ref['memory_mb'])
 
         # Extract out the image ids from the source instance's metadata. 
