@@ -130,7 +130,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                 use_image_service=FLAGS.gridcentric_use_image_service)
             if not(migration):
                 self._instance_update(context, instance_ref.id,
-                                  vm_state="blessed", task_state=None)
+                                  vm_state="blessed", task_state=None,
+                                  launched_at=utils.utcnow())
         except Exception, e:
             LOG.debug(_("Error during bless %s: %s"), str(e), traceback.format_exc())
             self._instance_update(context, instance_ref.id,
@@ -393,6 +394,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   instance_ref.id,
                                   vm_state=vm_states.ACTIVE,
                                   host=self.host,
+                                  launched_at=utils.utcnow(),
                                   task_state=None)
         except Exception, e:
             LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
