@@ -64,7 +64,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def _init_vms(self):
         """ Initializes the hypervisor options depending on the openstack connection type. """
-
         connection_type = FLAGS.connection_type
         self.vms_conn = vmsconn.get_vms_connection(connection_type)
         self.vms_conn.configure()
@@ -72,11 +71,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
     def _instance_update(self, context, instance_id, **kwargs):
         """Update an instance in the database using kwargs as value."""
         return self.db.instance_update(context, instance_id, kwargs)
-
-    def _is_instance_blessed(self, context, instance_id):
-        """ Returns True if this instance is blessed, False otherwise. """
-        metadata = self.db.instance_metadata_get(context, instance_id)
-        return "blessed_from" in metadata
 
     def _extract_image_refs(self, metadata):
         image_refs = metadata.get('images', '').split(',')
@@ -130,7 +124,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                 use_image_service=FLAGS.gridcentric_use_image_service)
             if not(migration):
                 self._instance_update(context, instance_ref.id,
-                                  vm_state="blessed", task_state=None)
+                                  vm_state="blessed", task_state=None,
+                                  launched_at=utils.utcnow())
         except Exception, e:
             LOG.debug(_("Error during bless %s: %s"), str(e), traceback.format_exc())
             self._instance_update(context, instance_ref.id,
@@ -138,13 +133,13 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Short-circuit, nothing to be done.
             return
 
+        # Mark this new instance as being 'blessed'.
+        metadata = self.db.instance_metadata_get(context, instance_ref.id)
+        LOG.debug("blessed_files = %s" % (blessed_files))
+        metadata['images'] = ','.join(blessed_files)
         if not(migration):
-            # Mark this new instance as being 'blessed'.
-            metadata = self.db.instance_metadata_get(context, instance_ref.id)
-            LOG.debug("blessed_files = %s" % (blessed_files))
-            metadata['images'] = ','.join(blessed_files)
             metadata['blessed'] = True
-            self.db.instance_metadata_update(context, instance_ref.id, metadata, True)
+        self.db.instance_metadata_update(context, instance_ref.id, metadata, True)
 
         # Return the memory URL (will be None for a normal bless).
         return migration_url
@@ -371,9 +366,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # TODO(dscannell): Need to figure out what the units of measurement
         # for the target should be (megabytes, kilobytes, bytes, etc).
-        # Also, target should probably be an optional parameter that the
-        # user can pass down.  The target memory settings for the launch
-        # virtual machine.
+        # The target memory settings for the launch virtual machine.
         target = params.get("target", instance_ref['memory_mb'])
 
         # Extract out the image ids from the source instance's metadata. 
@@ -394,6 +387,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   instance_ref.id,
                                   vm_state=vm_states.ACTIVE,
                                   host=self.host,
+                                  launched_at=utils.utcnow(),
                                   task_state=None)
         except Exception, e:
             LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
