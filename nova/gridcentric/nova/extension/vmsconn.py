@@ -483,6 +483,7 @@ class LibvirtConnection(VmsConnection):
                                      image_ref,
                                      metadata,
                                      image_file)
+            os.unlink(bless_file)
         return blessed_image_refs
 
     def _delete_images(self, context, image_refs):
