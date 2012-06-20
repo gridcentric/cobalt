@@ -412,3 +412,27 @@ class GridCentricManager(manager.SchedulerDependentManager):
             LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
             self._instance_update(context, instance_ref['uuid'],
                                   vm_state=vm_states.ERROR, task_state=None)
+
+    def cleanup_instance(self, context, instance_uuid):
+        """
+        This is called when an instance is deleted and some of the gridcentric artifacts
+        need to be cleaned up. In particular the iptables rules need to be deleted when the
+        instance is deleted.
+        """
+        LOG.debug(_("Cleaing up instance: instance_uuid=%s"),
+                    instance_uuid)
+
+        # Grab the DB representation for the VM.
+        # NOTE(dscannell): There is a race condition between here and the nova-compute that 
+        # actually marks the instance recorded as deleted. We need to catch possible not found
+        # exceptions and log a warning. If the instance has already been marked deleted, then
+        # we have lost its network info mapping as well.
+        try:
+            instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
+            network_info = self.network_api.get_instance_nw_info(context, instance_ref)
+            self.vms_conn.cleanup(context, instance_ref, network_info)
+        except Exception, e:
+            error = traceback.format_exc()
+            LOG.warn(_("Failed cleanup of instance %s. Some potential lingering state may not "
+                       "be cleaned up. %s: %s"), instance_uuid, str(e), error)
+
