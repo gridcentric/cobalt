@@ -239,8 +239,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             rpc.call(context, queue,
                     {"method": "launch_instance",
                      "args": {'instance_id': instance_id,
-                              'migration_url': migration_url}},
-                    timeout=1800.0)
+                              'migration_url': migration_url}})
 
             # Teardown on this host (and delete the descriptor).
             metadata = self.db.instance_metadata_get(context, instance_id)
