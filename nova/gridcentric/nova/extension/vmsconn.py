@@ -350,6 +350,9 @@ class LibvirtConnection(VmsConnection):
             # from the image service.
             LOG.debug("Downloading images %s from the image service." % (image_refs))
             image_base_path = os.path.join(FLAGS.instances_path, '_base')
+            if not os.path.exists(image_base_path):
+                LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
+                utilities.make_directories(image_base_path)
             image_service = nova.image.get_default_image_service()
             for image_ref in image_refs:
                 image = image_service.show(context, image_ref)
@@ -377,12 +380,13 @@ class LibvirtConnection(VmsConnection):
         if not(os.path.exists(working_dir)):
             os.makedirs(working_dir)
 
-        # (dscannell) We will write out a stub 'disk' file so that we don't end
-        # up copying this file when setting up everything for libvirt.
-        # Essentially, this file will be removed, and replaced by vms as an
-        # overlay on the blessed root image.
-        f = open(disk_file, 'a')
-        f.close()
+        if not(os.path.exists(disk_file)):
+            # (dscannell) We will write out a stub 'disk' file so that we don't
+            # end up copying this file when setting up everything for libvirt.
+            # Essentially, this file will be removed, and replaced by vms as an
+            # overlay on the blessed root image.
+            f = open(disk_file, 'w')
+            f.close()
 
         # (dscannell) We want to disable any injection. We do this by making a
         # copy of the instance and clearing out some entries. Since Openstack
@@ -501,6 +505,7 @@ class LibvirtConnection(VmsConnection):
                                      image_ref,
                                      metadata,
                                      image_file)
+            os.unlink(bless_file)
         return blessed_image_refs
 
     def _delete_images(self, context, image_refs):
