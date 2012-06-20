@@ -341,6 +341,9 @@ class LibvirtConnection(VmsConnection):
             # from the image service.
             LOG.debug("Downloading images %s from the image service." % (image_refs))
             image_base_path = os.path.join(FLAGS.instances_path, '_base')
+            if not os.path.exists(image_base_path):
+                LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
+                utilities.make_directories(image_base_path)
             image_service = nova.image.get_default_image_service()
             for image_ref in image_refs:
                 image = image_service.show(context, image_ref)
