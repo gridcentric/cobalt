@@ -148,13 +148,13 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Short-circuit, nothing to be done.
             return
 
+        # Mark this new instance as being 'blessed'.
+        metadata = self._instance_metadata(context, instance_ref['uuid'])
+        LOG.debug("blessed_files = %s" % (blessed_files))
+        metadata['images'] = ','.join(blessed_files)
         if not(migration):
-            # Mark this new instance as being 'blessed'.
-            metadata = self._instance_metadata(context, instance_ref['uuid'])
-            LOG.debug("blessed_files = %s" % (blessed_files))
-            metadata['images'] = ','.join(blessed_files)
             metadata['blessed'] = True
-            self._instance_metadata_update(context, instance_ref['uuid'], metadata)
+        self._instance_metadata_update(context, instance_ref['uuid'], metadata)
 
         # Return the memory URL (will be None for a normal bless).
         return migration_url
