@@ -155,7 +155,6 @@ class Gridcentric_extension(object):
         def _delete(req, res):
             """ There is some clean up our extension needs to do when an instance is deleted. """
             context = req.environ["nova.context"]
-            LOG.debug("DRS DEBUG: request=%s" % req.__dict__)
             (_, routing_args) = req.environ.get('wsgiorg.routing_args', (None, None))
             instance_uuid = None
             if routing_args != None:
