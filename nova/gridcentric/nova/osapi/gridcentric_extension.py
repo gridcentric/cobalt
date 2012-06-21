@@ -105,7 +105,7 @@ class Gridcentric_extension(object):
     def _launch_instance(self, input_dict, req, id):
         context = req.environ["nova.context"]
         try:
-            params = body.get('gc_launch', {})
+            params = input_dict.get('gc_launch', {})
             result = self.gridcentric_api.launch_instance(context, id,
                                                           params=params)
             return self._build_instance_list(req, [result])
