@@ -185,8 +185,17 @@ class API(base.Base):
         metadata = self._instance_metadata(context, instance_uuid)
         return "launched_from" in metadata
 
-    def bless_instance(self, context, instance_uuid):
+    def _list_gridcentric_hosts(self, context):
+        """ Returns a list of all the hosts known to openstack running the gridcentric service. """
+        admin_context = context.elevated()
+        services = self.db.service_get_all_by_topic(admin_context, FLAGS.gridcentric_topic)
+        hosts = []
+        for srv in services:
+            if srv['host'] not in hosts:
+                hosts.append(srv['host'])
+        return hosts
 
+    def bless_instance(self, context, instance_uuid):
         # Setup the DB representation for the new VM.
         instance_ref = self.get(context, instance_uuid)
 
@@ -259,8 +268,15 @@ class API(base.Base):
         return self.get(context, new_instance_ref['uuid'])
 
     def migrate_instance(self, context, instance_uuid, dest):
-        # Grab the DB representation for the new VM.
+        # Grab the DB representation for the VM.
         instance_ref = self.get(context, instance_uuid)
+
+        gridcentric_hosts = self._list_gridcentric_hosts(context)
+        if dest not in gridcentric_hosts:
+            raise exception.Error(_("Cannot migrate to host %s because it is not running the"
+                                    " gridcentric service.") % dest)
+        elif dest == instance_ref['host']:
+            raise exception.Error(_("Unable to migrate to the same host."))
 
         LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
         self._cast_gridcentric_message('migrate_instance', context,
@@ -282,4 +298,3 @@ class API(base.Base):
                   }
         blessed_instances = self.compute_api.get_all(context, filter)
         return blessed_instances
-
