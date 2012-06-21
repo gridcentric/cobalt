@@ -82,8 +82,8 @@ class GridcentricServerControllerExtension(wsgi.Controller):
         except:
             return webob.Response(status_int=401, body='Invalid destination')
         try:
-            result = self.gridcentric_api.migrate_instance(context, id, dest)
-            return webob.Response(status_int=200, body=json.dumps(result))
+            self.gridcentric_api.migrate_instance(context, id, dest)
+            return webob.Response(status_int=200)
         except novaexc.QuotaError as error:
             self._handle_quota_error(error)
 

@@ -363,8 +363,12 @@ class LibvirtConnection(VmsConnection):
             for image_ref in image_refs:
                 image = image_service.show(context, image_ref)
                 target = os.path.join(image_base_path, image['name'])
-                if not os.path.exists(target):
-                    # If the path does not exist fetch the data from the image service.
+                if migration or not os.path.exists(target):
+                    # If the path does not exist fetch the data from the image
+                    # service.  NOTE: We always fetch in the case of a
+                    # migration, as the descriptor may have changed from its
+                    # previous state. Migrating VMs are the only case where a
+                    # descriptor for an instance will not be a fixed constant.
                     images.fetch(context,
                                  image_ref,
                                  target,
@@ -386,9 +390,9 @@ class LibvirtConnection(VmsConnection):
         if not(os.path.exists(working_dir)):
             os.makedirs(working_dir)
 
-        if not (os.path.exists(disk_file)):
-            # (dscannell) We will write out a stub 'disk' file so that we don't end
-            # up copying this file when setting up everything for libvirt.
+        if not(os.path.exists(disk_file)):
+            # (dscannell) We will write out a stub 'disk' file so that we don't
+            # end up copying this file when setting up everything for libvirt.
             # Essentially, this file will be removed, and replaced by vms as an
             # overlay on the blessed root image.
             f = open(disk_file, 'w')
@@ -492,8 +496,8 @@ class LibvirtConnection(VmsConnection):
             image_name = bless_file.split("/")[-1]
             image_ref = self.create_image(context, image_service, instance_ref, image_name)
             blessed_image_refs.append(image_ref)
-            # Send up the file data to the newly created image.
 
+            # Send up the file data to the newly created image.
             metadata = {'is_public': False,
                         'status': 'active',
                         'name': image_name,
@@ -501,7 +505,6 @@ class LibvirtConnection(VmsConnection):
                                        'image_state': 'available',
                                        'owner_id': instance_ref['project_id']}
                         }
-
             metadata['disk_format'] = "raw"
             metadata['container_format'] = "bare"
 
@@ -512,6 +515,7 @@ class LibvirtConnection(VmsConnection):
                                      metadata,
                                      image_file)
             os.unlink(bless_file)
+
         return blessed_image_refs
 
     def _delete_images(self, context, image_refs):

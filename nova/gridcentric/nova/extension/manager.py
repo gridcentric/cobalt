@@ -70,7 +70,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def _init_vms(self):
         """ Initializes the hypervisor options depending on the openstack connection type. """
-
         connection_type = FLAGS.connection_type
         self.vms_conn = vmsconn.get_vms_connection(connection_type)
         self.vms_conn.configure()
@@ -81,13 +80,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def _instance_metadata(self, context, instance_uuid):
         """ Looks up and returns the instance metadata """
-
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
         return self.db.instance_metadata_get(context, instance_ref['id'])
 
     def _instance_metadata_update(self, context, instance_uuid, metadata):
         """ Updates the instance metadata """
-
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
         return self.db.instance_metadata_update(context, instance_ref['id'], metadata, True)
 
@@ -152,13 +149,13 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Short-circuit, nothing to be done.
             return
 
+        # Mark this new instance as being 'blessed'.
+        metadata = self._instance_metadata(context, instance_ref['uuid'])
+        LOG.debug("blessed_files = %s" % (blessed_files))
+        metadata['images'] = ','.join(blessed_files)
         if not(migration):
-            # Mark this new instance as being 'blessed'.
-            metadata = self._instance_metadata(context, instance_ref['uuid'])
-            LOG.debug("blessed_files = %s" % (blessed_files))
-            metadata['images'] = ','.join(blessed_files)
             metadata['blessed'] = True
-            self._instance_metadata_update(context, instance_ref['uuid'], metadata)
+        self._instance_metadata_update(context, instance_ref['uuid'], metadata)
 
         # Return the memory URL (will be None for a normal bless).
         return migration_url
@@ -322,7 +319,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
         """
         LOG.debug(_("Launching new instance: instance_uuid=%s, migration_url=%s"),
                     instance_uuid, migration_url)
-
 
         # Grab the DB representation for the VM.
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
