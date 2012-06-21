@@ -256,3 +256,12 @@ class API(base.Base):
         blessed_instances = self.compute_api.get_all(context, filter)
         return blessed_instances
 
+    def cleanup_instance(self, context, instance_uuid):
+        # Note(dscannell): This is called whenever an instance is deleted. 
+        # We only need to perform the clean up on launched instances.
+        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
+        if self._is_instance_launched(context, instance_ref['id']):
+            LOG.debug(_("Casting gridcentric message for cleanup_instance"))
+            self._cast_gridcentric_message('cleanup_instance', context,
+                                       instance_ref['id'], host=instance_ref['host'])
+
