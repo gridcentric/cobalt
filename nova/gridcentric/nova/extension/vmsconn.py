@@ -357,8 +357,12 @@ class LibvirtConnection(VmsConnection):
             for image_ref in image_refs:
                 image = image_service.show(context, image_ref)
                 target = os.path.join(image_base_path, image['name'])
-                if not os.path.exists(target):
-                    # If the path does not exist fetch the data from the image service.
+                if migration or not os.path.exists(target):
+                    # If the path does not exist fetch the data from the image
+                    # service.  NOTE: We always fetch in the case of a
+                    # migration, as the descriptor may have changed from its
+                    # previous state. Migrating VMs are the only case where a
+                    # descriptor for an instance will not be a fixed constant.
                     images.fetch(context,
                                  image_ref,
                                  target,
