@@ -502,6 +502,7 @@ class LibvirtConnection(VmsConnection):
         In the libvirt case we need to remove the iptables rules that were created for this
         domain. The nova-compute service will not handle this for us.
         """
-
+        if network_info == None:
+            network_info = []
         self.libvirt_conn.unfilter_instance(instance_ref, network_info)
 
