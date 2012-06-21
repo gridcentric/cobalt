@@ -118,8 +118,8 @@ class Gridcentric_extension(object):
             dest = input_dict["gc_migrate"].get("dest", None)
             if not(dest):
                 return webob.Response(status_int=400)
-            result = self.gridcentric_api.migrate_instance(context, id, dest)
-            return webob.Response(status_int=200, body=json.dumps(result))
+            self.gridcentric_api.migrate_instance(context, id, dest)
+            return webob.Response(status_int=200)
         except quota.QuotaError as error:
             self.server_helper._handle_quota_error(error)
 
