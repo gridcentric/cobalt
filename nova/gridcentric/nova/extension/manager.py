@@ -47,6 +47,7 @@ from nova import network
 # it defines (without actually importing this module). So we need to ensure
 # this module is loaded so that we can have access to those flags.
 from nova.network import manager as network_manager
+from nova.network import model as network_model
 from nova.compute import power_state
 from nova.compute import task_states
 from nova.compute import vm_states
@@ -424,15 +425,23 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # Grab the DB representation for the VM.
         # NOTE(dscannell): There is a race condition between here and the nova-compute that 
-        # actually marks the instance recorded as deleted. We need to catch possible not found
-        # exceptions and log a warning. If the instance has already been marked deleted, then
-        # we have lost its network info mapping as well.
+        # actually marks the instance recorded as deleted. 
         try:
             instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
             network_info = self.network_api.get_instance_nw_info(context, instance_ref)
+        except exception.InstanceNotFound, e:
+            # The instance has already been deleted. We'll attempt to recreate the state
+            # from the database directly.
+            instance_refs = self.db.instance_get_all_by_filters(context,
+                                                               {"deleted": True,
+                                                                "uuid": instance_uuid})
+            if instance_refs and len(instance_refs) > 0:
+                instance_ref = instance_refs[0]
+                inst_info_cache = self.db.instance_info_cache_get(context, instance_ref['uuid'])
+                network_info = network_model.NetworkInfo.hydrate(inst_info_cache.network_info)
+
+        if instance_ref != None and network_info != None:
             self.vms_conn.cleanup(context, instance_ref, network_info)
-        except Exception, e:
-            error = traceback.format_exc()
-            LOG.warn(_("Failed cleanup of instance %s. Some potential lingering state may not "
-                       "be cleaned up. %s: %s"), instance_uuid, str(e), error)
+        else:
+            LOG.warn(_("Failed to clean up instance %s. Some stale state may remain on the host."))
 
