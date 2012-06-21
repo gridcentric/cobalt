@@ -421,7 +421,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # Grab the DB representation for the VM.
         # NOTE(dscannell): There is a race condition between here and the nova-compute that 
-        # actually marks the instance recorded as deleted. 
+        # actually marks the instance recorded as deleted.
+        instance_ref = None
+        network_info = None
         try:
             instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
             network_info = self.network_api.get_instance_nw_info(context, instance_ref)
