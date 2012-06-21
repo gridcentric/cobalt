@@ -443,5 +443,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
         if instance_ref != None and network_info != None:
             self.vms_conn.cleanup(context, instance_ref, network_info)
         else:
-            LOG.warn(_("Failed to clean up instance %s. Some stale state may remain on the host."))
+            LOG.warn(_("Failed to clean up instance %s. Some stale state may remain on the host."),
+                     instance_uuid)
 
