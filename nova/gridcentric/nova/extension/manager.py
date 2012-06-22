@@ -47,6 +47,7 @@ from nova import network
 # it defines (without actually importing this module). So we need to ensure
 # this module is loaded so that we can have access to those flags.
 from nova.network import manager as network_manager
+from nova.network import model as network_model
 from nova.compute import power_state
 from nova.compute import task_states
 from nova.compute import vm_states
@@ -69,7 +70,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def _init_vms(self):
         """ Initializes the hypervisor options depending on the openstack connection type. """
-
         connection_type = FLAGS.connection_type
         self.vms_conn = vmsconn.get_vms_connection(connection_type)
         self.vms_conn.configure()
@@ -80,13 +80,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def _instance_metadata(self, context, instance_uuid):
         """ Looks up and returns the instance metadata """
-
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
         return self.db.instance_metadata_get(context, instance_ref['id'])
 
     def _instance_metadata_update(self, context, instance_uuid, metadata):
         """ Updates the instance metadata """
-
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
         return self.db.instance_metadata_update(context, instance_ref['id'], metadata, True)
 
@@ -142,7 +140,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                 use_image_service=FLAGS.gridcentric_use_image_service)
             if not(migration):
                 self._instance_update(context, instance_ref.id,
-                                  vm_state="blessed", task_state=None)
+                                  vm_state="blessed", task_state=None,
+                                  launched_at=utils.utcnow())
         except Exception, e:
             LOG.debug(_("Error during bless %s: %s"), str(e), traceback.format_exc())
             self._instance_update(context, instance_ref.id,
@@ -150,13 +149,13 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Short-circuit, nothing to be done.
             return
 
+        # Mark this new instance as being 'blessed'.
+        metadata = self._instance_metadata(context, instance_ref['uuid'])
+        LOG.debug("blessed_files = %s" % (blessed_files))
+        metadata['images'] = ','.join(blessed_files)
         if not(migration):
-            # Mark this new instance as being 'blessed'.
-            metadata = self._instance_metadata(context, instance_ref['uuid'])
-            LOG.debug("blessed_files = %s" % (blessed_files))
-            metadata['images'] = ','.join(blessed_files)
             metadata['blessed'] = True
-            self._instance_metadata_update(context, instance_ref['uuid'], metadata)
+        self._instance_metadata_update(context, instance_ref['uuid'], metadata)
 
         # Return the memory URL (will be None for a normal bless).
         return migration_url
@@ -321,7 +320,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
         LOG.debug(_("Launching new instance: instance_uuid=%s, migration_url=%s"),
                     instance_uuid, migration_url)
 
-
         # Grab the DB representation for the VM.
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
 
@@ -384,9 +382,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # TODO(dscannell): Need to figure out what the units of measurement
         # for the target should be (megabytes, kilobytes, bytes, etc).
-        # Also, target should probably be an optional parameter that the
-        # user can pass down.  The target memory settings for the launch
-        # virtual machine.
+        # The target memory settings for the launch virtual machine.
         target = params.get("target", instance_ref['memory_mb'])
 
         # Extract out the image ids from the source instance's metadata. 
@@ -407,8 +403,44 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   instance_ref['uuid'],
                                   vm_state=vm_states.ACTIVE,
                                   host=self.host,
+                                  launched_at=utils.utcnow(),
                                   task_state=None)
         except Exception, e:
             LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
             self._instance_update(context, instance_ref['uuid'],
                                   vm_state=vm_states.ERROR, task_state=None)
+
+    def cleanup_instance(self, context, instance_uuid):
+        """
+        This is called when an instance is deleted and some of the gridcentric artifacts
+        need to be cleaned up. In particular the iptables rules need to be deleted when the
+        instance is deleted.
+        """
+        LOG.debug(_("Cleaing up instance: instance_uuid=%s"),
+                    instance_uuid)
+
+        # Grab the DB representation for the VM.
+        # NOTE(dscannell): There is a race condition between here and the nova-compute that 
+        # actually marks the instance recorded as deleted.
+        instance_ref = None
+        network_info = None
+        try:
+            instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
+            network_info = self.network_api.get_instance_nw_info(context, instance_ref)
+        except exception.InstanceNotFound, e:
+            # The instance has already been deleted. We'll attempt to recreate the state
+            # from the database directly.
+            instance_refs = self.db.instance_get_all_by_filters(context,
+                                                               {"deleted": True,
+                                                                "uuid": instance_uuid})
+            if instance_refs and len(instance_refs) > 0:
+                instance_ref = instance_refs[0]
+                inst_info_cache = self.db.instance_info_cache_get(context, instance_ref['uuid'])
+                network_info = network_model.NetworkInfo.hydrate(inst_info_cache.network_info)
+
+        if instance_ref != None and network_info != None:
+            self.vms_conn.cleanup(context, instance_ref, network_info)
+        else:
+            LOG.warn(_("Failed to clean up instance %s. Some stale state may remain on the host."),
+                     instance_uuid)
+
