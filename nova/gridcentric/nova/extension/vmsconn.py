@@ -177,6 +177,12 @@ class VmsConnection:
                                mac_addresses=mac_addresses)
         LOG.debug(_("Called vms.replug with name=%s"), instance_name)
 
+    def cleanup(self, context, instance_ref, network_info):
+        """
+        Cleans up any artifacts associated with the instance that is being deleted.
+        """
+        pass
+
     def pre_launch(self, context,
                    new_instance_ref,
                    network_info=None,
@@ -350,12 +356,19 @@ class LibvirtConnection(VmsConnection):
             # from the image service.
             LOG.debug("Downloading images %s from the image service." % (image_refs))
             image_base_path = os.path.join(FLAGS.instances_path, '_base')
+            if not os.path.exists(image_base_path):
+                LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
+                utilities.make_directories(image_base_path)
             image_service = nova.image.get_default_image_service()
             for image_ref in image_refs:
                 image = image_service.show(context, image_ref)
                 target = os.path.join(image_base_path, image['name'])
-                if not os.path.exists(target):
-                    # If the path does not exist fetch the data from the image service.
+                if migration or not os.path.exists(target):
+                    # If the path does not exist fetch the data from the image
+                    # service.  NOTE: We always fetch in the case of a
+                    # migration, as the descriptor may have changed from its
+                    # previous state. Migrating VMs are the only case where a
+                    # descriptor for an instance will not be a fixed constant.
                     images.fetch(context,
                                  image_ref,
                                  target,
@@ -377,9 +390,9 @@ class LibvirtConnection(VmsConnection):
         if not(os.path.exists(working_dir)):
             os.makedirs(working_dir)
 
-        if not(migration):
-            # (dscannell) We will write out a stub 'disk' file so that we don't end
-            # up copying this file when setting up everything for libvirt.
+        if not(os.path.exists(disk_file)):
+            # (dscannell) We will write out a stub 'disk' file so that we don't
+            # end up copying this file when setting up everything for libvirt.
             # Essentially, this file will be removed, and replaced by vms as an
             # overlay on the blessed root image.
             f = open(disk_file, 'w')
@@ -483,8 +496,8 @@ class LibvirtConnection(VmsConnection):
             image_name = bless_file.split("/")[-1]
             image_ref = self.create_image(context, image_service, instance_ref, image_name)
             blessed_image_refs.append(image_ref)
-            # Send up the file data to the newly created image.
 
+            # Send up the file data to the newly created image.
             metadata = {'is_public': False,
                         'status': 'active',
                         'name': image_name,
@@ -492,7 +505,6 @@ class LibvirtConnection(VmsConnection):
                                        'image_state': 'available',
                                        'owner_id': instance_ref['project_id']}
                         }
-
             metadata['disk_format'] = "raw"
             metadata['container_format'] = "bare"
 
@@ -502,9 +514,23 @@ class LibvirtConnection(VmsConnection):
                                      image_ref,
                                      metadata,
                                      image_file)
+            os.unlink(bless_file)
+
         return blessed_image_refs
 
     def _delete_images(self, context, image_refs):
         image_service = nova.image.get_default_image_service()
         for image_ref in image_refs:
             image_service.delete(context, image_ref)
+
+    def cleanup(self, context, instance_ref, network_info):
+        """
+        In the libvirt case we need to remove the iptables rules that were created for this
+        domain. The nova-compute service will not handle this for us.
+        """
+        # (dscannell) Check to see if we need to convert the network_info
+        # object into the legacy format.
+        if network_info and self.libvirt_conn.legacy_nwinfo():
+            network_info = compute_utils.legacy_network_info(network_info)
+        self.libvirt_conn.unfilter_instance(instance_ref, network_info)
+

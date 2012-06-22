@@ -82,8 +82,8 @@ class GridcentricServerControllerExtension(wsgi.Controller):
         except:
             return webob.Response(status_int=401, body='Invalid destination')
         try:
-            result = self.gridcentric_api.migrate_instance(context, id, dest)
-            return webob.Response(status_int=200, body=json.dumps(result))
+            self.gridcentric_api.migrate_instance(context, id, dest)
+            return webob.Response(status_int=200)
         except novaexc.QuotaError as error:
             self._handle_quota_error(error)
 
@@ -96,6 +96,14 @@ class GridcentricServerControllerExtension(wsgi.Controller):
     def _list_blessed_instances(self, req, id, body):
         context = req.environ["nova.context"]
         return self._build_instance_list(req, self.gridcentric_api.list_blessed_instances(context, id))
+
+    @wsgi.extends
+    def delete(self, req, resp_obj, **kwargs):
+        """ There is some clean up our extension needs to do when an instance is deleted. """
+        context = req.environ["nova.context"]
+        instance_uuid = kwargs.get("id", None)
+        if instance_uuid != None:
+            self.gridcentric_api.cleanup_instance(context, instance_uuid)
 
     def _build_instance_list(self, req, instances):
         def _build_view(req, instance, is_detail=True):
