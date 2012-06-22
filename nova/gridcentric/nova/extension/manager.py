@@ -432,4 +432,3 @@ class GridCentricManager(manager.SchedulerDependentManager):
             LOG.warn(_("Failed to clean up instance %s. Some stale state may remain on the host."),
                      instance_id)
 
-
