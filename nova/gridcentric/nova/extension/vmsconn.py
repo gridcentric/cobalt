@@ -168,6 +168,12 @@ class VmsConnection:
                                mac_addresses=mac_addresses)
         LOG.debug(_("Called vms.replug with name=%s"), instance_name)
 
+    def cleanup(self, context, instance_ref, network_info):
+        """
+        Cleans up any artifacts associated with the instance that is being deleted.
+        """
+        pass
+
     def pre_launch(self, context,
                    new_instance_ref,
                    network_info=None,
@@ -493,4 +499,19 @@ class LibvirtConnection(VmsConnection):
     def _delete_images(self, context, image_refs):
         image_service = nova.image.get_default_image_service()
         for image_ref in image_refs:
-            image_service.delete(context, image_ref)
+            try:
+                image_service.delete(context, image_ref)
+            except exception.ImageNotFound:
+                # Simply ignore this error because the end result
+                # the image so no longer be there.
+                pass
+
+    def cleanup(self, context, instance_ref, network_info):
+        """
+        In the libvirt case we need to remove the iptables rules that were created for this
+        domain. The nova-compute service will not handle this for us.
+        """
+        if network_info == None:
+            network_info = []
+        self.libvirt_conn.unfilter_instance(instance_ref, network_info)
+
