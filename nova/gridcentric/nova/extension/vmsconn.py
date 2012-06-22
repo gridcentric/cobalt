@@ -521,7 +521,12 @@ class LibvirtConnection(VmsConnection):
     def _delete_images(self, context, image_refs):
         image_service = nova.image.get_default_image_service()
         for image_ref in image_refs:
-            image_service.delete(context, image_ref)
+            try:
+                image_service.delete(context, image_ref)
+            except exception.ImageNotFound:
+                # Simply ignore this error because the end result
+                # the image so no longer be there.
+                pass
 
     def cleanup(self, context, instance_ref, network_info):
         """
