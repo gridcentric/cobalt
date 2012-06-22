@@ -443,7 +443,7 @@ class LibvirtConnection(VmsConnection):
         # appeared at the same PID in the meantime.
         for ctrl in control.probe():
             try:
-                if ctrl.get("network") == migration_url:
+                if ctrl.get("network") in migration_url:
                     ctrl.kill(timeout=1.0)
             except control.ControlException:
                 pass
