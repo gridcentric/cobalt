@@ -33,6 +33,12 @@ LOG = logging.getLogger('nova.gridcentric.manager')
 FLAGS = flags.FLAGS
 flags.DEFINE_bool('gridcentric_use_image_service', False,
                   'Gridcentric should use the image service to store disk copies and descriptors.')
+flags.DEFINE_string('gridcentric_outgoing_migration_address', None,
+                    'IPv4 address to host migrations from; the VM on the '
+                    'migration destination will connect to this address. '
+                    'Must be in dotted-decimcal format, i.e., ddd.ddd.ddd.ddd. '
+                    'By default, the outgoing migration address is determined '
+                    'automatically by the host\'s routing tables.')
 
 from nova import manager
 from nova import utils
@@ -196,9 +202,15 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Grab the network info (to be used for cleanup later on the host).
         network_info = self.network_api.get_instance_nw_info(context, instance_ref)
 
+        if FLAGS.gridcentric_outgoing_migration_address != None:
+            migration_address = FLAGS.gridcentric_outgoing_migration_address
+        else:
+            migration_address = devname
+
         # Bless this instance for migration.
         migration_url = self.bless_instance(context, instance_id,
-                                            migration_url="mcdist://%s" % devname)
+                                            migration_url="mcdist://%s" %
+                                            migration_address)
 
         # Run our premigration hook.
         self.vms_conn.pre_migration(context, instance_ref, network_info, migration_url)
