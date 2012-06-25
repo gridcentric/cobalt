@@ -471,7 +471,7 @@ class LibvirtConnection(VmsConnection):
         # appeared at the same PID in the meantime.
         for ctrl in control.probe():
             try:
-                if ctrl.get("network") == migration_url:
+                if ctrl.get("network") in migration_url:
                     ctrl.kill(timeout=1.0)
             except control.ControlException:
                 pass
@@ -521,7 +521,13 @@ class LibvirtConnection(VmsConnection):
     def _delete_images(self, context, image_refs):
         image_service = nova.image.get_default_image_service()
         for image_ref in image_refs:
-            image_service.delete(context, image_ref)
+            try:
+                image_service.delete(context, image_ref)
+            except exception.ImageNotFound:
+                # Simply ignore this error because the end result
+                # is that the image is no longer there.
+                LOG.debug("The image %s was not found in the image service when removing it."
+                          % (image_ref))
 
     def cleanup(self, context, instance_ref, network_info):
         """
