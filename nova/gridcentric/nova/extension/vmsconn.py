@@ -471,7 +471,7 @@ class LibvirtConnection(VmsConnection):
         # appeared at the same PID in the meantime.
         for ctrl in control.probe():
             try:
-                if ctrl.get("network") == migration_url:
+                if ctrl.get("network") in migration_url:
                     ctrl.kill(timeout=1.0)
             except control.ControlException:
                 pass
@@ -525,8 +525,9 @@ class LibvirtConnection(VmsConnection):
                 image_service.delete(context, image_ref)
             except exception.ImageNotFound:
                 # Simply ignore this error because the end result
-                # the image so no longer be there.
-                pass
+                # is that the image is no longer there.
+                LOG.debug("The image %s was not found in the image service when removing it."
+                          % (image_ref))
 
     def cleanup(self, context, instance_ref, network_info):
         """
