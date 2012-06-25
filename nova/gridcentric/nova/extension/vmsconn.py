@@ -525,8 +525,9 @@ class LibvirtConnection(VmsConnection):
                 image_service.delete(context, image_ref)
             except exception.ImageNotFound:
                 # Simply ignore this error because the end result
-                # the image so no longer be there.
-                pass
+                # is that the image is no longer there.
+                LOG.debug("The image %s was not found in the image service when removing it."
+                          % (image_ref))
 
     def cleanup(self, context, instance_ref, network_info):
         """
