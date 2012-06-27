@@ -144,10 +144,10 @@ class API(base.Base):
         new_instance_ref = self.db.instance_get(context, new_instance_ref.id)
 
         elevated = context.elevated()
-        security_groups = self.db.security_group_get_by_instance(context, instance_uuid)
+        security_groups = self.db.security_group_get_by_instance(context, instance_ref['id'])
         for security_group in security_groups:
             self.db.instance_add_security_group(elevated,
-                                                new_instance_ref.id,
+                                                new_instance_ref['uuid'],
                                                 security_group['id'])
 
         return new_instance_ref
