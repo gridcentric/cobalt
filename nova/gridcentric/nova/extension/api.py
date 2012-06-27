@@ -24,7 +24,7 @@ from nova import log as logging
 from nova.db import base
 from nova import quota
 from nova import exception as novaexc
-from nova import rpc
+from nova.openstack.common import rpc
 from nova.openstack.common import cfg
 from nova import utils
 

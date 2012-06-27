@@ -41,7 +41,7 @@ FLAGS.register_opts(gridcentric_opts)
 
 from nova import manager
 from nova import utils
-from nova import rpc
+from nova.openstack.common import rpc
 from nova import network
 
 # We need to import this module because other nova modules use the flags that
