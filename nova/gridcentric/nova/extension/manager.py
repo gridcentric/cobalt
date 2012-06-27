@@ -29,6 +29,7 @@ import subprocess
 from nova import exception
 from nova import flags
 from nova.openstack.common import cfg
+from nova.openstack.common import timeutils
 from nova import log as logging
 LOG = logging.getLogger('nova.gridcentric.manager')
 FLAGS = flags.FLAGS
@@ -40,7 +41,7 @@ FLAGS.register_opts(gridcentric_opts)
 
 from nova import manager
 from nova import utils
-from nova import rpc
+from nova.openstack.common import rpc
 from nova import network
 
 # We need to import this module because other nova modules use the flags that
@@ -292,6 +293,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self._instance_metadata_update(context, instance_uuid, metadata)
 
         # Remove the instance.
+        self._instance_update(context,
+                              instance_uuid,
+                              vm_state=vm_states.DELETED,
+                              task_state=None,
+                              terminated_at=timeutils.utcnow())
         self.db.instance_destroy(context, instance_uuid)
 
     def launch_instance(self, context, instance_uuid, params={}, migration_url=None):
