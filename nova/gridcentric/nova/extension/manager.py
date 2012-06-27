@@ -292,6 +292,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self._instance_metadata_update(context, instance_uuid, metadata)
 
         # Remove the instance.
+        self._instance_update(context,
+                              instance_uuid,
+                              vm_state=vm_states.DELETED,
+                              task_state=None,
+                              terminated_at=utils.utcnow())
         self.db.instance_destroy(context, instance_uuid)
 
     def launch_instance(self, context, instance_uuid, params={}, migration_url=None):
