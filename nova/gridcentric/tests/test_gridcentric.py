@@ -22,6 +22,7 @@ from nova.db import migration
 from nova import flags
 from nova import context
 from nova import exception
+from nova import rpc
 from nova.compute import vm_states
 
 # Setup VMS environment.
@@ -29,7 +30,6 @@ os.environ['VMS_SHELF_PATH'] = '.'
 
 import vms.virt as virt
 import vms.config as vmsconfig
-import vms.threadpool
 
 import gridcentric.nova.extension as gridcentric
 import gridcentric.nova.extension.manager as gc_manager
@@ -37,6 +37,23 @@ import gridcentric.nova.extension.manager as gc_manager
 import gridcentric.tests.utils as utils
 
 FLAGS = flags.FLAGS
+
+class MockRpc(object):
+    """
+    A simple mock Rpc that used to tests that the proper messages are placed on the queue. In all
+    cases this will return with a None result to ensure that tests do not hang waiting for a 
+    response.
+    """
+
+    def __init__(self):
+        self.call_log = []
+        self.cast_log = []
+
+    def call(self, context, queue, kwargs):
+        self.call_log.append((queue, kwargs))
+
+    def cast(self, context, queue, kwargs):
+        self.cast_log.append((queue, kwargs))
 
 class GridCentricTestCase(unittest.TestCase):
 
@@ -53,21 +70,13 @@ class GridCentricTestCase(unittest.TestCase):
         # to worry about leftover artifacts.
         vmsconfig.SHARED = os.getcwd()
 
-        # For the sake of the unit test we substitute the thread submission to just execute the
-        # function instead. This is important for 2 reasons:
-        #   1. Its hard to unit test and reason against concurrent behaviour.
-        #   2. We do not want another thread to be executing and hitting the db while we are
-        #      in the process fo cleaning it up.
-        self.old_vms_thread_submit = vms.threadpool.submit
-        vms.threadpool.submit = lambda x: x()
+        self.mock_rpc = MockRpc()
+        rpc.call = self.mock_rpc.call
+        rpc.cast = self.mock_rpc.cast
 
         self.gridcentric = gc_manager.GridCentricManager()
         self.gridcentric_api = gridcentric.API()
         self.context = context.RequestContext('fake', 'fake', True)
-
-    def tearDown(self):
-        # Bring things back to normal.
-        vms.threadpool.submit = self.old_vms_thread_submit
 
     def test_bless_instance(self):
         instance_uuid = utils.create_instance(self.context)
