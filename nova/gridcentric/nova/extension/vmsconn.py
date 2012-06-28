@@ -43,6 +43,7 @@ import vms.virt as virt
 import vms.config as config
 import vms.utilities as utilities
 import vms.control as control
+import vms.vmsrun as vmsrun
 
 class AttribDictionary(dict):
     """ A subclass of the python Dictionary that will allow us to add attribute. """
@@ -124,7 +125,7 @@ class VmsConnection:
 
     def launch(self, context, instance_name, mem_target,
                new_instance_ref, network_info, migration_url=None,
-               use_image_service=False, image_refs=[]):
+               use_image_service=False, image_refs=[], params={}):
         """
         Launch a blessed instance
         """
@@ -133,9 +134,17 @@ class VmsConnection:
                                   use_image_service=use_image_service,
                                   image_refs=image_refs)
 
+        vmsargs = vmsrun.Arguments()
+        for key, value in params.get('guest', {}).iteritems():
+            vmsargs.add_param(key, value)
+        for key, value in params.get('hypervisor', {}).iteritems():
+            vmsargs.add_option(key, value)
+
         # Launch the new VM.
-        LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
-                  instance_name, newname, mem_target, str(migration_url))
+        LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, "
+                    "migration_url=%s, vmsargs=%s"),
+                  instance_name, newname, mem_target, str(migration_url),
+                  str(vmsargs.prep_for_serialize()))
 
         result = tpool.execute(commands.launch,
                                instance_name,
@@ -143,10 +152,13 @@ class VmsConnection:
                                str(mem_target),
                                path=path,
                                mem_url=migration_url,
-                               migration=(migration_url and True))
+                               migration=(migration_url and True),
+                               vmsargs=vmsargs)
 
-        LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, migration_url=%s"),
-                  instance_name, newname, mem_target, str(migration_url))
+        LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, "
+                    "migration_url=%s, , vmsargs=%s"),
+                  instance_name, newname, mem_target, str(migration_url),
+                  str(vmsargs.prep_for_serialize()))
 
         # Take care of post-launch.
         self.post_launch(context,
