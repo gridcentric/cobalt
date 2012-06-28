@@ -125,7 +125,7 @@ class GridCentricTestCase(unittest.TestCase):
         blessed_uuid = blessed_instance['uuid']
         no_exception = False
         try:
-            self.gridcentric.bless_instance(self.context, blessed_uuid)
+            self.gridcentric_api.bless_instance(self.context, blessed_uuid)
             no_exception = True
         except Exception, e:
             pass # success
