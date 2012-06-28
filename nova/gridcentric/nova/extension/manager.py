@@ -419,7 +419,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                  network_info,
                                  migration_url=migration_url,
                                  use_image_service=FLAGS.gridcentric_use_image_service,
-                                 image_refs=image_refs)
+                                 image_refs=image_refs,
+                                 params=params)
 
             # Perform our database update.
             self._instance_update(context,

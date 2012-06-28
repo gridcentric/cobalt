@@ -43,7 +43,9 @@ def usage():
     sys.stderr.write("    discard <blessed instance id>\n")
     sys.stderr.write("        Discard the state associated with a blessed instance.\n")
     sys.stderr.write("\n")
-    sys.stderr.write("    launch <blessed instance id> [OPTIONS...]\n")
+    sys.stderr.write("    launch <blessed instance id> [target=<memory target>] "
+                                    "[guest=<arg>:<value>,<arg>:<value>,...] "
+                                    "[hypervisor=<arg>:<value>,<arg>:value>,...]\n")
     sys.stderr.write("        Launches a new clone instance from the given blessed id.\n")
     sys.stderr.write("\n")
     sys.stderr.write("    list-launched <instance id>\n")
@@ -92,11 +94,20 @@ def get_arg(n):
     return args[n + 1]
 
 def get_launch_params():
+
+    def get_params(args, sep):
+        params = {}
+        for param in args:
+            key, value = param.split(sep)
+            if key in ["guest", "hypervisor"]:
+                values = value.split(",")
+                value = get_params(values, ":")
+            params[key] = value
+        return params
+
     params = {}
     if len(args) >= 3:
-        for param in args[3:]:
-            key, value = param.split("=")
-            params[key] = value
+        params = get_params(args[3:], "=")
     return params
 
 command = get_arg(0)
