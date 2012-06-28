@@ -137,8 +137,6 @@ class VmsConnection:
         vmsargs = vmsrun.Arguments()
         for key, value in params.get('guest', {}).iteritems():
             vmsargs.add_param(key, value)
-        for key, value in params.get('hypervisor', {}).iteritems():
-            vmsargs.add_option(key, value)
 
         # Launch the new VM.
         LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, "
