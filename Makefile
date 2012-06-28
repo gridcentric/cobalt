@@ -16,6 +16,9 @@ nova-% :
 
 clean :
 	@cd nova && $(MAKE) clean
+ifeq ($(CLEAN_PACKAGES),y)
+	@rm -rf build
+endif
 .PHONY : clean
 
 # This basically rolls up all the artifacts to a top-level directory
