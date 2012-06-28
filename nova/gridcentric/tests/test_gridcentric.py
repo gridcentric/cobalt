@@ -192,7 +192,7 @@ class GridCentricTestCase(unittest.TestCase):
 
         no_exception = False
         try:
-            self.gridcentric.discard_instance(self.context, blessed_id)
+            self.gridcentric_api.discard_instance(self.context, blessed_id)
             no_exception = True
         except:
             pass  # success
