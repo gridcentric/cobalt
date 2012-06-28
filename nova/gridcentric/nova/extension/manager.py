@@ -33,10 +33,19 @@ from nova.openstack.common import timeutils
 from nova import log as logging
 LOG = logging.getLogger('nova.gridcentric.manager')
 FLAGS = flags.FLAGS
+
 gridcentric_opts = [
                cfg.BoolOpt('gridcentric_use_image_service',
                default=False,
-               help='Gridcentric should use the image service to store disk copies and descriptors.') ]
+               help='Gridcentric should use the image service to store disk copies and descriptors.'),
+
+               cfg.StrOpt('gridcentric_outgoing_migration_address',
+               default=None,
+               help='IPv4 address to host migrations from; the VM on the '
+                    'migration destination will connect to this address. '
+                    'Must be in dotted-decimcal format, i.e., ddd.ddd.ddd.ddd. '
+                    'By default, the outgoing migration address is determined '
+                    'automatically by the host\'s routing tables.')]
 FLAGS.register_opts(gridcentric_opts)
 
 from nova import manager
@@ -213,9 +222,15 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Grab the network info (to be used for cleanup later on the host).
         network_info = self.network_api.get_instance_nw_info(context, instance_ref)
 
+        if FLAGS.gridcentric_outgoing_migration_address != None:
+            migration_address = FLAGS.gridcentric_outgoing_migration_address
+        else:
+            migration_address = devname
+
         # Bless this instance for migration.
         migration_url = self.bless_instance(context, instance_uuid,
-                                            migration_url="mcdist://%s" % devname)
+                                            migration_url="mcdist://%s" %
+                                            migration_address)
 
         # Run our premigration hook.
         self.vms_conn.pre_migration(context, instance_ref, network_info, migration_url)
