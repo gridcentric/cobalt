@@ -44,9 +44,10 @@ def usage():
     sys.stderr.write("        Discard the state associated with a blessed instance.\n")
     sys.stderr.write("\n")
     sys.stderr.write("    launch <blessed instance id> [target=<memory target>] "
-                                    "[guest=<arg>:<value>,<arg>:<value>,...] "
-                                    "[hypervisor=<arg>:<value>,<arg>:value>,...]\n")
+                                    "[guest=<arg>:<value>,<arg>:<value>,...]\n")
     sys.stderr.write("        Launches a new clone instance from the given blessed id.\n")
+    sys.stderr.write("        Target sets the memory target for the launched vm (e.g. 512MB, 1GB).\n")
+    sys.stderr.write("        Guest sets in-guest parameters that the vms-agent can read.\n")
     sys.stderr.write("\n")
     sys.stderr.write("    list-launched <instance id>\n")
     sys.stderr.write("        List instances launched from the given id.\n")
@@ -99,7 +100,7 @@ def get_launch_params():
         params = {}
         for param in args:
             key, value = param.split(sep)
-            if key in ["guest", "hypervisor"]:
+            if key in ["guest"]:
                 values = value.split(",")
                 value = get_params(values, ":")
             params[key] = value
