@@ -60,12 +60,12 @@ import gridcentric.nova.extension.vmsconn as vmsconn
 
 def memory_string_to_pages(mem):
     mem = mem.lower()
-    units = { '(\d+)tb' : 40,
-              '(\d+)gb' : 30,
-              '(\d+)mb' : 20,
-              '(\d+)kb' : 10,
-              '(\d+)b' : 0,
-              '(\d+)' : 0 }
+    units = { '^(\d+)tb$' : 40,
+              '^(\d+)gb$' : 30,
+              '^(\d+)mb$' : 20,
+              '^(\d+)kb$' : 10,
+              '^(\d+)b$' : 0,
+              '^(\d+)$' : 0 }
     for (pattern, shift) in units.items():
         m = re.match(pattern, mem)
         if m is not None:
@@ -381,7 +381,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   task_state=task_states.SPAWNING)
 
         # note(dscannell): The target is in pages so we need to convert the value
-        target = params.get("target", '%ldMB' % instance_ref['memory_mb'])
+        target = params.get("target", '%dMB' % instance_ref['memory_mb'])
         try:
             target = memory_string_to_pages(target)
         except ValueError as e:
