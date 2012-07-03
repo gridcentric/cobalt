@@ -154,7 +154,7 @@ class VmsConnection:
                                vmsargs=vmsargs)
 
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, "
-                    "migration_url=%s, , vmsargs=%s"),
+                    "migration_url=%s, vmsargs=%s"),
                   instance_name, newname, mem_target, str(migration_url),
                   str(vmsargs.prep_for_serialize()))
 
