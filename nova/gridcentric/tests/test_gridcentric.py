@@ -247,3 +247,54 @@ class GridCentricTestCase(unittest.TestCase):
         self.assertTrue(metadata['launched_from'] == '%s' % (blessed_instance_uuid),
             "The instance should have the 'launched from' metadata set to blessed instanced id after being launched. " \
           + "(value=%s)" % (metadata['launched_from']))
+
+    def test_target_memory_string_conversion_case_insensitive(self):
+
+        # Ensures case insensitive
+        self.assertEquals(gc_manager.memory_string_to_pages('512MB'),
+                          gc_manager.memory_string_to_pages('512mB'))
+        self.assertEquals(gc_manager.memory_string_to_pages('512mB'),
+                          gc_manager.memory_string_to_pages('512Mb'))
+        self.assertEquals(gc_manager.memory_string_to_pages('512mB'),
+                          gc_manager.memory_string_to_pages('512mb'))
+
+    def test_target_memory_string_conversion_value(self):
+        # Check conversion of units.
+        self.assertEquals(268435456, gc_manager.memory_string_to_pages('1TB'))
+        self.assertEquals(137438953472, gc_manager.memory_string_to_pages('512TB'))
+
+        self.assertEquals(262144, gc_manager.memory_string_to_pages('1GB'))
+
+        self.assertEquals(256, gc_manager.memory_string_to_pages('1MB'))
+        self.assertEquals(131072, gc_manager.memory_string_to_pages('512MB'))
+
+        self.assertEquals(1, gc_manager.memory_string_to_pages('2KB'))
+        self.assertEquals(1, gc_manager.memory_string_to_pages('4KB'))
+        self.assertEquals(5, gc_manager.memory_string_to_pages('20KB'))
+
+        self.assertEquals(2, gc_manager.memory_string_to_pages('12287b'))
+        self.assertEquals(3, gc_manager.memory_string_to_pages('12288b'))
+        self.assertEquals(1, gc_manager.memory_string_to_pages('512'))
+        self.assertEquals(1, gc_manager.memory_string_to_pages('4096'))
+        self.assertEquals(2, gc_manager.memory_string_to_pages('8192'))
+
+    def test_target_memory_string_conversion_case_unconvertible(self):
+        # Check against garbage inputs
+        try:
+            gc_manager.memory_string_to_pages('512megabytes')
+            self.fail("Should not be able to convert '512megabytes'")
+        except ValueError:
+            pass
+
+        try:
+            gc_manager.memory_string_to_pages('garbage')
+            self.fail("Should not be able to convert 'garbage'")
+        except ValueError:
+            pass
+
+        try:
+            gc_manager.memory_string_to_pages('-512MB')
+            self.fail("Should not be able to convert '-512MB'")
+        except ValueError:
+            pass
+
