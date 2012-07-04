@@ -23,6 +23,7 @@ handles RPC calls relating to GridCentric functionality creating instances.
 import time
 import traceback
 import os
+import re
 import socket
 import subprocess
 
@@ -57,6 +58,22 @@ from nova.compute import manager as compute_manager
 from gridcentric.nova.extension import API
 import gridcentric.nova.extension.vmsconn as vmsconn
 
+def memory_string_to_pages(mem):
+    mem = mem.lower()
+    units = { '^(\d+)tb$' : 40,
+              '^(\d+)gb$' : 30,
+              '^(\d+)mb$' : 20,
+              '^(\d+)kb$' : 10,
+              '^(\d+)b$' : 0,
+              '^(\d+)$' : 0 }
+    for (pattern, shift) in units.items():
+        m = re.match(pattern, mem)
+        if m is not None:
+            val = long(m.group(1))
+            memory = val << shift
+            # Shift to obtain pages, at least one
+            return max(1, memory >> 12)
+    raise ValueError('Invalid target string %s.' % mem)
 
 class GridCentricManager(manager.SchedulerDependentManager):
 
@@ -363,10 +380,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   vm_state=vm_states.BUILDING,
                                   task_state=task_states.SPAWNING)
 
-        # TODO(dscannell): Need to figure out what the units of measurement
-        # for the target should be (megabytes, kilobytes, bytes, etc).
-        # The target memory settings for the launch virtual machine.
-        target = params.get("target", instance_ref['memory_mb'])
+        # note(dscannell): The target is in pages so we need to convert the value
+        # If target is set as None then we default to "0".
+        target = params.get("target", '%dMB' % instance_ref['memory_mb']) or "0"
+        try:
+            target = memory_string_to_pages(target)
+        except ValueError as e:
+            LOG.warn(_('%s -> defaulting to no target'), str(e))
+            target = 0
 
         # Extract out the image ids from the source instance's metadata. 
         metadata = self.db.instance_metadata_get(context, source_instance_ref['id'])
@@ -379,7 +400,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                  network_info,
                                  migration_url=migration_url,
                                  use_image_service=FLAGS.gridcentric_use_image_service,
-                                 image_refs=image_refs)
+                                 image_refs=image_refs,
+                                 params=params)
 
             # Perform our database update.
             self._instance_update(context,
