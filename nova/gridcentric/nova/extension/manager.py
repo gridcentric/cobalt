@@ -381,7 +381,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   task_state=task_states.SPAWNING)
 
         # note(dscannell): The target is in pages so we need to convert the value
-        target = params.get("target", '%dMB' % instance_ref['memory_mb'])
+        # If target is set as None then we default to "0".
+        target = params.get("target", '%dMB' % instance_ref['memory_mb']) or "0"
         try:
             target = memory_string_to_pages(target)
         except ValueError as e:
