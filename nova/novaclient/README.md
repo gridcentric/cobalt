@@ -75,7 +75,7 @@ Scripting usage
 
 The novaclient hooks can also be accessed directly using the python API.
 
-        user = "admin"
+    user = "admin"
     apikey = "admin"
     project = "openstackDemo"
     authurl = "http://localhost:5000/v2.0" 
@@ -90,6 +90,15 @@ The novaclient hooks can also be accessed directly using the python API.
             time.sleep(30)
             server = novaclient.gridcentric.get(server.id)
         return server
+
+    def wait_until_gone(server):
+        try:
+            while True:
+                server = novaclient.gridcentric.get(server.id)
+                time.sleep(10)
+        except Exception, e:
+            # server is no longer there.
+            pass
 
     # Boot a new server using flavor 1 and the image passed in as the first arguement.
     image_id = sys.argv[1]
@@ -120,11 +129,15 @@ The novaclient hooks can also be accessed directly using the python API.
     launched_server = wait_for_status(launched_server, "ACTIVE")
     novaclient.servers.delete(launched_server)
 
-    # Wait some time before attempting to discard. We need to ensure
-    # that the launched instances have been deleted.
-    time.sleep(10)    
+    # W need to ensure that the launched instances have been deleted before discarding
+    # the blessed instance.
+    wait_until_gone(launched_server2)
+    wait_until_gone(launched_server)
+
+    # Delete the original server. Note we can delete this server
+    # and keep the blessed one around.
+    server.delete()
+
     # Discard the blessed server
     blessed_server.discard()
 
-    # Delete the original server
-    server.delete()
