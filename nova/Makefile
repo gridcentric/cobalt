@@ -3,26 +3,26 @@
 
 # The path to the nova source code. Keeping it empty will assume that
 # nova is already on the python path.
-NOVA_PATH=
+NOVA_PATH ?=
 
 # The path to the vms source code. Keeping it empty will asusme that
 # vms is already on the python path
-VMS_PATH=
+VMS_PATH ?=
 
 # The directory dist directory
-DISTDIR=dist
+DISTDIR ?= dist
 
 # The name of the test report
-TEST_REPORT=gc-extension.xml
+TEST_REPORT ?= gc-extension.xml
 
 # Allow a python version spec.
-PYTHON_VERSION=$(shell python -V 2>&1 |cut -d' ' -f2|cut -d'.' -f1,2)
+PYTHON_VERSION ?= $(shell python -V 2>&1 |cut -d' ' -f2|cut -d'.' -f1,2)
 
 # Where the collect target goes.
 COLLECT_DIR ?= .
 
 # Ensure that the correct python version is used.
-PYTHON=python$(PYTHON_VERSION)
+PYTHON ?= python$(PYTHON_VERSION)
 
 # This command is used to setup the package directories
 INSTALL_DIR := install -d -m0755 -p
@@ -30,12 +30,14 @@ INSTALL_BIN := install -m0755 -p
 INSTALL_DATA := install -m0644 -p 
 
 # The version of the extension
-VERSION?=1.0
-RELEASE?=0
+VERSION ?= 1.0
+RELEASE ?= 0
+
 # This matches the Openstack release version
-NOVA_RELEASE?=unknown
+NOVA_RELEASE ?= unknown
+
 # The timestamp release for the extension
-TIMESTAMP:=$(shell date "+%Y-%m-%dT%H:%M:%S%:z")
+TIMESTAMP := $(shell date "+%Y-%m-%dT%H:%M:%S%:z")
 
 # **** TARGETS ****
 
