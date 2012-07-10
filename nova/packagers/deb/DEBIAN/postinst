@@ -18,7 +18,7 @@ function add_extension {
     if [ -f $NOVA_CONF ]; then
         # Add the extension.
         if ! cat $NOVA_CONF | grep osapi_extensions_path >/dev/null 2>&1; then
-            echo "--osapi_extensions_api=/var/lib/nova/extensions" >> $NOVA_CONF
+            echo "--osapi_extensions_path=/var/lib/nova/extensions" >> $NOVA_CONF
         fi
     fi
 
