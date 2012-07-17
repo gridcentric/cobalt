@@ -95,6 +95,10 @@ Project Contents
         Contains the source for the gridcentric manager that does the actual work to enable the
         GridCentric functionality.
     
+    novaclient
+        Contains an extension hook for novaclient that enables it to interact with the 
+        Gridcentric endpoints.
+    
     tools
         gc-api
             A management tool that uses the python novaclient to provide a cli to the extended
