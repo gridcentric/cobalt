@@ -155,7 +155,7 @@ class VmsConnection:
         LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, "
                     "migration_url=%s, vmsargs=%s"),
                   instance_name, newname, mem_target, str(migration_url),
-                  str(vmsargs.prep_for_serialize()))
+                  str(vmsargs.jsonize()))
 
         result = tpool.execute(commands.launch,
                                instance_name,
@@ -169,7 +169,7 @@ class VmsConnection:
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, "
                     "migration_url=%s, vmsargs=%s"),
                   instance_name, newname, mem_target, str(migration_url),
-                  str(vmsargs.prep_for_serialize()))
+                  str(vmsargs.jsonize()))
 
         # Take care of post-launch.
         self.post_launch(context,
