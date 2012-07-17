@@ -34,6 +34,8 @@ LOG = logging.getLogger('nova.gridcentric.vmsconn')
 FLAGS = flags.FLAGS
 flags.DEFINE_string('libvirt_user', 'libvirt-qemu',
                     'The user that libvirt runs qemu as.')
+flags.DEFINE_string('openstack_user', '',
+                    'The openstack user')
 
 from eventlet import tpool
 
@@ -238,9 +240,40 @@ class LibvirtConnection(VmsConnection):
 
         self.configure_path_permissions()
 
+        openstack_user = self.determine_openstack_user()
+        if isinstance(openstack_user, str):
+            passwd = pwd.getpwnam(openstack_user)
+        else:
+            passwd = pwd.getpwuid(openstack_user)
+        self.openstack_uid = passwd.pw_uid
+        self.openstack_gid = passwd.pw_gid
+
         self.libvirt_conn = libvirt_connection.get_connection(False)
         config.MANAGEMENT['connection_url'] = self.libvirt_conn.get_uri()
         select_hypervisor('libvirt')
+
+    def determine_openstack_user(self):
+
+        # The user can specify an openstack_user using the flags, or they can leave it blank
+        # and we'll attempt to discover the user. If failing to discover we'll default to 
+        # the same user as the nova-gridcentric process.
+        user = FLAGS.openstack_user
+        if user == '':
+            # Attempt to determine the openstack user.
+            try:
+                # use ps to determine the user running the nova-compute process
+                cmd = "ps aux | grep nova-compute | grep python | grep -v grep | awk '{print $1}'"
+                _, cmd_user, _ = utilities.check_command(cmd)
+                user = cmd_user.strip()
+            except:
+                user = ''
+
+            if user == '':
+                # We were unable to determine the user. We'll just default to our current user.
+                user = os.getuid()
+
+        LOG.info("The openstack user is set to %s." % user)
+        return user
 
     def configure_path_permissions(self):
         """
@@ -350,6 +383,7 @@ class LibvirtConnection(VmsConnection):
             if not os.path.exists(image_base_path):
                 LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
                 utilities.make_directories(image_base_path)
+                os.chown(image_base_path, self.openstack_uid, self.openstack_gid)
             image_service = nova.image.get_default_image_service()
             for image_ref in image_refs:
                 image = image_service.show(context, image_ref)
@@ -365,6 +399,7 @@ class LibvirtConnection(VmsConnection):
                                  target,
                                  new_instance_ref['user_id'],
                                  new_instance_ref['project_id'])
+                    os.chown(target, self.openstack_uid, self.openstack_gid)
 
         # We need to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
@@ -412,6 +447,14 @@ class LibvirtConnection(VmsConnection):
         if not(migration):
             # (dscannell) Remove the fake disk file (if created).
             os.remove(disk_file)
+
+        # Fix up the permissions on the files that we created so that they are owned by the 
+        # openstack user.
+        os.chown(working_dir, self.openstack_uid, self.openstack_gid)
+        for root, dirs, files in os.walk(working_dir, followlinks=True):
+            for path in dirs + files:
+                LOG.debug("chowning path=%s to openstack user %s" % (os.path.join(root, path), self.openstack_uid))
+                os.chown(os.path.join(root, path), self.openstack_uid, self.openstack_gid)
 
         # Return the libvirt file, this will be passed in as the name. This
         # parameter is overloaded in the management interface as a libvirt
