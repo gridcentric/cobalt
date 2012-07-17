@@ -404,6 +404,7 @@ class LibvirtConnection(VmsConnection):
             if not os.path.exists(image_base_path):
                 LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
                 utilities.make_directories(image_base_path)
+                os.chown(image_base_path, self.openstack_uid, self.openstack_gid)
             image_service = nova.image.get_default_image_service()
             for image_ref in image_refs:
                 image = image_service.show(context, image_ref)
