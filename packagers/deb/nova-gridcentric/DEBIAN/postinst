@@ -1,0 +1,6 @@
+#!/bin/bash
+
+# Ensure that the gridcentric module exists properly.
+for path in /usr/lib/python*/{site,dist}-packages/gridcentric; do
+    [ -d $path ] && touch $path/__init__.py;
+done

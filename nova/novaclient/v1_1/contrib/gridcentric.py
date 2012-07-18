@@ -34,7 +34,7 @@ def __post_parse_args__(args):
 @utils.arg('--target', metavar='<target memory>', default='0', help="The memory target of the launched instance")
 @utils.arg('--params', action='append', default=[], metavar='<key=value>', help='Guest parameters to send to vms-agent')
 def do_launch(cs, args):
-    """Launch a new instance"""
+    """Launch a new instance."""
     server = cs.gridcentric.get(args.blessed_id)
     guest_params = {}
     for param in args.params:
@@ -51,7 +51,7 @@ def do_launch(cs, args):
 
 @utils.arg('server_id', metavar='<instance id>', help="ID of the instance to bless")
 def do_bless(cs, args):
-    """Bless an instance"""
+    """Bless an instance."""
     server = cs.gridcentric.get(args.server_id)
     blessed_servers = cs.gridcentric.bless(server)
     for server in blessed_servers:
@@ -59,7 +59,7 @@ def do_bless(cs, args):
 
 @utils.arg('blessed_id', metavar='<blessed id>', help="ID of the blessed instance")
 def do_discard(cs, args):
-    """Discard a blessed instance"""
+    """Discard a blessed instance."""
     server = cs.gridcentric.get(args.blessed_id)
     cs.gridcentric.discard(server)
 
@@ -67,7 +67,7 @@ def do_discard(cs, args):
 @utils.arg('server_id', metavar='<instance id>', help="ID of the instance to migrate")
 @utils.arg('dest', metavar='<destination host>', help="Host to migrate to")
 def do_gc_migrate(cs, args):
-    """Migrate an instance using Gridcentric VMS"""
+    """Migrate an instance using VMS."""
     server = cs.gridcentric.get(args.server_id)
     cs.gridcentric.migrate(server, args.dest)
 
@@ -90,7 +90,6 @@ def do_list_blessed(cs, args):
     """List instances blessed from this instance."""
     server = cs.gridcentric.get(args.server_id)
     _print_list(cs.gridcentric.list_blessed(server))
-
 
 class GcServer(servers.Server):
     """
@@ -141,4 +140,3 @@ class GcServerManager(servers.ServerManager):
     def list_blessed(self, server):
         header, info = self._action("gc_list_blessed", server)
         return [self.get(server['id']) for server in info]
-
