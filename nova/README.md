@@ -36,9 +36,6 @@ Installing from source:
     $ sudo mkdir -p /var/lib/nova/extensions
     $ sudo cp gridcentric/osapi/gridcentric_extension.py /var/lib/nova/extensions/
     
-    # Copy the gc-api script to /usr/bin
-    $ sudo cp tools/gc-api /usr/bin
-    
     # (Optional) Copy the nova-gridcentric upstart script (etc/nova-gridcentric.conf) to /etc/init/
     $ sudo cp etc/nova-gridcentric.conf /etc/init
     
@@ -64,14 +61,14 @@ Usage
     # Bless the instance. This will create a running snapshot of the instance that can later be
     # used to launch new instances. Launched instances will be started with the same loaded memory
     # as this blessed one.
-    $ gc-api bless <id of the instance from step 1>
+    $ nova bless <id of the instance from step 1>
     
     # List the nova instances and there should now be a new one in with a status of BLESSED. This
     # instance represents a blessed snapshot that can be launched.
     
     # Launch more instances based off of the blessed one
-    $ gc-api launch <blessed instance id>
-    $ gc-api launch <blessed instance id>
+    $ nova launch <blessed instance id>
+    $ nova launch <blessed instance id>
     # ... etc ...
     
     # Delete the launched instances.
@@ -79,7 +76,7 @@ Usage
     
     # Discard the blessed instance. This will clean up all the VMS artifacts associated with the
     # snapshot and remove the blessed instance from the nova database.
-    $ gc-api discard <blessed instance id>
+    $ nova discard <blessed instance id>
 
 Project Contents
 ================
@@ -98,8 +95,3 @@ Project Contents
     novaclient
         Contains an extension hook for novaclient that enables it to interact with the 
         Gridcentric endpoints.
-    
-    tools
-        gc-api
-            A management tool that uses the python novaclient to provide a cli to the extended
-            functionality.
