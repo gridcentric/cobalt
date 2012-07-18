@@ -21,5 +21,4 @@ setup(name='horizon-gridcentric',
       author='GridCentric',
       author_email='support@gridcentric.com',
       url='http://www.gridcentric.com/',
-      packages=['gridcentric',
-                'gridcentric.horizon'])
+      packages=['gridcentric.horizon'])
