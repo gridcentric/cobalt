@@ -1,18 +1,17 @@
 Overview
 ========
-This project is an Openstack extension that exposes Gridcentric's Virtual Machine Streaming 
-(VMS) technology. It allows Openstack clouds to take advantage of VMS-enabled hypervisors (currently
-supports Xen and KVM). See http://www.gridcentric.com for more information on VMS.
 
+This code extends several pieces of OpenStack's nova (compute) project, in
+order to expose instances that use Virtual Memory Streaming (VMS).
 
 Installation Instructions
 =========================
 There are two main components that need to be installed:
 
 * API-Extension: This is the actual API extension that exposes the new REST end points
-* Gridcentric Service: A new Openstack service that performs the gridcentric specific operations.
+* Gridcentric Service: A new OpenStack service that performs the gridcentric specific operations.
 
-This extension needs to be installed where ever the nova-api and nova-compute services are running.
+This extension needs to be installed where-ever the nova-api and nova-compute services are running.
 Note also that Gridcentric's vms package need to be installed on all of the compute nodes.
 
 Installing from deb package:
@@ -54,10 +53,10 @@ Installing from source:
 Usage
 =====
 
-    # Boot your a new instance using the regular Openstack API
+    # Boot a new instance using the regular OpenStack API
     $ nova boot --flavor 1 --image 1 ChromeOS-HVM
     
-    #. Wait for the first machine to move from BUILD to ACTIVE. Once ACTIVE ssh into the instance
+    # Wait for the first instance to move from BUILD to ACTIVE. Once ACTIVE ssh into the instance
     # and install the vms-agent package. The agent package is used to ensure that the networking is
     # reconfigured correctly when launching new instances.
     
@@ -66,8 +65,9 @@ Usage
     # as this blessed one.
     $ gc-api bless <id of the instance from step 1>
     
-    # List the nova instances and there should now be a new one in with a status of BLESSED. This
-    # instance represents a blessed snapshot that can be launched.
+    # List the nova instances and there should now be a new one with a status of BLESSED. This
+    # instance represents a blessed snapshot that can be launched. Note that this instance is not
+    # using any CPU or RAM resources.
     
     # Launch more instances based off of the blessed one
     $ gc-api launch <blessed instance id>
@@ -83,17 +83,18 @@ Usage
 
 Project Contents
 ================
+
     bin
         nova-gc
             Contains the nova-gc script that is used to start the GridCentric manager.
-    
+
     etc
         nova-gridcentric.conf
             An upstart script for the nova-gridcentric service.
-    
+
     gridcentric
-        Contains the source for the gridcentric manager that does the actual work to enable the
-        GridCentric functionality.
+        Contains the source for the gridcentric manager that does the actual
+        work to enable the GridCentric functionality.
     
     tools
         gc-api
