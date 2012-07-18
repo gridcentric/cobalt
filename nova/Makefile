@@ -61,6 +61,9 @@ install : build
 	@$(INSTALL_DIR) $(DISTDIR)/etc/init
 	@$(INSTALL_DATA) etc/nova-gridcentric.conf \
 	    $(DISTDIR)/etc/init
+	@$(INSTALL_DIR) $(DISTDIR)/usr/lib/$(PYTHON)/site-packages/novaclient/v1_1/contrib
+	@$(INSTALL_DATA) novaclient/v1_1/gridcentric.py \
+	    $(DISTDIR)/usr/lib/$(PYTHON)/site-packages/novaclient/v1_1/contrib
 .PHONY: install
 
 rpm: rpmbuild install

@@ -155,7 +155,7 @@ class VmsConnection:
         LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, "
                     "migration_url=%s, vmsargs=%s"),
                   instance_name, newname, mem_target, str(migration_url),
-                  str(vmsargs.prep_for_serialize()))
+                  str(vmsargs.jsonize()))
 
         result = tpool.execute(commands.launch,
                                instance_name,
@@ -169,7 +169,7 @@ class VmsConnection:
         LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, "
                     "migration_url=%s, vmsargs=%s"),
                   instance_name, newname, mem_target, str(migration_url),
-                  str(vmsargs.prep_for_serialize()))
+                  str(vmsargs.jsonize()))
 
         # Take care of post-launch.
         self.post_launch(context,
@@ -404,6 +404,7 @@ class LibvirtConnection(VmsConnection):
             if not os.path.exists(image_base_path):
                 LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
                 utilities.make_directories(image_base_path)
+                os.chown(image_base_path, self.openstack_uid, self.openstack_gid)
             image_service = nova.image.get_default_image_service()
             for image_ref in image_refs:
                 image = image_service.show(context, image_ref)
