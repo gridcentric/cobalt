@@ -65,7 +65,7 @@ from nova.compute import vm_states
 from nova.compute import utils as compute_utils
 from nova.compute import manager as compute_manager
 
-from gridcentric.nova.extension import API
+from gridcentric.nova import API
 import gridcentric.nova.extension.vmsconn as vmsconn
 
 def memory_string_to_pages(mem):

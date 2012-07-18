@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -e
+
+# If the nova-compute process is running, then we start.
+if initctl status nova-compute | grep process >/dev/null 2>&1; then
+    service nova-gridcentric restart 2>/dev/null || \
+    service nova-gridcentric start;
+ else
+    service nova-gridcentric restart 2>/dev/null || true
+fi

@@ -1,0 +1,6 @@
+#!/bin/bash
+
+set -e
+
+# Always stop the service fully.
+service nova-gridcentric stop 2>/dev/null || true
