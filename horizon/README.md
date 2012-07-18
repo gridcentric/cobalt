@@ -1,9 +1,9 @@
 Overview
 ========
-This is a Openstack Dashboard (horizon) plugin that allows for web based, gridcentric enabled
-workflows. In other words, it exposes the functionality provided by the Gridcentric Openstack 
-Extension to the Dashboard.
 
+This is a OpenStack Dashboard (horizon) plugin that allows for web based,
+VMS-enabled workflows. In other words, it exposes the functionality provided by
+the Gridcentric OpenStack Extension to the Dashboard.
 
 Installation Instructions
 =========================
@@ -16,4 +16,3 @@ Installing from source:
     $ sudo python setup.py install
     
     # Modify the django_settings.py file and included ``gridcentric.horizon`` in the INSTALLED_APPS
-

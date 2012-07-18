@@ -2,16 +2,6 @@
 
 set -e
 
-function restart_service {
-    # If the nova-compute process is running, then we start.
-    if initctl status nova-compute | grep process >/dev/null 2>&1; then
-        service nova-gridcentric restart 2>/dev/null || \
-        service nova-gridcentric start;
-    else
-        service nova-gridcentric restart 2>/dev/null || true
-    fi
-}
-
 function add_extension {
     NOVA_CONF=$1
     EXTENSION=$2
@@ -29,7 +19,6 @@ function add_extension {
 
 case $1 in
     configure)
-        restart_service
         add_extension \
             /etc/nova/nova.conf \
             nova.api.openstack.compute.contrib.standard_extensions

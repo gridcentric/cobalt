@@ -2,11 +2,6 @@
 
 set -e
 
-function stop_service {
-    # Always stop the service fully.
-    service nova-gridcentric stop 2>/dev/null || true
-}
-
 function remove_extension {
     NOVA_CONF=$1
     EXTENSION=$2
@@ -29,6 +24,5 @@ case $1 in
         remove_extension \
             /etc/nova/nova.conf \
             gridcentric.nova.osapi.gridcentric_extension.Gridcentric_extension
-        stop_service
         ;;
 esac

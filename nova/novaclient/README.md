@@ -140,4 +140,3 @@ The novaclient hooks can also be accessed directly using the python API.
 
     # Discard the blessed server
     blessed_server.discard()
-

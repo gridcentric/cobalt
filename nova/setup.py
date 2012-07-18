@@ -13,17 +13,45 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import os
+import sys
 from distutils.core import setup
 
-setup(name='nova-gridcentric',
-      version='1.0',
-      description='GridCentric extension for OpenStack',
-      author='GridCentric',
-      author_email='support@gridcentric.com',
-      url='http://www.gridcentric.com/',
-      packages=['gridcentric',
-                'gridcentric.nova',
-                'gridcentric.nova.client',
-                'gridcentric.nova.osapi',
-                'gridcentric.nova.extension'],
-      scripts=['bin/nova-gc'])
+PACKAGE = os.getenv('PACKAGE', 'all')
+
+if PACKAGE == 'all' or PACKAGE == 'nova-gridcentric':
+    setup(name='nova-gridcentric',
+          version=os.getenv('VERSION', '1.0'),
+          description='GridCentric extension for OpenStack Compute.',
+          author='GridCentric',
+          author_email='support@gridcentric.com',
+          url='http://www.gridcentric.com/',
+          packages=['gridcentric.nova'])
+
+if PACKAGE == 'all' or PACKAGE == 'nova-compute-gridcentric':
+    setup(name='nova-compute-gridcentric',
+          version=os.getenv('VERSION', '1.0'),
+          description='GridCentric extension for OpenStack Compute.',
+          author='GridCentric',
+          author_email='support@gridcentric.com',
+          url='http://www.gridcentric.com/',
+          packages=['gridcentric.nova.extension'],
+          scripts=['bin/nova-gc'])
+
+if PACKAGE == 'all' or PACKAGE == 'novaclient-gridcentric':
+    setup(name='novaclient-gridcentric',
+          version=os.getenv('VERSION', '1.0'),
+          description='GridCentric extension for OS novaclient.',
+          author='GridCentric',
+          author_email='support@gridcentric.com',
+          url='http://www.gridcentric.com/',
+          packages=['novaclient.v1_1.contrib'])
+
+if PACKAGE == 'all' or PACKAGE == 'nova-api-gridcentric':
+    setup(name='nova-api-gridcentric',
+          version=os.getenv('VERSION', '1.0'),
+          description='GridCentric API extension.',
+          author='GridCentric',
+          author_email='support@gridcentric.com',
+          url='http://www.gridcentric.com/',
+          packages=['gridcentric.nova.osapi'])
