@@ -430,7 +430,7 @@ class LibvirtConnection(VmsConnection):
             f.close()
 
         # (dscannell) We want to disable any injection. We do this by making a
-        # copy of the instance and clearing out some entries. Since Openstack
+        # copy of the instance and clearing out some entries. Since OpenStack
         # uses dictionary-list accessors, we can pass this dictionary through
         # that code.
         instance_dict = AttribDictionary(dict(new_instance_ref.iteritems()))

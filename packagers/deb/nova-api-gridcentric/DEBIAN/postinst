@@ -1,0 +1,23 @@
+#!/bin/bash
+
+set -e
+
+function add_extension {
+    NOVA_CONF=$1
+
+    if [ -f $NOVA_CONF ]; then
+        # Add the extension.
+        if ! cat $NOVA_CONF | grep osapi_extensions_path >/dev/null 2>&1; then
+            echo "--osapi_extensions_path=/var/lib/nova/extensions" >> $NOVA_CONF
+        fi
+
+        # Restart the api service (if running).
+        service nova-api restart 2>/dev/null || true
+    fi
+}
+
+case $1 in
+    configure)
+        add_extension /etc/nova/nova.conf
+        ;;
+esac
