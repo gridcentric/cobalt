@@ -7,6 +7,7 @@ dist/
 *.orig
 *.deb
 *.rpm
+*.tgz
 */build/
 */nova_gridcentric.egg-info/
 pylint-*.txt
