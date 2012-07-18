@@ -51,9 +51,7 @@ build-nova : build-nova-api-gridcentric
 build-nova : build-novaclient-gridcentric
 build-nova : build-nova-compute-gridcentric
 .PHONY : build-nova
-build-horizon : build-horizon-gridcentric
-.PHONY : build-horizon
-build : build-nova build-horizon
+build : build-nova
 .PHONY : build
 
 build-nova-gridcentric : test-nova.xml
@@ -88,20 +86,12 @@ build-nova-compute-gridcentric : test-nova.xml
 	@$(INSTALL_DATA) nova/etc/nova-gridcentric.conf dist/nova-compute-gridcentric/etc/init
 .PHONY: build-nova-compute-gridcentric
 
-build-horizon-gridcentric : test-horizon.xml
-	@rm -rf horizon/build/ dist/horizon-gridcentric
-	@cd horizon && VERSION=$(VERSION) \
-	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/horizon-gridcentric/usr
-.PHONY: build-horizon-gridcentric
-
 deb-nova : deb-nova-gridcentric
 deb-nova : deb-nova-api-gridcentric
 deb-nova : deb-novaclient-gridcentric
 deb-nova : deb-nova-compute-gridcentric
 .PHONY : deb-nova
-deb-horizon : deb-horizon-gridcentric
-.PHONY : deb-horizon
-deb : deb-nova deb-horizon 
+deb : deb-nova
 .PHONY : deb
 
 deb-% : build-%
@@ -119,9 +109,7 @@ tgz-nova : tgz-nova-api-gridcentric
 tgz-nova : tgz-novaclient-gridcentric
 tgz-nova : tgz-nova-compute-gridcentric
 .PHONY : tgz-nova
-tgz-horizon : tgz-horizon-gridcentric
-.PHONY : tgz-horizon
-tgz : tgz-nova tgz-horizon
+tgz : tgz-nova
 .PHONY : tgz
 tgz-% : build-%
 	tar -cvzf $*_$(VERSION).$(RELEASE)-$(OPENSTACK_RELEASE)py$(PYTHON_VERSION).tgz -C dist/$* .
@@ -129,14 +117,14 @@ tgz-% : build-%
 # Runs pylint on the code base.
 pylint-%.txt :
 	cd $* && pylint --rcfile=pylintrc gridcentric 2>&1 > $@ || true
-pylint : pylint-nova.txt pylint-horizon.txt
+pylint : pylint-nova.txt
 .PHONY: pylint
 
 # Executes the units tests and generated an Junit XML report.
 test-%.xml :
 	cd $* && PYTHONPATH=$(NOVA_PATH):$(VMS_PATH)/src/python nosetests \
 	    --with-xunit --xunit-file=$(CURDIR)/$@ gridcentric || true
-test : test-nova.xml test-horizon.xml
+test : test-nova.xml
 .PHONY : test
 
 clean : 
@@ -147,5 +135,5 @@ clean :
 	rm -f pylint-*.txt
 	rm -rf *.deb debbuild
 	rm -rf *.tgz
-	rm -rf nova/build horizon/build
+	rm -rf nova/build
 .PHONY : clean

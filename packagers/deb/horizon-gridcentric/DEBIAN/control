@@ -1,7 +1,0 @@
-Package: horizon-gridcentric
-Section: extra
-Version: VERSION
-Architecture: all
-Recommends: openstack-dashboard
-Maintainer: GridCentric Inc. <support@gridcentric.com>
-Description: GridCentric extension for OpenStack Dashboard.

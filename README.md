@@ -11,6 +11,3 @@ Project Contents
 
     nova:
         The OpenStack Compute (nova) extension
-
-    horizon:
-        The OpenStack dashboard (horizon) extension
