@@ -385,10 +385,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
         target = params.get("target", '%dMB' % instance_ref['memory_mb']) or "0"
         if target != "0":
             try:
-                target = memory_string_to_pages(target)
+                target = str(memory_string_to_pages(target))
             except ValueError as e:
                 LOG.warn(_('%s -> defaulting to no target'), str(e))
-                target = 0
+                target = "0"
 
         # Extract out the image ids from the source instance's metadata. 
         metadata = self.db.instance_metadata_get(context, source_instance_ref['id'])
