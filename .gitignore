@@ -1,18 +1,14 @@
 syntax: glob
+vms.db
 *.pyc
-*/rpmbuild/
-*/debbuild/
-*/dist/
-*/pylint.txt
-*/pylint.report
+rpmbuild/
+debbuild/
+dist/
 *.orig
 *.deb
 *.rpm
+*.tgz
 */build/
 */nova_gridcentric.egg-info/
-nova/contrib/nova/
-nova/contrib/.bzr/
-nova/contrib/glance.sqlite
-nova/contrib/images/
-nova/vms.db
-nova/pylint.txt
+pylint-*.txt
+test-*.xml
