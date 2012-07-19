@@ -1,0 +1,28 @@
+#!/bin/bash
+
+set -e
+
+function remove_extension {
+    DJANGO_SETTINGS=$1
+    EXTENSION=$2
+
+    if [ -f $DJANGO_SETTINGS ]; then
+
+        # Automatically remove the extension.
+        cat $DJANGO_SETTINGS | \
+            grep -v $EXTENSION > $DJANGO_SETTINGS.new && \
+            mv $DJANGO_SETTINGS.new $DJANGO_SETTINGS || \
+            rm -f $DJANGO_SETTINGS.new
+
+        # Restart apache (if that's the server engine).
+        service apache2 restart 2>/dev/null || true
+    fi
+}
+
+case $1 in
+    remove)
+        remove_extension \
+            /etc/openstack-dashboard/local_settings.py \
+            horizon.gridcentric
+        ;;
+esac

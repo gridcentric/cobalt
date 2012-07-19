@@ -1,6 +1,31 @@
 #!/bin/bash
 
+set -e
+
 # Ensure that the gridcentric module exists properly.
 for path in /usr/lib/python*/{site,dist}-packages/gridcentric; do
     [ -d $path ] && touch $path/__init__.py;
 done
+
+function add_extension {
+    DJANGO_SETTINGS=$1
+    EXTENSION=$2
+
+    if [ -f $DJANGO_SETTINGS ]; then
+        # Add the extension.
+        if ! cat $DJANGO_SETTINGS | grep $EXTENSION >/dev/null 2>&1; then
+            echo "import settings; settings.INSTALLED_APPS += ('$2',)" >> $DJANGO_SETTINGS
+        fi
+
+        # Restart apache (if that's the server engine).
+        service apache2 restart 2>/dev/null || true
+    fi
+}
+
+case $1 in
+    configure)
+        add_extension \
+            /etc/openstack-dashboard/local_settings.py \
+            horizon.gridcentric
+        ;;
+esac
