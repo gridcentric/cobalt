@@ -32,7 +32,7 @@ import vms.virt as virt
 import vms.config as vmsconfig
 import vms.threadpool
 
-import gridcentric.nova.extension as gridcentric
+import gridcentric.nova.api as gc_api
 import gridcentric.nova.extension.manager as gc_manager
 
 
@@ -76,7 +76,7 @@ class GridCentricTestCase(unittest.TestCase):
         rpc.cast = self.mock_rpc.cast
 
         self.gridcentric = gc_manager.GridCentricManager()
-        self.gridcentric_api = gridcentric.API()
+        self.gridcentric_api = gc_api.API()
         self.context = context.RequestContext('fake', 'fake', True)
 
 
