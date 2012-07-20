@@ -27,7 +27,7 @@ import nova.api.openstack.views.images
 import nova.api.openstack.views.servers
 import nova.api.openstack.common as common
 
-from gridcentric.nova.extension import API
+from gridcentric.nova import API
 
 LOG = logging.getLogger("nova.api.extensions.gridcentric")
 

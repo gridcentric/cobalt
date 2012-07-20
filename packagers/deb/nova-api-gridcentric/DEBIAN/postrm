@@ -1,0 +1,18 @@
+#!/bin/bash
+
+set -e
+
+function remove_extension {
+    NOVA_CONF=$1
+
+    if [ -f $NOVA_CONF ]; then
+        # Restart the api service (if running).
+        service nova-api restart 2>/dev/null || true
+    fi
+}
+
+case $1 in
+    remove)
+        remove_extension /etc/nova/nova.conf
+        ;;
+esac
