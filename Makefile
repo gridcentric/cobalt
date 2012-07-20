@@ -124,7 +124,7 @@ pylint : pylint-nova.txt
 test-%.xml : test-%
 test-% :
 	cd $* && PYTHONPATH=$(NOVA_PATH):$(VMS_PATH)/src/python nosetests \
-	    --with-xunit --xunit-file=$(CURDIR)/$@ gridcentric || true
+	    --with-xunit --xunit-file=$(CURDIR)/$@.xml gridcentric || true
 test : test-nova
 .PHONY : test
 
