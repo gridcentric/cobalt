@@ -83,7 +83,7 @@ build-nova-compute-gridcentric : test-nova.xml
 	@cd nova && PACKAGE=nova-compute-gridcentric VERSION=$(VERSION) \
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/nova-compute-gridcentric/usr
 	@$(INSTALL_DIR) dist/nova-compute-gridcentric/etc/init
-	@$(INSTALL_DATA) nova/etc/nova-gridcentric.conf dist/nova-compute-gridcentric/etc/init
+	@$(INSTALL_DATA) nova/etc/nova-gc.conf dist/nova-compute-gridcentric/etc/init
 .PHONY: build-nova-compute-gridcentric
 
 deb-nova : deb-nova-gridcentric
