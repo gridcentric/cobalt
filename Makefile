@@ -54,13 +54,13 @@ build-nova : build-nova-compute-gridcentric
 build : build-nova
 .PHONY : build
 
-build-nova-gridcentric : test-nova.xml
+build-nova-gridcentric : test-nova
 	@rm -rf nova/build/ dist/nova-gridcentric
 	@cd nova && PACKAGE=nova-gridcentric VERSION=$(VERSION) \
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/nova-gridcentric/usr
 PHONY: build-nova-gridcentric
 
-build-nova-api-gridcentric : test-nova.xml
+build-nova-api-gridcentric : test-nova
 	@rm -rf nova/build/ dist/nova-api-gridcentric
 	@cd nova && PACKAGE=nova-api-gridcentric VERSION=$(VERSION) \
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/nova-api-gridcentric/usr
@@ -68,7 +68,7 @@ build-nova-api-gridcentric : test-nova.xml
 	    `find dist/nova-api-gridcentric/ -name gridcentric_extension.py`
 .PHONY: build-nova-api-gridcentric
 
-build-novaclient-gridcentric : test-nova.xml
+build-novaclient-gridcentric : test-nova
 	@rm -rf nova/build/ dist/novaclient-gridcentric
 	@cd nova && PACKAGE=novaclient-gridcentric VERSION=$(VERSION) \
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/novaclient-gridcentric/usr
@@ -78,12 +78,12 @@ build-novaclient-gridcentric : test-nova.xml
 
 .PHONY: build-novaclient-gridcentric
 
-build-nova-compute-gridcentric : test-nova.xml
+build-nova-compute-gridcentric : test-nova
 	@rm -rf nova/build/ dist/nova-compute-gridcentric
 	@cd nova && PACKAGE=nova-compute-gridcentric VERSION=$(VERSION) \
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/nova-compute-gridcentric/usr
 	@$(INSTALL_DIR) dist/nova-compute-gridcentric/etc/init
-	@$(INSTALL_DATA) nova/etc/nova-gridcentric.conf dist/nova-compute-gridcentric/etc/init
+	@$(INSTALL_DATA) nova/etc/nova-gc.conf dist/nova-compute-gridcentric/etc/init
 .PHONY: build-nova-compute-gridcentric
 
 deb-nova : deb-nova-gridcentric
@@ -121,10 +121,11 @@ pylint : pylint-nova.txt
 .PHONY: pylint
 
 # Executes the units tests and generated an Junit XML report.
-test-%.xml :
+test-%.xml : test-%
+test-% :
 	cd $* && PYTHONPATH=$(NOVA_PATH):$(VMS_PATH)/src/python nosetests \
 	    --with-xunit --xunit-file=$(CURDIR)/$@ gridcentric || true
-test : test-nova.xml
+test : test-nova
 .PHONY : test
 
 clean : 
