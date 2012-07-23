@@ -56,7 +56,7 @@ class AttribDictionary(dict):
 
 def get_vms_connection(connection_type):
     # Configure the logger regardless of the type of connection that will be used.
-    logger.setup_console_defaults()
+    logger.setup_for_library()
     if connection_type == 'xenapi':
         return XenApiConnection()
     elif connection_type == 'libvirt':
