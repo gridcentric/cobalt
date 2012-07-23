@@ -21,7 +21,12 @@
 import argparse
 import os
 import sys
-from gridcentric.nova.client.client import NovaClient
+
+try:
+    from gridcentric.nova.client.client import NovaClient
+except:
+    sys.stderr.write("error: Unable to import NovaClient. Do you have the Diablo tools installed?\n")
+    sys.exit(1)
 
 def usage():
     sys.stderr.write("usage: gc-api [options] <command>\n")
