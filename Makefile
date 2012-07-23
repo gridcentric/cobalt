@@ -66,16 +66,15 @@ build-nova-api-gridcentric : test-nova
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/nova-api-gridcentric/usr
 	@sed -i -e "s/'.*' ##TIMESTAMP##/'$(TIMESTAMP)' ##TIMESTAMP##/" \
 	    `find dist/nova-api-gridcentric/ -name gridcentric_extension.py`
+	@$(INSTALL_DIR) dist/novaclient-gridcentric/var/lib/nova/extensions
+	@$(INSTALL_BIN) nova/gridcentric/nova/osapi/gridcentric_extension.py \
+	    dist/novaclient-gridcentric/var/lib/nova/extensions
 .PHONY: build-nova-api-gridcentric
 
 build-novaclient-gridcentric : test-nova
 	@rm -rf nova/build/ dist/novaclient-gridcentric
 	@cd nova && PACKAGE=novaclient-gridcentric VERSION=$(VERSION) \
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/novaclient-gridcentric/usr
-	@$(INSTALL_DIR) dist/novaclient-gridcentric/var/lib/nova/extensions
-	@$(INSTALL_BIN) nova/gridcentric/nova/osapi/gridcentric_extension.py \
-	    dist/novaclient-gridcentric/var/lib/nova/extensions
-
 .PHONY: build-novaclient-gridcentric
 
 build-nova-compute-gridcentric : test-nova
