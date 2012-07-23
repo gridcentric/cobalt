@@ -79,23 +79,19 @@ class API(base.Base):
         instance_type = instance['instance_type']
         metadata = instance['metadata']
 
-        # check the quota to if we can launch a single instance.
-        num_instances = quota.allowed_instances(context, 1, instance['instance_type'])
-        if num_instances < 1:
-            pid = context.project_id
-            LOG.warn(_("Quota exceeded for %(pid)s,"
-                    " tried to launch an instance"))
-            if num_instances <= 0:
-                message = _("Instance quota exceeded. You cannot run any "
-                            "more instances of this type.")
-            else:
-                message = _("Instance quota exceeded. You can only run %s "
-                            "more instances of this type.") % num_instances
-            raise novaexc.QuotaError(code="InstanceLimitExceeded")
+        req_cores = instance_type['vcpus']
+        req_ram = instance_type['memory_mb']
+
+        max_count, reservations = self.compute_api._check_num_instances_quota(context,
+                                                                              instance_type,
+                                                                              1,
+                                                                              1)
 
         # check against metadata
-        metadata = self.db.instance_metadata_get(context, instance['id'])
+        metadata = self.db.instance_metadata_get(context, instance_uuid)
         self.compute_api._check_metadata_properties_quota(context, metadata)
+
+        return max_count, reservations
 
     def _copy_instance(self, context, instance_uuid, new_suffix, launch=False):
         # (dscannell): Basically we want to copy all of the information from
@@ -155,14 +151,12 @@ class API(base.Base):
     def _instance_metadata(self, context, instance_uuid):
         """ Looks up and returns the instance metadata """
 
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
-        return self.db.instance_metadata_get(context, instance_ref['id'])
+        return self.db.instance_metadata_get(context, instance_uuid)
 
     def _instance_metadata_update(self, context, instance_uuid, metadata):
         """ Updates the instance metadata """
 
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
-        return self.db.instance_metadata_update(context, instance_ref['id'], metadata, True)
+        return self.db.instance_metadata_update(context, instance_uuid, metadata, True)
 
     def _next_clone_num(self, context, instance_uuid):
         """ Returns the next clone number for the instance_uuid """
@@ -203,15 +197,15 @@ class API(base.Base):
         is_launched = self._is_instance_launched(context, instance_uuid)
         if is_blessed:
             # The instance is already blessed. We can't rebless it.
-            raise exception.Error(_(("Instance %s is already blessed. " +
+            raise exception.NovaException(_(("Instance %s is already blessed. " +
                                      "Cannot rebless an instance.") % instance_uuid))
         elif is_launched:
             # The instance is a launched one. We cannot bless launched instances.
-            raise exception.Error(_(("Instance %s has been launched. " +
+            raise exception.NovaException(_(("Instance %s has been launched. " +
                                      "Cannot bless a launched instance.") % instance_uuid))
         elif instance_ref['vm_state'] != vm_states.ACTIVE:
             # The instance is not active. We cannot bless a non-active instance.
-             raise exception.Error(_(("Instance %s is not active. " +
+             raise exception.NovaException(_(("Instance %s is not active. " +
                                       "Cannot bless a non-active instance.") % instance_uuid))
 
         clonenum = self._next_clone_num(context, instance_uuid)
@@ -230,11 +224,11 @@ class API(base.Base):
 
         if not self._is_instance_blessed(context, instance_uuid):
             # The instance is not blessed. We can't discard it.
-            raise exception.Error(_(("Instance %s is not blessed. " +
+            raise exception.NovaException(_(("Instance %s is not blessed. " +
                                      "Cannot discard an non-blessed instance.") % instance_uuid))
         elif len(self.list_launched_instances(context, instance_uuid)) > 0:
             # There are still launched instances based off of this one.
-            raise exception.Error(_(("Instance %s still has launched instances. " +
+            raise exception.NovaException(_(("Instance %s still has launched instances. " +
                                      "Cannot discard an instance with remaining launched ones.") %
                                      instance_uuid))
 
@@ -244,12 +238,14 @@ class API(base.Base):
         pid = context.project_id
         uid = context.user_id
 
-        self._check_quota(context, instance_uuid)
+        # TODO(dscannell): Need to figure out how these quota reservations work and what
+        # we need to do with them.
+        num_instances, reservations = self._check_quota(context, instance_uuid)
         instance = self.get(context, instance_uuid)
 
         if not(self._is_instance_blessed(context, instance_uuid)):
             # The instance is not blessed. We can't launch new instances from it.
-            raise exception.Error(
+            raise exception.NovaException(
                   _(("Instance %s is not blessed. " +
                      "Please bless the instance before launching from it.") % instance_uuid))
 
@@ -273,10 +269,10 @@ class API(base.Base):
 
         gridcentric_hosts = self._list_gridcentric_hosts(context)
         if dest not in gridcentric_hosts:
-            raise exception.Error(_("Cannot migrate to host %s because it is not running the"
+            raise exception.NovaException(_("Cannot migrate to host %s because it is not running the"
                                     " gridcentric service.") % dest)
         elif dest == instance_ref['host']:
-            raise exception.Error(_("Unable to migrate to the same host."))
+            raise exception.NovaException(_("Unable to migrate to the same host."))
 
         LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
         self._cast_gridcentric_message('migrate_instance', context,
