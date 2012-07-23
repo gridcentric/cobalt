@@ -1,4 +1,4 @@
-Package: novaclient-gridcentric
+Package: gc-api
 Section: extra
 Version: VERSION
 Architecture: all
