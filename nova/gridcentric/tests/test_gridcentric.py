@@ -91,7 +91,7 @@ class GridCentricTestCase(unittest.TestCase):
                         "There should be one new instances after blessing.")
 
         # The virtual machine should be marked that it is now blessed.
-        metadata = db.instance_metadata_get(self.context, blessed_instance['id'])
+        metadata = db.instance_metadata_get(self.context, blessed_instance['uuid'])
         self.assertTrue(metadata.has_key('blessed_from'),
                         "The instance should have a bless metadata after being blessed.")
         self.assertTrue(metadata['blessed_from'] == '%s' % instance_uuid,
@@ -207,7 +207,7 @@ class GridCentricTestCase(unittest.TestCase):
         launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_instance_uuid)
 
         launched_instance_uuid = launched_instance['uuid']
-        metadata = db.instance_metadata_get(self.context, launched_instance['id'])
+        metadata = db.instance_metadata_get(self.context, launched_instance['uuid'])
         self.assertTrue(metadata.has_key('launched_from'),
                         "The instance should have a 'launched from' metadata after being launched.")
         self.assertTrue(metadata['launched_from'] == '%s' % (blessed_instance_uuid),
@@ -221,7 +221,7 @@ class GridCentricTestCase(unittest.TestCase):
         try:
             self.gridcentric_api.launch_instance(self.context, instance_uuid)
             self.fail("Should not be able to launch and instance that has not been blessed.")
-        except exception.Error, e:
+        except exception.NovaException, e:
             pass # Success!
 
     def test_launch_instance_twice(self):
@@ -232,7 +232,7 @@ class GridCentricTestCase(unittest.TestCase):
 
         launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_instance_uuid)
         launched_instance_uuid = launched_instance['uuid']
-        metadata = db.instance_metadata_get(self.context, launched_instance['id'])
+        metadata = db.instance_metadata_get(self.context, launched_instance['uuid'])
         self.assertTrue(metadata.has_key('launched_from'),
                         "The instance should have a 'launched from' metadata after being launched.")
         self.assertTrue(metadata['launched_from'] == '%s' % (blessed_instance_uuid),
@@ -241,7 +241,7 @@ class GridCentricTestCase(unittest.TestCase):
 
         launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_instance_uuid)
         launched_instance_uuid = launched_instance['uuid']
-        metadata = db.instance_metadata_get(self.context, launched_instance['id'])
+        metadata = db.instance_metadata_get(self.context, launched_instance['uuid'])
         self.assertTrue(metadata.has_key('launched_from'),
                         "The instance should have a 'launched from' metadata after being launched.")
         self.assertTrue(metadata['launched_from'] == '%s' % (blessed_instance_uuid),

@@ -107,13 +107,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def _instance_metadata(self, context, instance_uuid):
         """ Looks up and returns the instance metadata """
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
-        return self.db.instance_metadata_get(context, instance_ref['id'])
+        return self.db.instance_metadata_get(context, instance_uuid)
 
     def _instance_metadata_update(self, context, instance_uuid, metadata):
         """ Updates the instance metadata """
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
-        return self.db.instance_metadata_update(context, instance_ref['id'], metadata, True)
+        return self.db.instance_metadata_update(context, instance_uuid, metadata, True)
 
     def _extract_image_refs(self, metadata):
         image_refs = metadata.get('images', '').split(',')
