@@ -20,10 +20,10 @@ from nova import compute
 from nova.compute import vm_states
 from nova import flags
 from nova import exception
-from nova import log as logging
 from nova.db import base
 from nova import quota
 from nova import exception as novaexc
+from nova.openstack.common import log as logging
 from nova.openstack.common import rpc
 from nova.openstack.common import cfg
 from nova import utils
