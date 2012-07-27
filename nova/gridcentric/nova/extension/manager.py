@@ -172,15 +172,17 @@ class GridCentricManager(manager.SchedulerDependentManager):
                       FLAGS.volume_topic,
                       {"method": "check_for_export",
                        "args": {'instance_id': instance_id}})
-        rpc.call(context,
-                 self.db.queue_get_for(context, FLAGS.compute_topic, dest),
+
+        # Get a reference to both the destination and source queues
+        gc_dest_queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, dest)
+        compute_dest_queue = self.db.queue_get_for(context, FLAGS.compute_topic, dest)
+        compute_source_queue = self.db.queue_get_for(context, FLAGS.compute_topic, self.host)
+
+        rpc.call(context, compute_dest_queue,
                  {"method": "pre_live_migration",
                   "args": {'instance_id': instance_id,
                            'block_migration': False,
                            'disk': None}})
-
-        # Grab the remote queue (to make sure the host exists).
-        queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, dest)
 
         # Figure out the interface to reach 'dest'.
         # This is used to construct our out-of-band network parameter below.
@@ -225,7 +227,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # disk size or some other parameter. But we will get a response if an
             # exception occurs in the remote thread, so the worse case here is 
             # really just the machine dying or the service dying unexpectedly.
-            rpc.call(context, queue,
+            rpc.call(context, gc_dest_queue,
                     {"method": "launch_instance",
                      "args": {'instance_id': instance_id,
                               'migration_url': migration_url}})
@@ -237,9 +239,15 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                          use_image_service=FLAGS.gridcentric_use_image_service,
                                          image_refs=image_refs)
 
-            # Perform necessary compute post-migration tasks.
-            self.compute_manager.post_live_migration(\
-                    context, instance_ref, dest, block_migration=False)
+            # Essentially we want to clean up the instance on the source host. This involves
+            # removing it from the libvirt caches, removing it from the iptables, etc. Since we
+            # are dealing with the iptables, we need the nova-compute process to handle this clean
+            # up. We use the rollback_live_migration_at_destination method of nova-compute because
+            # it does exactly was we need but we use the source host (self.host) instead of
+            # the destination.
+            rpc.call(context, compute_source_queue,
+                 {"method": "rollback_live_migration_at_destination",
+                  "args": {'instance_id': instance_id}})
 
         except:
             # TODO(dscannell): This rollback is a bit broken right now because
@@ -254,6 +262,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # unpause the instance if the qemu process still exists (might need
             # to move when libvirt cleanup occurs).
             LOG.debug(_("Error during migration: %s"), traceback.format_exc())
+
+            # Clean up the instance from both the source and destination.
+            rpc.call(context, compute_source_queue,
+                 {"method": "rollback_live_migration_at_destination",
+                  "args": {'instance_id': instance_id}})
+            rpc.call(context, compute_dest_queue,
+                 {"method": "rollback_live_migration_at_destination",
+                  "args": {'instance_id': instance_id}})
 
             # Prepare to relaunch here (this is the nasty bit as per above).
             metadata = self.db.instance_metadata_get(context, instance_id)
@@ -367,6 +383,23 @@ class GridCentricManager(manager.SchedulerDependentManager):
         metadata = self.db.instance_metadata_get(context, source_instance_ref['id'])
         image_refs = self._extract_image_refs(metadata)
         try:
+            # The main goal is to have the nova-compute process take ownership of setting up
+            # the networking for the launched instance. This ensures that later changes to the
+            # iptables can be handled directly by nova-compute. The method "pre_live_migration"
+            # essentially sets up the networking for the instance on the destination host. We
+            # simply send this message to nova-compute running on the same host (self.host)
+            # and pass in block_migration:false and disk:none so that no disk operations are
+            # performed.
+            #
+            # TODO(dscannell): How this behaves with volumes attached is an unknown. We currently
+            # do not support having volumes attached at launch time, so we should be safe in
+            # this regard.
+            rpc.call(context,
+                 self.db.queue_get_for(context, FLAGS.compute_topic, self.host),
+                 {"method": "pre_live_migration",
+                  "args": {'instance_id': instance_ref.id,
+                           'block_migration': False,
+                           'disk': None}})
             self.vms_conn.launch(context,
                                  source_instance_ref.name,
                                  str(target),
