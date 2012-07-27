@@ -439,8 +439,6 @@ class LibvirtConnection(VmsConnection):
         # functionality.
         xml = self.libvirt_conn.to_xml(instance_dict, network_info, False,
                                        block_device_info=block_device_info)
-        self.libvirt_conn.firewall_driver.setup_basic_filtering(instance_dict, network_info)
-        self.libvirt_conn.firewall_driver.prepare_instance_filter(instance_dict, network_info)
         self.libvirt_conn._create_image(context, instance_dict, xml, network_info=network_info,
                                         block_device_info=block_device_info)
 
@@ -473,10 +471,6 @@ class LibvirtConnection(VmsConnection):
         # It's times like these that I wish there was a way to do this on a
         # per-file basis, but we have no choice here but to sync() globally.
         utilities.call_command(["sync"])
-
-        # We want to remove the instance from libvirt, but keep all of the
-        # artifacts around which is why we use cleanup=False.
-        self.libvirt_conn.destroy(instance_ref, network_info, cleanup=False)
 
     def post_migration(self, context, instance_ref, network_info, migration_url,
                        use_image_service=False, image_refs=[]):
