@@ -15,9 +15,11 @@
 
 import json
 import webob
+from webob import exc
 
 from nova import log as logging
 from nova import quota
+from nova import exception as novaexc
 
 from nova.api.openstack import create_instance_helper as server_helper
 from nova.api.openstack import extensions
@@ -30,6 +32,18 @@ import nova.api.openstack.common as common
 from gridcentric.nova.extension import API
 
 LOG = logging.getLogger("nova.api.extensions.gridcentric")
+
+def convert_exception(action):
+
+    def fn(self, *args, **kwargs):
+        try:
+            return action(self, *args, **kwargs)
+        except novaexc.Error as error:
+            raise exc.HTTPBadRequest(explanation=unicode(error))
+    # note(dscannell): Openstack sometimes does matching on the function name so we need to
+    # ensure that the decorated function returns with the same function name as the action.
+    fn.__name__ == action.__name__
+    return fn
 
 class Gridcentric_extension(object):
     """
@@ -92,16 +106,19 @@ class Gridcentric_extension(object):
 
         return actions
 
+    @convert_exception
     def _bless_instance(self, input_dict, req, id):
         context = req.environ["nova.context"]
         result = self.gridcentric_api.bless_instance(context, id)
         return self._build_instance_list(req, [result])
 
+    @convert_exception
     def _discard_instance(self, input_dict, req, id):
         context = req.environ["nova.context"]
         result = self.gridcentric_api.discard_instance(context, id)
         return webob.Response(status_int=200, body=json.dumps(result))
 
+    @convert_exception
     def _launch_instance(self, input_dict, req, id):
         context = req.environ["nova.context"]
         try:
@@ -112,6 +129,7 @@ class Gridcentric_extension(object):
         except quota.QuotaError as error:
             self.server_helper._handle_quota_error(error)
 
+    @convert_exception
     def _migrate_instance(self, input_dict, req, id):
         context = req.environ["nova.context"]
         try:
@@ -123,10 +141,12 @@ class Gridcentric_extension(object):
         except quota.QuotaError as error:
             self.server_helper._handle_quota_error(error)
 
+    @convert_exception
     def _list_launched_instances(self, input_dict, req, id):
         context = req.environ["nova.context"]
         return self._build_instance_list(req, self.gridcentric_api.list_launched_instances(context, id))
 
+    @convert_exception
     def _list_blessed_instances(self, input_dict, req, id):
         context = req.environ["nova.context"]
         return self._build_instance_list(req, self.gridcentric_api.list_blessed_instances(context, id))
@@ -152,6 +172,7 @@ class Gridcentric_extension(object):
     def get_request_extensions(self):
         request_exts = []
 
+        @convert_exception
         def _delete(req, res):
             """ There is some clean up our extension needs to do when an instance is deleted. """
             context = req.environ["nova.context"]
@@ -161,11 +182,11 @@ class Gridcentric_extension(object):
                 instance_uuid = routing_args.get("id", None)
             if instance_uuid != None:
                 self.gridcentric_api.cleanup_instance(context, instance_uuid)
+
             return res
 
         request_exts.append(extensions.RequestExtension('DELETE',
                                                         '/:(project_id)/servers/:(instance_id)',
                                                         _delete))
         return request_exts
-
 
