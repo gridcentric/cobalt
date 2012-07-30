@@ -15,6 +15,7 @@
 
 import json
 import webob
+from webob import exc
 
 from nova import log as logging
 from nova import exception as novaexc
@@ -29,6 +30,18 @@ import nova.api.openstack.common as common
 from gridcentric.nova import API
 
 LOG = logging.getLogger("nova.api.extensions.gridcentric")
+
+def convert_exception(action):
+
+    def fn(self, *args, **kwargs):
+        try:
+            return action(self, *args, **kwargs)
+        except novaexc.Error as error:
+            raise exc.HTTPBadRequest(explanation=unicode(error))
+    # note(dscannell): Openstack sometimes does matching on the function name so we need to
+    # ensure that the decorated function returns with the same function name as the action.
+    fn.__name__ == action.__name__
+    return fn
 
 class GridcentricServerControllerExtension(wsgi.Controller):
     """
@@ -52,18 +65,21 @@ class GridcentricServerControllerExtension(wsgi.Controller):
         common._STATE_MAP['blessed'] = {'default': 'BLESSED'}
 
     @wsgi.action('gc_bless')
+    @convert_exception
     def _bless_instance(self, req, id, body):
         context = req.environ["nova.context"]
         result = self.gridcentric_api.bless_instance(context, id)
         return self._build_instance_list(req, [result])
 
     @wsgi.action('gc_discard')
+    @convert_exception
     def _discard_instance(self, req, id, body):
         context = req.environ["nova.context"]
         result = self.gridcentric_api.discard_instance(context, id)
         return webob.Response(status_int=200, body=json.dumps(result))
 
     @wsgi.action('gc_launch')
+    @convert_exception
     def _launch_instance(self, req, id, body):
         context = req.environ["nova.context"]
         try:
@@ -75,6 +91,7 @@ class GridcentricServerControllerExtension(wsgi.Controller):
             self._handle_quota_error(error)
 
     @wsgi.action('gc_migrate')
+    @convert_exception
     def _migrate_instance(self, req, id, body):
         context = req.environ["nova.context"]
         try:
@@ -88,15 +105,18 @@ class GridcentricServerControllerExtension(wsgi.Controller):
             self._handle_quota_error(error)
 
     @wsgi.action('gc_list_launched')
+    @convert_exception
     def _list_launched_instances(self, req, id, body):
         context = req.environ["nova.context"]
         return self._build_instance_list(req, self.gridcentric_api.list_launched_instances(context, id))
 
     @wsgi.action('gc_list_blessed')
+    @convert_exception
     def _list_blessed_instances(self, req, id, body):
         context = req.environ["nova.context"]
         return self._build_instance_list(req, self.gridcentric_api.list_blessed_instances(context, id))
 
+    @convert_exception
     @wsgi.extends
     def delete(self, req, resp_obj, **kwargs):
         """ There is some clean up our extension needs to do when an instance is deleted. """
@@ -171,7 +191,6 @@ class Gridcentric_extension(object):
 
     def get_controller_extensions(self):
         extension_list = []
-
         extension_set = [
             (GridcentricServerControllerExtension, 'servers'),
             ]
