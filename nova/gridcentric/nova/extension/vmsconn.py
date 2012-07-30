@@ -170,12 +170,6 @@ class VmsConnection:
                                mac_addresses=mac_addresses)
         LOG.debug(_("Called vms.replug with name=%s"), instance_name)
 
-    def cleanup(self, context, instance_ref, network_info):
-        """
-        Cleans up any artifacts associated with the instance that is being deleted.
-        """
-        pass
-
     def pre_launch(self, context,
                    new_instance_ref,
                    network_info=None,
@@ -439,8 +433,6 @@ class LibvirtConnection(VmsConnection):
         # functionality.
         xml = self.libvirt_conn.to_xml(instance_dict, network_info, False,
                                        block_device_info=block_device_info)
-        self.libvirt_conn.firewall_driver.setup_basic_filtering(instance_dict, network_info)
-        self.libvirt_conn.firewall_driver.prepare_instance_filter(instance_dict, network_info)
         self.libvirt_conn._create_image(context, instance_dict, xml, network_info=network_info,
                                         block_device_info=block_device_info)
 
@@ -473,10 +465,6 @@ class LibvirtConnection(VmsConnection):
         # It's times like these that I wish there was a way to do this on a
         # per-file basis, but we have no choice here but to sync() globally.
         utilities.call_command(["sync"])
-
-        # We want to remove the instance from libvirt, but keep all of the
-        # artifacts around which is why we use cleanup=False.
-        self.libvirt_conn.destroy(instance_ref, network_info, cleanup=False)
 
     def post_migration(self, context, instance_ref, network_info, migration_url,
                        use_image_service=False, image_refs=[]):
@@ -548,13 +536,3 @@ class LibvirtConnection(VmsConnection):
                 # Simply ignore this error because the end result
                 # the image so no longer be there.
                 pass
-
-    def cleanup(self, context, instance_ref, network_info):
-        """
-        In the libvirt case we need to remove the iptables rules that were created for this
-        domain. The nova-compute service will not handle this for us.
-        """
-        if network_info == None:
-            network_info = []
-        self.libvirt_conn.unfilter_instance(instance_ref, network_info)
-
