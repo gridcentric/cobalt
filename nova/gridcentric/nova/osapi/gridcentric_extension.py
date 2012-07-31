@@ -168,25 +168,3 @@ class Gridcentric_extension(object):
                     for inst in instances]
 
         return webob.Response(status_int=200, body=json.dumps(result))
-
-    def get_request_extensions(self):
-        request_exts = []
-
-        @convert_exception
-        def _delete(req, res):
-            """ There is some clean up our extension needs to do when an instance is deleted. """
-            context = req.environ["nova.context"]
-            (_, routing_args) = req.environ.get('wsgiorg.routing_args', (None, None))
-            instance_uuid = None
-            if routing_args != None:
-                instance_uuid = routing_args.get("id", None)
-            if instance_uuid != None:
-                self.gridcentric_api.cleanup_instance(context, instance_uuid)
-
-            return res
-
-        request_exts.append(extensions.RequestExtension('DELETE',
-                                                        '/:(project_id)/servers/:(instance_id)',
-                                                        _delete))
-        return request_exts
-
