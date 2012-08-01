@@ -17,6 +17,7 @@
 Interfaces that configure vms and perform hypervisor specific operations.
 """
 
+import contextlib
 import os
 import pwd
 import stat
@@ -70,6 +71,20 @@ def select_hypervisor(hypervisor):
     virt.init()
     virt.select(hypervisor)
     LOG.debug(_("Virt initialized as auto=%s"), virt.AUTO)
+
+@contextlib.contextmanager
+def user(uid, gid):
+    """
+    Changes the effective user / group for the
+    duration of a "with" block.
+    """
+    os.setegid(gid)
+    os.seteuid(uid)
+    try:
+        yield
+    finally:
+        os.seteuid(os.getuid())
+        os.setegid(os.getgid())
 
 class VmsConnection:
     def configure(self):
@@ -241,6 +256,8 @@ class LibvirtConnection(VmsConnection):
             passwd = pwd.getpwuid(openstack_user)
         self.openstack_uid = passwd.pw_uid
         self.openstack_gid = passwd.pw_gid
+        LOG.info("The openstack user is set to (%s, %s, %s)."
+                 % (passwd.pw_name, self.openstack_uid, self.openstack_gid))
 
         self.libvirt_conn = libvirt_connection.get_connection(False)
         config.MANAGEMENT['connection_url'] = self.libvirt_conn.get_uri()
@@ -266,7 +283,6 @@ class LibvirtConnection(VmsConnection):
                 # We were unable to determine the user. We'll just default to our current user.
                 user = os.getuid()
 
-        LOG.info("The openstack user is set to %s." % user)
         return user
 
     def configure_path_permissions(self):
@@ -376,8 +392,9 @@ class LibvirtConnection(VmsConnection):
             image_base_path = os.path.join(FLAGS.instances_path, '_base')
             if not os.path.exists(image_base_path):
                 LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
-                utilities.make_directories(image_base_path)
-                os.chown(image_base_path, self.openstack_uid, self.openstack_gid)
+                with user(self.openstack_uid, self.openstack_gid):
+                    utilities.make_directories(image_base_path)
+
             image_service = nova.image.get_default_image_service()
             for image_ref in image_refs:
                 image = image_service.show(context, image_ref)
@@ -388,12 +405,13 @@ class LibvirtConnection(VmsConnection):
                     # migration, as the descriptor may have changed from its
                     # previous state. Migrating VMs are the only case where a
                     # descriptor for an instance will not be a fixed constant.
-                    images.fetch(context,
+                    with user(self.openstack_uid, self.openstack_gid):
+                        images.fetch(context,
                                  image_ref,
                                  target,
                                  new_instance_ref['user_id'],
                                  new_instance_ref['project_id'])
-                    os.chown(target, self.openstack_uid, self.openstack_gid)
+
 
         # We need to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
@@ -401,17 +419,18 @@ class LibvirtConnection(VmsConnection):
         disk_file = os.path.join(working_dir, "disk")
         libvirt_file = os.path.join(working_dir, "libvirt.xml")
 
-        # Make sure that our working directory exists.
-        if not(os.path.exists(working_dir)):
-            os.makedirs(working_dir)
+        with user(self.openstack_uid, self.openstack_gid):
+            # Make sure that our working directory exists.
+            if not(os.path.exists(working_dir)):
+                os.makedirs(working_dir)
 
-        if not(os.path.exists(disk_file)):
-            # (dscannell) We will write out a stub 'disk' file so that we don't
-            # end up copying this file when setting up everything for libvirt.
-            # Essentially, this file will be removed, and replaced by vms as an
-            # overlay on the blessed root image.
-            f = open(disk_file, 'w')
-            f.close()
+            if not(os.path.exists(disk_file)):
+                # (dscannell) We will write out a stub 'disk' file so that we don't
+                # end up copying this file when setting up everything for libvirt.
+                # Essentially, this file will be removed, and replaced by vms as an
+                # overlay on the blessed root image.
+                f = open(disk_file, 'w')
+                f.close()
 
         # (dscannell) We want to disable any injection. We do this by making a
         # copy of the instance and clearing out some entries. Since Openstack
@@ -431,22 +450,15 @@ class LibvirtConnection(VmsConnection):
         # (dscannell) This was taken from the core nova project as part of the
         # boot path for normal instances. We basically want to mimic this
         # functionality.
-        xml = self.libvirt_conn.to_xml(instance_dict, network_info, False,
+        with user(self.openstack_uid, self.openstack_gid):
+            xml = self.libvirt_conn.to_xml(instance_dict, network_info, False,
                                        block_device_info=block_device_info)
-        self.libvirt_conn._create_image(context, instance_dict, xml, network_info=network_info,
+            self.libvirt_conn._create_image(context, instance_dict, xml, network_info=network_info,
                                         block_device_info=block_device_info)
 
         if not(migration):
             # (dscannell) Remove the fake disk file (if created).
             os.remove(disk_file)
-
-        # Fix up the permissions on the files that we created so that they are owned by the 
-        # openstack user.
-        os.chown(working_dir, self.openstack_uid, self.openstack_gid)
-        for root, dirs, files in os.walk(working_dir, followlinks=True):
-            for path in dirs + files:
-                LOG.debug("chowning path=%s to openstack user %s" % (os.path.join(root, path), self.openstack_uid))
-                os.chown(os.path.join(root, path), self.openstack_uid, self.openstack_gid)
 
         # Return the libvirt file, this will be passed in as the name. This
         # parameter is overloaded in the management interface as a libvirt
