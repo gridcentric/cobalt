@@ -26,8 +26,7 @@ from nova.api.openstack import wsgi
 from nova.api.openstack.compute.views import servers as views_servers
 import nova.api.openstack.common as common
 
-
-from gridcentric.nova import API
+from gridcentric.nova.api import API
 
 LOG = logging.getLogger("nova.api.extensions.gridcentric")
 
