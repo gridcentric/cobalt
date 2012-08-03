@@ -283,7 +283,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # the destination.
             rpc.call(context, compute_source_queue,
                  {"method": "rollback_live_migration_at_destination",
-                  "args": {'instance_id': instance_id}})
+                  "args": {'instance_id': instance_ref.id}})
 
         except:
             # TODO(dscannell): This rollback is a bit broken right now because
@@ -302,10 +302,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Clean up the instance from both the source and destination.
             rpc.call(context, compute_source_queue,
                  {"method": "rollback_live_migration_at_destination",
-                  "args": {'instance_id': instance_id}})
+                  "args": {'instance_id': instance_ref.id}})
             rpc.call(context, compute_dest_queue,
                  {"method": "rollback_live_migration_at_destination",
-                  "args": {'instance_id': instance_id}})
+                  "args": {'instance_id': instance_ref.id}})
 
             # Prepare to relaunch here (this is the nasty bit as per above).
             metadata = self._instance_metadata(context, instance_uuid)
