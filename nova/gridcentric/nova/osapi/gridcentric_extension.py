@@ -115,15 +115,6 @@ class GridcentricServerControllerExtension(wsgi.Controller):
         context = req.environ["nova.context"]
         return self._build_instance_list(req, self.gridcentric_api.list_blessed_instances(context, id))
 
-    @convert_exception
-    @wsgi.extends
-    def delete(self, req, resp_obj, **kwargs):
-        """ There is some clean up our extension needs to do when an instance is deleted. """
-        context = req.environ["nova.context"]
-        instance_uuid = kwargs.get("id", None)
-        if instance_uuid != None:
-            self.gridcentric_api.cleanup_instance(context, instance_uuid)
-
     def _build_instance_list(self, req, instances):
         def _build_view(req, instance, is_detail=True):
             project_id = getattr(req.environ['nova.context'], 'project_id', '')
