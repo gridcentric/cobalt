@@ -249,6 +249,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
                  {"method": "rollback_live_migration_at_destination",
                   "args": {'instance_id': instance_id}})
 
+            self._instance_update(context,
+                                  instance_ref.id,
+                                  vm_state=vm_states.ACTIVE,
+                                  host=dest,
+                                  task_state=None)
+
         except:
             # TODO(dscannell): This rollback is a bit broken right now because
             # we cannot simply relaunch the instance on this host. The order of
@@ -280,6 +286,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
             # Rollback is launching here again.
             self.launch_instance(context, instance_id, migration_url=migration_url)
+            self._instance_update(context,
+                                  instance_ref.id,
+                                  vm_state=vm_states.ACTIVE,
+                                  host=self.host,
+                                  task_state=None)
 
     def discard_instance(self, context, instance_id):
         """ Discards an instance so that no further instances maybe be launched from it. """
@@ -410,7 +421,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                  image_refs=image_refs)
 
             # Perform our database update.
-            self._instance_update(context,
+            if migration_url == None:
+                self._instance_update(context,
                                   instance_ref.id,
                                   vm_state=vm_states.ACTIVE,
                                   host=self.host,
@@ -420,3 +432,5 @@ class GridCentricManager(manager.SchedulerDependentManager):
             LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
             self._instance_update(context, instance_ref.id,
                                   vm_state=vm_states.ERROR, task_state=None)
+            # Raise the error up.
+            raise e
