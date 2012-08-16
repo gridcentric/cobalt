@@ -2,10 +2,17 @@
 
 set -e
 
-# If the nova-compute process is running, then we start.
-if initctl status nova-compute | grep process >/dev/null 2>&1; then
-    service nova-gc restart 2>/dev/null || \
-    service nova-gc start;
- else
-    service nova-gc restart 2>/dev/null || true
-fi
+function service_start() {
+    # If the nova-compute process is running, then we start.
+    if initctl status nova-compute | grep process >/dev/null 2>&1; then
+        service nova-gc restart 2>/dev/null || \
+        service nova-gc start;
+    else
+        service nova-gc restart 2>/dev/null || true
+    fi
+}
+
+case $1 in
+    configure) service_start;;
+    triggered) service_start;;
+esac
