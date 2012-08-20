@@ -12,3 +12,4 @@ dist/
 */nova_gridcentric.egg-info/
 pylint-*.txt
 test-*.xml
+*.un~
