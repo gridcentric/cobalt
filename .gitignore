@@ -8,6 +8,7 @@ syntax: glob
 *.orig
 *.deb
 *.rpm
+*.tgz
 */build/
 */nova_gridcentric.egg-info/
 nova/contrib/nova/
@@ -16,3 +17,7 @@ nova/contrib/glance.sqlite
 nova/contrib/images/
 nova/vms.db
 nova/pylint.txt
+*.un~
+debbuild/
+build/
+dist/
