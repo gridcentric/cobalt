@@ -91,6 +91,117 @@ def do_list_blessed(cs, args):
     server = cs.gridcentric.get(args.server_id)
     _print_list(cs.gridcentric.list_blessed(server))
 
+@utils.arg('--flavor',
+     default=None,
+     metavar='<flavor>',
+     help="Flavor ID (see 'nova flavor-list').")
+@utils.arg('--image',
+     default=None,
+     metavar='<image>',
+     help="Image ID (see 'nova image-list'). ")
+@utils.arg('--host',
+            default=None,
+            metavar='<host>',
+            help="The host on which to boot the instance.")
+@utils.arg('--meta',
+     metavar="<key=value>",
+     action='append',
+     default=[],
+     help="Record arbitrary key/value metadata to /meta.js "\
+          "on the new server. Can be specified multiple times.")
+@utils.arg('--file',
+     metavar="<dst-path=src-path>",
+     action='append',
+     dest='files',
+     default=[],
+     help="Store arbitrary files from <src-path> locally to <dst-path> "\
+          "on the new server. You may store up to 5 files.")
+@utils.arg('--key_name',
+     metavar='<key_name>',
+     help="Key name of keypair that should be created earlier with \
+           the command keypair-add")
+@utils.arg('name', metavar='<name>', help='Name for the new server')
+@utils.arg('--user_data',
+     default=None,
+     metavar='<user-data>',
+     help="user data file to pass to be exposed by the metadata server.")
+@utils.arg('--availability_zone',
+     default=None,
+     metavar='<availability-zone>',
+     help="The availability zone for instance placement.")
+@utils.arg('--security_groups',
+     default=None,
+     metavar='<security_groups>',
+     help="comma separated list of security group names.")
+@utils.arg('--block_device_mapping',
+     metavar="<dev_name=mapping>",
+     action='append',
+     default=[],
+     help="Block device mapping in the format "
+         "<dev_name=<id>:<type>:<size(GB)>:<delete_on_terminate>.")
+@utils.arg('--hint',
+        action='append',
+        dest='scheduler_hints',
+        default=[],
+        metavar='<key=value>',
+        help="Send arbitrary key/value pairs to the scheduler for custom use.")
+@utils.arg('--nic',
+     metavar="<net-id=net-uuid,v4-fixed-ip=ip-addr>",
+     action='append',
+     dest='nics',
+     default=[],
+     help="Create a NIC on the server.\n"
+           "Specify option multiple times to create multiple NICs.\n"
+           "net-id: attach NIC to network with this UUID (optional)\n"
+           "v4-fixed-ip: IPv4 fixed address for NIC (optional).")
+@utils.arg('--config-drive',
+     metavar="<value>",
+     dest='config_drive',
+     default=False,
+     help="Enable config drive")
+@utils.arg('--poll',
+    dest='poll',
+    action="store_true",
+    default=False,
+    help='Blocks while instance builds so progress can be reported.')
+def do_gc_boot(cs, args):
+    """Boot a new server."""
+
+    boot_args, boot_kwargs = shell._boot(cs, args)
+
+    print boot_kwargs
+    if args.host and 'meta' in boot_kwargs:
+        boot_kwargs['meta'].update({"gc:target_host": args.host})
+    elif args.host:
+        boot_kwargs['meta'] = {"gc:target_host":args.host}
+
+    extra_boot_kwargs = utils.get_resource_manager_extra_kwargs(do_gc_boot, args)
+    boot_kwargs.update(extra_boot_kwargs)
+
+    server = cs.gridcentric.create(*boot_args, **boot_kwargs)
+
+    # Keep any information (like adminPass) returned by create
+    info = server._info
+    server = cs.servers.get(info['id'])
+    info.update(server._info)
+
+    flavor = info.get('flavor', {})
+    flavor_id = flavor.get('id', '')
+    info['flavor'] = shell._find_flavor(cs, flavor_id).name
+
+    image = info.get('image', {})
+    image_id = image.get('id', '')
+    info['image'] = shell._find_image(cs, image_id).name
+
+    info.pop('links', None)
+    info.pop('addresses', None)
+
+    utils.print_dict(info)
+
+    if args.poll:
+        shell._poll_for_status(cs.servers.get, info['id'], 'building', ['active'])
+
+
 class GcServer(servers.Server):
     """
     A server object extended to provide gridcentric capabilities
@@ -117,11 +228,11 @@ class GcServerManager(servers.ServerManager):
     resource_class = GcServer
 
     def launch(self, server, target="0", guest_params={}):
-       header, info = self._action("gc_launch",
+        header, info = self._action("gc_launch",
                                    server,
                                    {'target': target,
                                     'guest': guest_params})
-       return [self.get(server['id']) for server in info]
+        return [self.get(server['id']) for server in info]
 
     def bless(self, server):
         header, info = self._action("gc_bless", server)
@@ -140,3 +251,32 @@ class GcServerManager(servers.ServerManager):
     def list_blessed(self, server):
         header, info = self._action("gc_list_blessed", server)
         return [self.get(server['id']) for server in info]
+
+    def create(self, name, image, flavor, meta=None, files=None,
+               reservation_id=None, min_count=None,
+               max_count=None, security_groups=None, userdata=None,
+               key_name=None, availability_zone=None,
+               block_device_mapping=None, nics=None, scheduler_hints=None,
+               config_drive=None, **kwargs):
+        if not min_count:
+            min_count = 1
+        if not max_count:
+            max_count = min_count
+        if min_count > max_count:
+            min_count = max_count
+
+        boot_args = [name, image, flavor]
+
+        boot_kwargs = dict(
+            meta=meta, files=files, userdata=userdata,
+            reservation_id=reservation_id, min_count=min_count,
+            max_count=max_count, security_groups=security_groups,
+            key_name=key_name, availability_zone=availability_zone,
+            scheduler_hints=scheduler_hints, config_drive=config_drive,
+            **kwargs)
+
+        resource_url = "/gcservers"
+        boot_kwargs['nics'] = nics
+        response_key = "server"
+        return self._boot(resource_url, response_key, *boot_args,
+                **boot_kwargs)
