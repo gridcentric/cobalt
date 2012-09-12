@@ -231,6 +231,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                             migration_url="mcdist://%s" %
                                             migration_address)
 
+        if migration_url == None:
+            # If the migration url is None then that means there was an issue with the bless.
+            # We cannot continue with the migration so we just exit.
+            return
+
         # Run our premigration hook.
         self.vms_conn.pre_migration(context, instance_ref, network_info, migration_url)
 
