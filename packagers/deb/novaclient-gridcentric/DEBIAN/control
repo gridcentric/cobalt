@@ -2,6 +2,6 @@ Package: novaclient-gridcentric
 Section: extra
 Version: VERSION
 Architecture: all
-Depends: nova-gridcentric, python-novaclient
+Depends: python-novaclient
 Maintainer: GridCentric Inc. <support@gridcentric.com>
 Description: GridCentric extension for OS novaclient.
