@@ -39,11 +39,18 @@ class API(base.Base):
         self.compute_api = compute.API()
 
     def get(self, context, instance_id):
-        """Get a single instance with the given instance_id."""
-        rv = self.db.instance_get(context, instance_id)
-        return dict(rv.iteritems())
+        """
+        Get a single instance with the given instance_id. Note instance_id can either
+        be the actual id or the instance's uuid.
+        """
+        if utils.is_uuid_like(instance_id):
+            uuid = instance_id
+            instance = self.db.instance_get_by_uuid(context, uuid)
+        else:
+            instance = self.db.instance_get(context, instance_id)
+        return dict(instance.iteritems())
 
-    def _cast_gridcentric_message(self, method, context, instance_id, host=None,
+    def _cast_gridcentric_message(self, method, context, instance_ref, host=None,
                               params=None):
         """Generic handler for RPC casts to gridcentric. This does not block for a response.
 
@@ -55,24 +62,22 @@ class API(base.Base):
         if not params:
             params = {}
         if not host:
-            instance = self.get(context, instance_id)
-            host = instance['host']
+            host = instance_ref['host']
         if not host:
             queue = FLAGS.gridcentric_topic
         else:
             queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, host)
-        params['instance_id'] = instance_id
+        params['instance_id'] = instance_ref['id']
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
 
-    def _check_quota(self, context, instance_id):
+    def _check_quota(self, context, instance_ref):
         # Check the quota to see if we can launch a new instance.
-        instance = self.get(context, instance_id)
-        instance_type = instance['instance_type']
-        metadata = instance['metadata']
+        instance_type = instance_ref['instance_type']
+        metadata = instance_ref['metadata']
 
         # check the quota to if we can launch a single instance.
-        num_instances = quota.allowed_instances(context, 1, instance['instance_type'])
+        num_instances = quota.allowed_instances(context, 1, instance_ref['instance_type'])
         if num_instances < 1:
             pid = context.project_id
             LOG.warn(_("Quota exceeded for %(pid)s,"
@@ -86,24 +91,23 @@ class API(base.Base):
             raise quota.QuotaError(message, "InstanceLimitExceeded")
 
         # check against metadata
-        metadata = self.db.instance_metadata_get(context, instance_id)
+        metadata = self.db.instance_metadata_get(context, instance_ref['id'])
         self.compute_api._check_metadata_properties_quota(context, metadata)
 
-    def _copy_instance(self, context, instance_id, new_suffix, launch=False):
+    def _copy_instance(self, context, instance_ref, new_suffix, launch=False):
         # (dscannell): Basically we want to copy all of the information from
         # instance with id=instance_id into a new instance. This is because we
         # are basically "cloning" the vm as far as all the properties are
         # concerned.
 
-        instance_ref = self.db.instance_get(context, instance_id)
         image_ref = instance_ref.get('image_ref', '')
         if image_ref == '':
             image_ref = instance_ref.get('image_id', '')
 
         if launch:
-            metadata = {'launched_from':'%s' % (instance_id)}
+            metadata = {'launched_from':'%s' % (instance_ref['id'])}
         else:
-            metadata = {'blessed_from':'%s' % (instance_id)}
+            metadata = {'blessed_from':'%s' % (instance_ref['id'])}
 
         instance = {
            'reservation_id': utils.generate_uid('r'),
@@ -132,7 +136,7 @@ class API(base.Base):
 
         elevated = context.elevated()
 
-        security_groups = self.db.security_group_get_by_instance(context, instance_id)
+        security_groups = self.db.security_group_get_by_instance(context, instance_ref['id'])
         for security_group in security_groups:
             self.db.instance_add_security_group(elevated,
                                                 new_instance_ref.id,
@@ -173,10 +177,10 @@ class API(base.Base):
 
     def bless_instance(self, context, instance_id):
         # Setup the DB representation for the new VM.
-        instance_ref = self.db.instance_get(context, instance_id)
+        instance_ref = self.get(context, instance_id)
 
-        is_blessed = self._is_instance_blessed(context, instance_id)
-        is_launched = self._is_instance_launched(context, instance_id)
+        is_blessed = self._is_instance_blessed(context, instance_ref['id'])
+        is_launched = self._is_instance_launched(context, instance_ref['id'])
         if is_blessed:
             # The instance is already blessed. We can't rebless it.
             raise exception.Error(_(("Instance %s is already blessed. " +
@@ -190,11 +194,11 @@ class API(base.Base):
              raise exception.Error(_(("Instance %s is not active. " +
                                       "Cannot bless a non-active instance.") % instance_id))
 
-        clonenum = self._next_clone_num(context, instance_id)
-        new_instance_ref = self._copy_instance(context, instance_id, str(clonenum), launch=False)
+        clonenum = self._next_clone_num(context, instance_ref['id'])
+        new_instance_ref = self._copy_instance(context, instance_ref, str(clonenum), launch=False)
 
         LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
-        self._cast_gridcentric_message('bless_instance', context, new_instance_ref['id'],
+        self._cast_gridcentric_message('bless_instance', context, new_instance_ref,
                                        host=instance_ref['host'])
 
         # We reload the instance because the manager may have change its state (most likely it 
@@ -202,33 +206,35 @@ class API(base.Base):
         return self.get(context, new_instance_ref['id'])
 
     def discard_instance(self, context, instance_id):
-        if not self._is_instance_blessed(context, instance_id):
+        instance_ref = self.get(context, instance_id)
+        if not self._is_instance_blessed(context, instance_ref['id']):
             # The instance is not blessed. We can't discard it.
             raise exception.Error(_(("Instance %s is not blessed. " +
                                      "Cannot discard an non-blessed instance.") % instance_id))
-        elif len(self.list_launched_instances(context, instance_id)) > 0:
+        elif len(self.list_launched_instances(context, instance_ref['id'])) > 0:
             # There are still launched instances based off of this one.
             raise exception.Error(_(("Instance %s still has launched instances. " +
                                      "Cannot discard an instance with remaining launched ones.") %
                                      instance_id))
 
         LOG.debug(_("Casting gridcentric message for discard_instance") % locals())
-        self._cast_gridcentric_message('discard_instance', context, instance_id)
+        self._cast_gridcentric_message('discard_instance', context, instance_ref)
 
     def launch_instance(self, context, instance_id, params={}):
+        instance_ref = self.get(context, instance_id)
         pid = context.project_id
         uid = context.user_id
 
-        self._check_quota(context, instance_id)
+        self._check_quota(context, instance_ref)
 
-        if not(self._is_instance_blessed(context, instance_id)):
+        if not(self._is_instance_blessed(context, instance_ref['id'])):
             # The instance is not blessed. We can't launch new instances from it.
             raise exception.Error(
                   _(("Instance %s is not blessed. " +
                      "Please bless the instance before launching from it.") % instance_id))
 
         # Create a new launched instance.
-        new_instance_ref = self._copy_instance(context, instance_id, "clone", launch=True)
+        new_instance_ref = self._copy_instance(context, instance_ref, "clone", launch=True)
 
         LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
                     " instance %(instance_id)s") % locals())
@@ -243,7 +249,7 @@ class API(base.Base):
 
     def migrate_instance(self, context, instance_id, dest):
         # Grab the DB representation for the VM.
-        instance_ref = self.db.instance_get(context, instance_id)
+        instance_ref = self.get(context, instance_id)
 
         gridcentric_hosts = self._list_gridcentric_hosts(context)
         if dest not in gridcentric_hosts:
@@ -254,20 +260,22 @@ class API(base.Base):
 
         LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
         self._cast_gridcentric_message('migrate_instance', context,
-                                       instance_ref['id'], host=instance_ref['host'],
+                                       instance_ref, host=instance_ref['host'],
                                        params={"dest" : dest})
 
     def list_launched_instances(self, context, instance_id):
+        instance_ref = self.get(context, instance_id)
         filter = {
-                  'metadata':{'launched_from':'%s' % instance_id},
+                  'metadata':{'launched_from':'%s' % instance_ref['id']},
                   'deleted':False
                   }
         launched_instances = self.compute_api.get_all(context, filter)
         return launched_instances
 
     def list_blessed_instances(self, context, instance_id):
+        instance_ref = self.get(context, instance_id)
         filter = {
-                  'metadata':{'blessed_from':'%s' % instance_id},
+                  'metadata':{'blessed_from':'%s' % instance_ref['id']},
                   'deleted':False
                   }
         blessed_instances = self.compute_api.get_all(context, filter)
