@@ -45,7 +45,16 @@ gridcentric_opts = [
                     'migration destination will connect to this address. '
                     'Must be in dotted-decimcal format, i.e., ddd.ddd.ddd.ddd. '
                     'By default, the outgoing migration address is determined '
-                    'automatically by the host\'s routing tables.')]
+                    'automatically by the host\'s routing tables.'),
+
+                cfg.IntOpt('gridcentric_compute_timeout',
+                default=None,
+                help='The timeout used to wait on called to nova-compute to setup the '
+                     'iptables rules for an instance. Since this is a locking procedure '
+                     'mutliple launches on the same host will be processed synchronously. '
+                     'This timeout can be raised to ensure that launch waits long enough '
+                     'for nova-compute to process its request. By default this uses the '
+                     'standard nova-wide rpc timeout.')]
 FLAGS.register_opts(gridcentric_opts)
 
 from nova import manager
@@ -456,7 +465,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                  {"method": "pre_live_migration",
                   "args": {'instance_id': instance_ref.id,
                            'block_migration': False,
-                           'disk': None}})
+                           'disk': None}},
+                 timeout=FLAGS.gridcentric_compute_timeout)
             self.vms_conn.launch(context,
                                  source_instance_ref.name,
                                  str(target),
