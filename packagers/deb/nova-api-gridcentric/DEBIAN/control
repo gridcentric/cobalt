@@ -3,6 +3,6 @@ Section: extra
 Version: VERSION
 Architecture: all
 Depends: nova-gridcentric
-Recommends: nova-api
+Enhances: nova-api
 Maintainer: GridCentric Inc. <support@gridcentric.com>
 Description: GridCentric API extension.

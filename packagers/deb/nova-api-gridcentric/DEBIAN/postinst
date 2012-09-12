@@ -14,6 +14,7 @@ function add_extension {
 
         # Restart the api service (if running).
         service nova-api restart 2>/dev/null || true
+        service nova-api-os-compute restart 2>/dev/null || true
     fi
 }
 
