@@ -55,6 +55,8 @@ from nova.compute import task_states
 from nova.compute import vm_states
 from nova.compute import manager as compute_manager
 
+from nova.notifier import api as notifier
+
 from gridcentric.nova.api import API
 import gridcentric.nova.extension.vmsconn as vmsconn
 
@@ -146,6 +148,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                 migration_url=migration_url,
                                                 use_image_service=FLAGS.gridcentric_use_image_service)
             if not(migration):
+                usage_info = utils.usage_from_instance(instance_ref)
+                notifier.notify('gridcentric.%s' % self.host,
+                                'gridcentric.instance.bless',
+                                notifier.INFO, usage_info)
                 self._instance_update(context, instance_ref.id,
                                   vm_state="blessed", task_state=None,
                                   launched_at=utils.utcnow())
@@ -337,6 +343,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
                               task_state=None,
                               terminated_at=utils.utcnow())
         self.db.instance_destroy(context, instance_id)
+        usage_info = utils.usage_from_instance(instance_ref)
+        notifier.notify('gridcentric.%s' % self.host,
+                        'gridcentric.instance.discard',
+                        notifier.INFO, usage_info)
 
     def launch_instance(self, context, instance_id, params={}, migration_url=None):
         """
@@ -450,6 +460,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
             # Perform our database update.
             if migration_url == None:
+                usage_info = utils.usage_from_instance(instance_ref)
+                notifier.notify('gridcentric.%s' % self.host,
+                                'gridcentric.instance.launch',
+                                notifier.INFO, usage_info)
                 self._instance_update(context,
                                   instance_ref.id,
                                   vm_state=vm_states.ACTIVE,
