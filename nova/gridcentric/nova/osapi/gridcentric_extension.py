@@ -23,6 +23,7 @@ from nova import exception as novaexc
 from nova.api.openstack import extensions
 
 from nova.api.openstack import wsgi
+from nova.api.openstack.compute import servers
 from nova.api.openstack.compute.views import servers as views_servers
 import nova.api.openstack.common as common
 
@@ -39,7 +40,7 @@ def convert_exception(action):
             raise exc.HTTPBadRequest(explanation=unicode(error))
     # note(dscannell): Openstack sometimes does matching on the function name so we need to
     # ensure that the decorated function returns with the same function name as the action.
-    fn.__name__ == action.__name__
+    fn.__name__ = action.__name__
     return fn
 
 class GridcentricServerControllerExtension(wsgi.Controller):
@@ -156,6 +157,16 @@ class GridcentricServerControllerExtension(wsgi.Controller):
                                             headers={'Retry-After': 0})
 
 
+class GridcentricTargetBootController(object):
+
+    def __init__(self):
+        self.nova_servers = servers.Controller()
+        self.nova_servers.compute_api = API()
+
+    @convert_exception
+    def create(self, req, body):
+        return self.nova_servers.create(req, body)
+
 class Gridcentric_extension(object):
     """ 
     The OpenStack Extension definition for the Gridcentric capabilities. Currently this includes:
@@ -178,6 +189,13 @@ class Gridcentric_extension(object):
 
     def __init__(self, ext_mgr):
         ext_mgr.register(self)
+
+    def get_resources(self):
+        resources = []
+        resource = extensions.ResourceExtension('gcservers',
+                                               GridcentricTargetBootController())
+        resources.append(resource)
+        return resources
 
     def get_controller_extensions(self):
         extension_list = []
