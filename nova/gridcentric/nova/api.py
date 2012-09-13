@@ -15,6 +15,7 @@
 
 
 """Handles all requests relating to GridCentric functionality."""
+import random
 
 from nova import compute
 from nova.compute import vm_states
@@ -294,3 +295,65 @@ class API(base.Base):
                   }
         blessed_instances = self.compute_api.get_all(context, filter)
         return blessed_instances
+
+    def _find_boot_host(self, context, metadata):
+
+        gc_hosts = self._list_gridcentric_hosts(context)
+        if metadata == None or 'gc:target_host' not in metadata:
+            # Find a random host that is running the gridcentric services.
+            random.shuffle(gc_hosts)
+            target_host = gc_hosts[0]
+        else:
+            # Ensure that the target host is running the gridcentic service.
+            target_host = metadata['gc:target_host']
+            if target_host not in gc_hosts:
+                raise exception.Error(
+                              _("Only able to launch on hosts running the gridcentric service."))
+        return target_host
+
+    def create(self, context, *args, **kwargs):
+        """
+        This will create a new instance on a target host if one is specified in the
+        gc:target-host metadata field.
+        """
+
+        if not context.is_admin:
+            raise exception.Error(_("This feature is restricted to only admin users."))
+        metadata = kwargs.get('metadata', None)
+        target_host = self._find_boot_host(context, metadata)
+
+        # Normally the compute_api would send a message to the sceduler. In this case since
+        # we have a target host, we'll just explicity send a message to that compute manager.
+        compute_api = compute.API()
+        def host_schedule(rpc_method,
+                    context, base_options,
+                    instance_type,
+                    availability_zone, injected_files,
+                    admin_password, image,
+                    num_instances,
+                    requested_networks,
+                    block_device_mapping,
+                    security_group,
+                    filter_properties):
+
+            instance_uuid = base_options.get('uuid')
+            now = utils.utcnow()
+            self.db.instance_update(context, instance_uuid,
+                               {'host': target_host,
+                                'scheduled_at': now})
+
+            rpc.cast(context, self.db.queue_get_for(context, FLAGS.compute_topic, target_host),
+                     {"method": "run_instance",
+                      "args": {"instance_uuid": instance_uuid,
+                       "availability_zone": availability_zone,
+                       "admin_password": admin_password,
+                       "injected_files": injected_files,
+                       "requested_networks": requested_networks}})
+
+            # Instance was already created before calling scheduler
+            return self.get(context, instance_uuid)
+
+        # Stub out the call to the scheduler and then delegate the rest of the work to the
+        # compute api. 
+        compute_api._schedule_run_instance = host_schedule
+        return compute_api.create(context, *args, **kwargs)
