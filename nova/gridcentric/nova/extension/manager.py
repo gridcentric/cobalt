@@ -46,7 +46,16 @@ gridcentric_opts = [
                     'migration destination will connect to this address. '
                     'Must be in dotted-decimcal format, i.e., ddd.ddd.ddd.ddd. '
                     'By default, the outgoing migration address is determined '
-                    'automatically by the host\'s routing tables.')]
+                    'automatically by the host\'s routing tables.'),
+
+                cfg.IntOpt('gridcentric_compute_timeout',
+                default=None,
+                help='The timeout used to wait on called to nova-compute to setup the '
+                     'iptables rules for an instance. Since this is a locking procedure '
+                     'mutliple launches on the same host will be processed synchronously. '
+                     'This timeout can be raised to ensure that launch waits long enough '
+                     'for nova-compute to process its request. By default this uses the '
+                     'standard nova-wide rpc timeout.')]
 FLAGS.register_opts(gridcentric_opts)
 
 from nova import manager
@@ -64,6 +73,8 @@ from nova.compute import task_states
 from nova.compute import vm_states
 from nova.compute import utils as compute_utils
 from nova.compute import manager as compute_manager
+
+from nova.notifier import api as notifier
 
 from gridcentric.nova.api import API
 import gridcentric.nova.extension.vmsconn as vmsconn
@@ -152,6 +163,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
             source_instance_ref = instance_ref
             migration = True
         else:
+            usage_info = utils.usage_from_instance(instance_ref)
+            notifier.notify('gridcentric.%s' % self.host,
+                            'gridcentric.instance.bless.start',
+                            notifier.INFO, usage_info)
             source_instance_ref = self._get_source_instance(context, instance_uuid)
             migration = False
 
@@ -164,6 +179,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                 migration_url=migration_url,
                                                 use_image_service=FLAGS.gridcentric_use_image_service)
             if not(migration):
+                usage_info = utils.usage_from_instance(instance_ref)
+                notifier.notify('gridcentric.%s' % self.host,
+                                'gridcentric.instance.bless.end',
+                                notifier.INFO, usage_info)
                 self._instance_update(context, instance_ref.id,
                                   vm_state="blessed", task_state=None,
                                   launched_at=utils.utcnow())
@@ -248,6 +267,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
         migration_url = self.bless_instance(context, instance_uuid,
                                             migration_url="mcdist://%s" %
                                             migration_address)
+
+        if migration_url == None:
+            # If the migration url is None then that means there was an issue with the bless.
+            # We cannot continue with the migration so we just exit.
+            return
 
         # Run our premigration hook.
         self.vms_conn.pre_migration(context, instance_ref, network_info, migration_url)
@@ -337,6 +361,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # Grab the DB representation for the VM.
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
+        usage_info = utils.usage_from_instance(instance_ref)
+        notifier.notify('gridcentric.%s' % self.host,
+                        'gridcentric.instance.discard.start',
+                        notifier.INFO, usage_info)
 
         metadata = self._instance_metadata(context, instance_uuid)
         image_refs = self._extract_image_refs(metadata)
@@ -356,6 +384,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
                               task_state=None,
                               terminated_at=timeutils.utcnow())
         self.db.instance_destroy(context, instance_uuid)
+        usage_info = utils.usage_from_instance(instance_ref)
+        notifier.notify('gridcentric.%s' % self.host,
+                        'gridcentric.instance.discard.end',
+                        notifier.INFO, usage_info)
 
     def launch_instance(self, context, instance_uuid, params={}, migration_url=None):
         """
@@ -384,6 +416,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   host=self.host)
             instance_ref['host'] = self.host
         else:
+            usage_info = utils.usage_from_instance(instance_ref)
+            notifier.notify('gridcentric.%s' % self.host,
+                            'gridcentric.instance.launch.start',
+                            notifier.INFO, usage_info)
             # Create a new launched instance.
             source_instance_ref = self._get_source_instance(context, instance_uuid)
 
@@ -455,7 +491,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                  {"method": "pre_live_migration",
                   "args": {'instance_id': instance_ref.id,
                            'block_migration': False,
-                           'disk': None}})
+                           'disk': None}},
+                 timeout=FLAGS.gridcentric_compute_timeout)
             self.vms_conn.launch(context,
                                  source_instance_ref.name,
                                  str(target),
@@ -468,6 +505,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
             # Perform our database update.
             if migration_url == None:
+                usage_info = utils.usage_from_instance(instance_ref, network_info=network_info)
+                notifier.notify('gridcentric.%s' % self.host,
+                                'gridcentric.instance.launch.end',
+                                notifier.INFO, usage_info)
                 self._instance_update(context,
                                   instance_ref['uuid'],
                                   vm_state=vm_states.ACTIVE,
