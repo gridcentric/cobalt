@@ -42,18 +42,19 @@ all : test package pylint
 .PHONY : all
 
 # Package the extensions.
-package : deb tgz
+package : deb tgz pip
 .PHONY : package
 
 # Build the python egg files.
 build-nova : build-nova-gridcentric
 build-nova : build-nova-api-gridcentric
-build-nova : build-novaclient-gridcentric
 build-nova : build-nova-compute-gridcentric
 .PHONY : build-nova
+build-novaclient : build-novaclient-gridcentric
+.PHONY: build-novaclient
 build-horizon : build-horizon-gridcentric
 .PHONY : build-horizon
-build : build-nova build-horizon
+build : build-nova build-novaclient build-horizon
 .PHONY : build
 
 build-nova-gridcentric : test-nova
@@ -70,9 +71,11 @@ build-nova-api-gridcentric : test-nova
 	    `find dist/nova-api-gridcentric/ -name gridcentric_extension.py`
 .PHONY: build-nova-api-gridcentric
 
-build-novaclient-gridcentric : test-nova
-	@rm -rf nova/build/ dist/novaclient-gridcentric
-	@cd nova && PACKAGE=novaclient-gridcentric VERSION=$(VERSION) \
+build-novaclient-gridcentric :
+	@rm -rf novaclient/build/ dist/novaclient-gridcentric
+	@mkdir -p $(CURDIR)/dist/novaclient-gridcentric/usr/lib/$(PYTHON)/site-packages
+	@cd novaclient && VERSION=$(VERSION) \
+	    PYTHONPATH=$(CURDIR)/dist/novaclient-gridcentric/usr/lib/$(PYTHON)/site-packages \
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/novaclient-gridcentric/usr
 .PHONY: build-novaclient-gridcentric
 
@@ -92,12 +95,13 @@ build-horizon-gridcentric : test-horizon.xml
 
 deb-nova : deb-nova-gridcentric
 deb-nova : deb-nova-api-gridcentric
-deb-nova : deb-novaclient-gridcentric
 deb-nova : deb-nova-compute-gridcentric
 .PHONY : deb-nova
+deb-novaclient : deb-novaclient-gridcentric
+.PHONY : deb-novaclient
 deb-horizon : deb-horizon-gridcentric
 .PHONY : deb-horizon
-deb : deb-nova deb-horizon 
+deb : deb-nova deb-novaclient deb-horizon 
 .PHONY : deb
 
 deb-% : build-%
@@ -112,20 +116,32 @@ deb-% : build-%
 
 tgz-nova : tgz-nova-gridcentric
 tgz-nova : tgz-nova-api-gridcentric
-tgz-nova : tgz-novaclient-gridcentric
 tgz-nova : tgz-nova-compute-gridcentric
 .PHONY : tgz-nova
+tgz-novaclient : tgz-novaclient-gridcentric
+.PHONY : tgz-novaclient
 tgz-horizon : tgz-horizon-gridcentric
 .PHONY : tgz-horizon
-tgz : tgz-nova tgz-horizon
+tgz : tgz-nova tgz-novaclient tgz-horizon
 .PHONY : tgz
+
 tgz-% : build-%
 	tar -cvzf $*_$(VERSION).$(RELEASE)-$(OPENSTACK_RELEASE)py$(PYTHON_VERSION).tgz -C dist/$* .
+
+pip : pip-novaclient-gridcentric
+	@rm -rf novaclient/build/ novaclient/dist/ novaclient/*.egg-info
+	@cd novaclient && VERSION=$(VERSION) \
+	    $(PYTHON) setup.py sdist
+	@cp novaclient/dist/*.tar.gz .
+.PHONY: pip
+
+pip-novaclient-gridcentric :
+.PHONY: pip-novaclient-gridcentric
 
 # Runs pylint on the code base.
 pylint-%.txt :
 	cd $* && pylint --rcfile=pylintrc gridcentric 2>&1 > $@ || true
-pylint : pylint-nova.txt pylint-horizon.txt
+pylint : pylint-nova.txt pylint-novaclient.txt pylint-horizon.txt
 .PHONY: pylint
 
 # Executes the units tests and generated an Junit XML report.
@@ -143,6 +159,8 @@ clean :
 	rm -f test-*.xml
 	rm -f pylint-*.txt
 	rm -rf *.deb debbuild
-	rm -rf *.tgz
-	rm -rf nova/build horizon/build
+	rm -rf *.tgz *.tar.gz
+	rm -rf nova/build novaclient/build horizon/build
+	rm -rf nova/dist novaclient/dist horizon/dist
+	rm -rf novaclient/MANIFEST novaclient/requires.txt novaclient/*.egg-info
 .PHONY : clean
