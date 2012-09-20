@@ -59,13 +59,13 @@ build : build-nova build-novaclient build-horizon
 
 build-nova-gridcentric : test-nova
 	@rm -rf nova/build/ dist/nova-gridcentric
-	@cd nova && PACKAGE=nova-gridcentric VERSION=$(VERSION) \
+	@cd nova && PACKAGE=nova-gridcentric VERSION=$(VERSION).$(RELEASE) \
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/nova-gridcentric/usr
 PHONY: build-nova-gridcentric
 
 build-nova-api-gridcentric : test-nova
 	@rm -rf nova/build/ dist/nova-api-gridcentric
-	@cd nova && PACKAGE=nova-api-gridcentric VERSION=$(VERSION) \
+	@cd nova && PACKAGE=nova-api-gridcentric VERSION=$(VERSION).$(RELEASE) \
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/nova-api-gridcentric/usr
 	@sed -i -e "s/'.*' ##TIMESTAMP##/'$(TIMESTAMP)' ##TIMESTAMP##/" \
 	    `find dist/nova-api-gridcentric/ -name gridcentric_extension.py`
@@ -74,14 +74,14 @@ build-nova-api-gridcentric : test-nova
 build-novaclient-gridcentric :
 	@rm -rf novaclient/build/ dist/novaclient-gridcentric
 	@mkdir -p $(CURDIR)/dist/novaclient-gridcentric/usr/lib/$(PYTHON)/site-packages
-	@cd novaclient && VERSION=$(VERSION) \
+	@cd novaclient && VERSION=$(VERSION).$(RELEASE) \
 	    PYTHONPATH=$(CURDIR)/dist/novaclient-gridcentric/usr/lib/$(PYTHON)/site-packages \
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/novaclient-gridcentric/usr
 .PHONY: build-novaclient-gridcentric
 
 build-nova-compute-gridcentric : test-nova
 	@rm -rf nova/build/ dist/nova-compute-gridcentric
-	@cd nova && PACKAGE=nova-compute-gridcentric VERSION=$(VERSION) \
+	@cd nova && PACKAGE=nova-compute-gridcentric VERSION=$(VERSION).$(RELEASE) \
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/nova-compute-gridcentric/usr
 	@$(INSTALL_DIR) dist/nova-compute-gridcentric/etc/init
 	@$(INSTALL_DATA) nova/etc/nova-gc.conf dist/nova-compute-gridcentric/etc/init
@@ -89,7 +89,7 @@ build-nova-compute-gridcentric : test-nova
 
 build-horizon-gridcentric : test-horizon.xml
 	@rm -rf horizon/build/ dist/horizon-gridcentric
-	@cd horizon && VERSION=$(VERSION) \
+	@cd horizon && VERSION=$(VERSION).$(RELEASE) \
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/horizon-gridcentric/usr
 .PHONY: build-horizon-gridcentric
 
@@ -130,7 +130,7 @@ tgz-% : build-%
 
 pip : pip-novaclient-gridcentric
 	@rm -rf novaclient/build/ novaclient/dist/ novaclient/*.egg-info
-	@cd novaclient && VERSION=$(VERSION) \
+	@cd novaclient && VERSION=$(VERSION).$(RELEASE) \
 	    $(PYTHON) setup.py sdist
 	@cp novaclient/dist/*.tar.gz .
 .PHONY: pip
