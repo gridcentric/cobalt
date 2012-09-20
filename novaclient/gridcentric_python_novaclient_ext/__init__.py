@@ -227,6 +227,13 @@ class GcServer(servers.Server):
 class GcServerManager(servers.ServerManager):
     resource_class = GcServer
 
+    def __init__(self, client, *args, **kwargs):
+        servers.ServerManager.__init__(self, client, *args, **kwargs)
+
+        # Make sure this instance is available as gridcentric.
+        if not(hasattr(client, 'gridcentric')):
+            setattr(client, 'gridcentric', self)
+
     def launch(self, server, target="0", guest_params={}):
         header, info = self._action("gc_launch",
                                    server,
