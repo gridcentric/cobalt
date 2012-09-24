@@ -15,10 +15,19 @@
 
 import os
 import sys
-try:
+
+# NOTE: Because of the way the packages are built, we 
+# need to occasionally override which toolstack is used
+# to build the package. By default (i.e. for PIP) we go
+# to the setuptools variant -- but this tries to be too
+# clever when we are building debian packages.
+setup = os.getenv("__SETUP", "setuptools")
+if setup == "setuptools":
     from setuptools import setup
-except:
+elif setup == "distutils":
     from distutils.core import setup
+else:
+    raise Exception("Unknown __SETUP tools specified.")
 
 setup(name='gridcentric_python_novaclient_ext',
       version=os.getenv('VERSION', '1.0'),

@@ -72,9 +72,9 @@ build-nova-api-gridcentric : test-nova
 .PHONY: build-nova-api-gridcentric
 
 build-novaclient-gridcentric :
-	@rm -rf novaclient/build/ dist/novaclient-gridcentric
+	@rm -rf novaclient/build/ novaclient/*.egg-info dist/novaclient-gridcentric
 	@mkdir -p $(CURDIR)/dist/novaclient-gridcentric/usr/lib/$(PYTHON)/site-packages
-	@cd novaclient && VERSION=$(VERSION).$(RELEASE) \
+	@cd novaclient && VERSION=$(VERSION).$(RELEASE) __SETUP=distutils \
 	    PYTHONPATH=$(CURDIR)/dist/novaclient-gridcentric/usr/lib/$(PYTHON)/site-packages \
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/novaclient-gridcentric/usr
 .PHONY: build-novaclient-gridcentric
