@@ -60,8 +60,9 @@ def usage():
     sys.stderr.write("    list-blessed <instance id>\n")
     sys.stderr.write("        List instances blessed from the given id.\n")
     sys.stderr.write("\n")
-    sys.stderr.write("    migrate <instance id> <dest>\n")
-    sys.stderr.write("        Migrate a streamed instance.\n")
+    sys.stderr.write("    migrate <instance id> [<dest>]\n")
+    sys.stderr.write("        Migrate a streamed instance. If no destination is specified then\n")
+    sys.stderr.write("        a random host with an enabled gridcentric service will be used.\n")
     sys.stderr.write("\n")
     sys.stderr.flush()
 
@@ -93,8 +94,10 @@ def get_parser():
 parser = get_parser()
 options, args = parser.parse_known_args(sys.argv)
 
-def get_arg(n):
+def get_arg(n, is_optional=False):
     if len(args) < n + 2:
+        if is_optional:
+            return None
         usage()
         exit()
     return args[n + 1]
@@ -146,7 +149,7 @@ elif command == 'list-blessed':
 
 elif command == 'migrate':
     instance_id = get_arg(1)
-    dest = get_arg(2)
+    dest = get_arg(2, is_optional=True)
     client.migrate_instance(instance_id, dest)
 
 else:

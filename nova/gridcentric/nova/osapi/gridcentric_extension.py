@@ -134,8 +134,6 @@ class Gridcentric_extension(object):
         context = req.environ["nova.context"]
         try:
             dest = input_dict["gc_migrate"].get("dest", None)
-            if not(dest):
-                return webob.Response(status_int=400)
             self.gridcentric_api.migrate_instance(context, id, dest)
             return webob.Response(status_int=200)
         except quota.QuotaError as error:
