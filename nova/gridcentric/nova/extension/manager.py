@@ -175,7 +175,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Return the memory URL (will be None for a normal bless).
         return migration_url
 
-<<<<<<< HEAD
     def _lock_migration(self, context, instance_id):
         self.cond.acquire()
         try:
