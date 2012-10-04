@@ -175,6 +175,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Return the memory URL (will be None for a normal bless).
         return migration_url
 
+<<<<<<< HEAD
     def _lock_migration(self, context, instance_id):
         self.cond.acquire()
         try:
@@ -199,6 +200,26 @@ class GridCentricManager(manager.SchedulerDependentManager):
             self.db.instance_metadata_update(context, instance_id, metadata, True)
         finally:
             self.cond.release()
+
+    def _migration_reconfigure_networks(self, context, instance_id, dest):
+        network_dest_queue = self.db.queue_get_for(context, FLAGS.network_topic, dest)
+        network_source_queue = self.db.queue_get_for(context, FLAGS.network_topic, self.host)
+
+        vifs = self.db.virtual_interface_get_by_instance(context, instance_id)
+        for vif in vifs:
+            network_ref = self.db.network_get(context, vif['network_id'])
+            if network_ref['multi_host']:
+                # This type of configuration only makes sense for a multi_host network where
+                # the compute host is responsible for the networking of its instances. Otherwise,
+                # there is a global set of network hosts performing the networking and there
+                # is no need to reconfigure.
+                rpc.call(context, network_dest_queue,
+                         {"method":"_setup_network",
+                          "args":{"network_ref":network_ref}})
+
+                rpc.call(context, network_source_queue,
+                         {"method":"_setup_network",
+                          "args":{"network_ref":network_ref}})
 
     def migrate_instance(self, context, instance_id, dest):
         """
@@ -320,6 +341,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
             rpc.call(context, compute_source_queue,
                  {"method": "rollback_live_migration_at_destination",
                   "args": {'instance_id': instance_id}})
+
+            # This basically ensures that DHCP is configured and running on the dest host and
+            # that the DHCP entries from the source host have been removed.
+            self._migration_reconfigure_networks(context, instance_id, dest)
 
             self._instance_update(context,
                                   instance_ref.id,
