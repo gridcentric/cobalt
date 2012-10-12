@@ -9,7 +9,9 @@ function add_extension {
     if [ -f $NOVA_CONF ]; then
         # Add the extension.
         if ! cat $NOVA_CONF | grep $EXTENSION >/dev/null 2>&1; then
-            echo "--osapi_compute_extension=$EXTENSION" >> $NOVA_CONF
+            grep "\[DEFAULT\]" $NOVA_CONF >/dev/null 2>&1 && \
+                echo "osapi_compute_extension=$EXTENSION" >> $NOVA_CONF || \
+                echo "--ospai_compute_extension=$EXTENSION" >> $NOVA_CONF
         fi
 
         # Restart the api service (if running).
