@@ -21,22 +21,38 @@
 
 # (amscanne): Normally, a nova service would import eventlet here and
 # monkey_patch the core libraries so use the greenthread-friendly versions.
-# However, we've encountered several strange problems that seem to stem from
-# eventlet-style handling of events. In the manager workflow, the control flow
-# seems to fall off a cliff at arbitrary points and never return. This is very
-# bad, as it means that we get VMs that are stuck in the network allocation
-# stage or the BUILD stage. We actually already have natural greenthread
-# friendly cut points in our code (vmsconn uses the eventlet tpool methods to
-# execute the underlying vms routines) so code paths will not block for
-# excessive amounts of time and the greenthreads will still work as expected.
-# Thus, we do *NOT* monkey patch the core routines, and instead allow them to
-# block as normal.
+# However, since we actually execute some of the VMS code to run in separate
+# threads (hence we use the tpool() functionality provided by eventlet), we 
+# skip monkey_patching the thread libraries.
 import eventlet
-eventlet.monkey_patch(all=False, socket=True, select=True)
+eventlet.monkey_patch(thread=False)
 
 import gettext
 import os
 import sys
+import gc
+import traceback
+import threading
+import greenlet
+import signal
+
+# (amscanne) We stole this from Essex RPC code. To debug problems, we allow
+# dumping of all active greenthreads. There is no cost to this code living
+# on a production system.
+def find_objects(t):
+    return filter(lambda o: isinstance(o, t), gc.get_objects())
+def print_threads():
+    for i, gt in enumerate(find_objects(greenlet.greenlet)):
+        sys.stderr.write("greenthread %s\n" % str(i))
+        traceback.print_stack(gt.gr_frame)
+    for i, stack in sys._current_frames().items():
+        sys.stderr.write("thread %s\n" % str(i))
+        traceback.print_stack(stack)
+
+def sig_usr2_handler(signum, frame):
+    print_threads()
+
+signal.signal(signal.SIGUSR2, sig_usr2_handler)
 
 # (dscannell): We need to preload this otherwise it leads to our main
 # manager class not loading because we won't be able to load the virt module
