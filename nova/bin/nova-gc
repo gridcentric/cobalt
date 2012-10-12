@@ -32,7 +32,7 @@
 # Thus, we do *NOT* monkey patch the core routines, and instead allow them to
 # block as normal.
 import eventlet
-eventlet.monkey_patch(all=False)
+eventlet.monkey_patch(all=False, socket=True, select=True)
 
 import gettext
 import os
