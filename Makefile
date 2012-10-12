@@ -85,6 +85,8 @@ build-nova-compute-gridcentric : test-nova
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/nova-compute-gridcentric/usr
 	@$(INSTALL_DIR) dist/nova-compute-gridcentric/etc/init
 	@$(INSTALL_DATA) nova/etc/nova-gc.conf dist/nova-compute-gridcentric/etc/init
+	@$(INSTALL_DIR) dist/nova-compute-gridcentric/etc/init.d
+	@$(INSTALL_BIN) nova/etc/nova-gc dist/nova-compute-gridcentric/etc/init.d
 .PHONY: build-nova-compute-gridcentric
 
 build-horizon-gridcentric : test-horizon.xml
@@ -106,6 +108,7 @@ deb : deb-nova deb-novaclient deb-horizon
 
 deb-% : build-%
 	@rm -rf debbuild && $(INSTALL_DIR) debbuild
+	@rm -rf dist/$*/etc/init.d
 	@rsync -ruav packagers/deb/$*/ debbuild
 	@rsync -ruav dist/$*/ debbuild
 	@sed -i "s/\(^Version:\).*/\1 $(VERSION).$(RELEASE)-$(OPENSTACK_RELEASE)py$(PYTHON_VERSION)/" debbuild/DEBIAN/control
@@ -137,6 +140,22 @@ pip : pip-novaclient-gridcentric
 
 pip-novaclient-gridcentric :
 .PHONY: pip-novaclient-gridcentric
+
+rpm-nova : rpm-nova-gridcentric
+rpm-nova : rpm-nova-api-gridcentric
+rpm-nova : rpm-nova-compute-gridcentric
+.PHONY : rpm-nova
+
+rpm-novaclient : rpm-novaclient-gridcentric
+.PHONY : rpm-novaclient
+
+rpm-%: build-%
+	@rm -rf dist/$*/etc/init
+	@rpmbuild -bb --buildroot $(PWD)/rpmbuild/BUILDROOT \
+	  --define="%_topdir $(PWD)/rpmbuild" --define="%version $(VERSION).$(RELEASE)" \
+	  --define="%release $(NOVA_RELEASE)py$(PYTHON_VERSION)" packagers/rpm/$*.spec
+	@cp rpmbuild/RPMS/noarch/*.rpm .
+.PHONY : rpm
 
 # Runs pylint on the code base.
 pylint-%.txt :
