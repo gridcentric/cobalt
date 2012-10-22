@@ -14,8 +14,30 @@
 #    under the License.
 
 from nova import db
+from nova import rpc
 from nova.compute import instance_types
 from nova.compute import vm_states
+
+class MockRpc(object):
+    """
+    A simple mock Rpc that used to tests that the proper messages are placed on the queue. In all
+    cases this will return with a None result to ensure that tests do not hang waiting for a 
+    response.
+    """
+
+    def __init__(self):
+        self.call_log = []
+        self.cast_log = []
+
+    def call(self, context, queue, kwargs):
+        self.call_log.append((queue, kwargs))
+
+    def cast(self, context, queue, kwargs):
+        self.cast_log.append((queue, kwargs))
+
+mock_rpc = MockRpc()
+rpc.call = mock_rpc.call
+rpc.cast = mock_rpc.cast
 
 def create_user(context, user=None):
 
