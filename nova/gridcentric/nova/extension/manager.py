@@ -75,7 +75,8 @@ from nova.compute import vm_states
 from nova.compute import utils as compute_utils
 from nova.compute import manager as compute_manager
 
-from nova.notifier import api as notifier
+from nova.openstack.common.notifier import api as notifier
+from nova import notifications
 
 from gridcentric.nova.api import API
 import gridcentric.nova.extension.vmsconn as vmsconn
@@ -165,8 +166,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
             source_instance_ref = instance_ref
             migration = True
         else:
-            usage_info = utils.usage_from_instance(instance_ref)
-            notifier.notify('gridcentric.%s' % self.host,
+            usage_info = notifications.info_from_instance(context, instance_ref,
+                                                          network_info=None,
+                                                          system_metadata=None)
+            notifier.notify(context, 'gridcentric.%s' % self.host,
                             'gridcentric.instance.bless.start',
                             notifier.INFO, usage_info)
             source_instance_ref = self._get_source_instance(context, instance_uuid)
@@ -181,8 +184,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                 migration_url=migration_url,
                                                 use_image_service=FLAGS.gridcentric_use_image_service)
             if not(migration):
-                usage_info = utils.usage_from_instance(instance_ref)
-                notifier.notify('gridcentric.%s' % self.host,
+                usage_info = notifications.info_from_instance(context, instance_ref,
+                                                          network_info=None,
+                                                          system_metadata=None)
+                notifier.notify(context, 'gridcentric.%s' % self.host,
                                 'gridcentric.instance.bless.end',
                                 notifier.INFO, usage_info)
                 self._instance_update(context, instance_ref.id,
@@ -411,8 +416,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # Grab the DB representation for the VM.
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
-        usage_info = utils.usage_from_instance(instance_ref)
-        notifier.notify('gridcentric.%s' % self.host,
+        usage_info = notifications.info_from_instance(context, instance_ref,
+                                                          network_info=None,
+                                                          system_metadata=None)
+        notifier.notify(context, 'gridcentric.%s' % self.host,
                         'gridcentric.instance.discard.start',
                         notifier.INFO, usage_info)
 
@@ -434,8 +441,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
                               task_state=None,
                               terminated_at=timeutils.utcnow())
         self.db.instance_destroy(context, instance_uuid)
-        usage_info = utils.usage_from_instance(instance_ref)
-        notifier.notify('gridcentric.%s' % self.host,
+        usage_info = notifications.info_from_instance(context, instance_ref,
+                                                          network_info=None,
+                                                          system_metadata=None)
+        notifier.notify(context, 'gridcentric.%s' % self.host,
                         'gridcentric.instance.discard.end',
                         notifier.INFO, usage_info)
 
@@ -466,8 +475,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   host=self.host)
             instance_ref['host'] = self.host
         else:
-            usage_info = utils.usage_from_instance(instance_ref)
-            notifier.notify('gridcentric.%s' % self.host,
+            usage_info = notifications.info_from_instance(context, instance_ref,
+                                                          network_info=None,
+                                                          system_metadata=None)
+            notifier.notify(context, 'gridcentric.%s' % self.host,
                             'gridcentric.instance.launch.start',
                             notifier.INFO, usage_info)
             # Create a new launched instance.
@@ -555,8 +566,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
             # Perform our database update.
             if migration_url == None:
-                usage_info = utils.usage_from_instance(instance_ref, network_info=network_info)
-                notifier.notify('gridcentric.%s' % self.host,
+                usage_info = notifications.info_from_instance(context, instance_ref,
+                                                          network_info=network_info,
+                                                          system_metadata=None)
+                notifier.notify(context, 'gridcentric.%s' % self.host,
                                 'gridcentric.instance.launch.end',
                                 notifier.INFO, usage_info)
                 self._instance_update(context,
