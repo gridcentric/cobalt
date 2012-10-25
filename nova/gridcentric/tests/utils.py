@@ -14,10 +14,35 @@
 #    under the License.
 
 from nova import db
+from nova import rpc
 from nova.compute import instance_types
 from nova.compute import vm_states
 
-def create_user(context, user={}):
+class MockRpc(object):
+    """
+    A simple mock Rpc that used to tests that the proper messages are placed on the queue. In all
+    cases this will return with a None result to ensure that tests do not hang waiting for a 
+    response.
+    """
+
+    def __init__(self):
+        self.call_log = []
+        self.cast_log = []
+
+    def call(self, context, queue, kwargs):
+        self.call_log.append((queue, kwargs))
+
+    def cast(self, context, queue, kwargs):
+        self.cast_log.append((queue, kwargs))
+
+mock_rpc = MockRpc()
+rpc.call = mock_rpc.call
+rpc.cast = mock_rpc.cast
+
+def create_user(context, user=None):
+
+    if user == None:
+        user = {}
 
     user.setdefault('id', "some random user")
     user.setdefault('is_admin', True)
@@ -25,8 +50,10 @@ def create_user(context, user={}):
     context.elevated()
     return db.user_create(context, user)['id']
 
-def create_project(context, project={}):
+def create_project(context, project=None):
 
+    if project == None:
+        project = {}
     project.setdefault('id', "some random project")
     project.setdefault('name', project['id'])
     if 'project_manager' not in project:
@@ -36,22 +63,24 @@ def create_project(context, project={}):
     context.elevated()
     return db.project_create(context, project)['id']
 
-def create_image(context, image={}):
-    pass
+def create_instance(context, instance=None):
+    """Create a test instance"""
 
-def create_instance(context, instance={}):
-        """Create a test instance"""
+    if instance == None:
+        instance = {}
 
-        instance.setdefault('user_id', create_user(context))
-        instance.setdefault('project_id', create_project(context, {'project_manager':instance['user_id']}))
-        instance.setdefault('instance_type_id', instance_types.get_instance_type_by_name('m1.tiny')['id'])
-        instance.setdefault('image_id', 1)
-        instance.setdefault('image_ref', 1)
-        instance.setdefault('reservation_id', 'r-fakeres')
-        instance.setdefault('launch_time', '10')
-        instance.setdefault('mac_address', "ca:ca:ca:01")
-        instance.setdefault('ami_launch_index', 0)
-        instance.setdefault('vm_state', vm_states.ACTIVE)
+    instance.setdefault('user_id', create_user(context))
+    instance.setdefault('project_id', create_project(context, {'project_manager':instance['user_id']}))
+    instance.setdefault('instance_type_id', instance_types.get_instance_type_by_name('m1.tiny')['id'])
+    instance.setdefault('image_id', 1)
+    instance.setdefault('image_ref', 1)
+    instance.setdefault('reservation_id', 'r-fakeres')
+    instance.setdefault('launch_time', '10')
+    instance.setdefault('mac_address', "ca:ca:ca:01")
+    instance.setdefault('ami_launch_index', 0)
+    instance.setdefault('vm_state', vm_states.ACTIVE)
+    instance.setdefault('root_gb', 0)
+    instance.setdefault('ephemeral_gb', 0)
 
-        context.elevated()
-        return db.instance_create(context, instance)['uuid']
+    context.elevated()
+    return db.instance_create(context, instance)['uuid']
