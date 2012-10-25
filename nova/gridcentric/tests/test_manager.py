@@ -17,20 +17,16 @@ import unittest
 import os
 import shutil
 
+from datetime import datetime
+
 from nova import db
 from nova import flags
 from nova import context as nova_context
 from nova import exception
 
-# Setup VMS environment.
-os.environ['VMS_SHELF_PATH'] = '.'
+from nova.compute import vm_states
 
-import vms.virt as virt
-import vms.config as vmsconfig
-
-import gridcentric.nova.api as gc_api
 import gridcentric.nova.extension.manager as gc_manager
-
 import gridcentric.tests.utils as utils
 
 FLAGS = flags.FLAGS
@@ -45,15 +41,10 @@ class GridCentricManagerTestCase(unittest.TestCase):
         shutil.copyfile(os.path.join(FLAGS.state_path, FLAGS.sqlite_clean_db),
                         os.path.join(FLAGS.state_path, FLAGS.sqlite_db))
 
-        # Point the vms shared directory so that it is not the default (which may not exists, and
-        # we don't really want to create). Since the tests use the dummy hypervisor we do not need
-        # to worry about leftover artifacts.
-        vmsconfig.SHARED = os.getcwd()
-
         self.mock_rpc = utils.mock_rpc
 
-        self.gridcentric = gc_manager.GridCentricManager()
-        self.gridcentric_api = gc_api.API()
+        self.vmsconn = utils.MockVmsConn()
+        self.gridcentric = gc_manager.GridCentricManager(vmsconn=self.vmsconn)
         self.context = nova_context.RequestContext('fake', 'fake', True)
 
     def test_target_memory_string_conversion_case_insensitive(self):
@@ -106,16 +97,83 @@ class GridCentricManagerTestCase(unittest.TestCase):
         except ValueError:
             pass
 
+    def test_bless_instance(self):
+
+        self.vmsconn.set_return_val("bless",
+                                    ("newname", "migration_url", ["file1", "file2", "file3"]))
+
+        pre_bless_time = datetime.utcnow()
+        blessed_uuid = utils.create_pre_blessed_instance(self.context)
+        migration_url = self.gridcentric.bless_instance(self.context, blessed_uuid, None)
+
+        blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
+        self.assertEquals("blessed", blessed_instance['vm_state'])
+        self.assertEquals("migration_url", migration_url)
+        metadata = db.instance_metadata_get(self.context, blessed_instance['id'])
+        self.assertEquals("file1,file2,file3", metadata['images'])
+        # note(dscannell): Although we set the blessed metadata to True in the code, we need to compare
+        # it against '1'. This is because the True gets converted to a '1' when added to the database.
+        self.assertEquals('1', metadata['blessed'])
+        self.assertTrue(pre_bless_time <= blessed_instance['launched_at'])
+
+    def test_bless_instance_exception(self):
+        self.vmsconn.set_return_val("bless", utils.TestInducedException())
+
+        blessed_uuid = utils.create_pre_blessed_instance(self.context)
+
+        migration_url = self.gridcentric.bless_instance(self.context, blessed_uuid, None)
+
+        blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
+        self.assertEquals(vm_states.ERROR, blessed_instance['vm_state'])
+        self.assertEquals(None, migration_url)
+        metadata = db.instance_metadata_get(self.context, blessed_instance['id'])
+        self.assertEquals(None, metadata.get('images', None))
+        self.assertEquals(None, metadata.get('blessed', None))
+        self.assertEquals(None, blessed_instance['launched_at'])
+
+    def test_bless_instance_not_found(self):
+
+        # Create a new UUID for a non existing instance.
+        blessed_uuid = utils.create_uuid()
+        try:
+            self.gridcentric.bless_instance(self.context, blessed_uuid, None)
+            self.fail("Bless should have thrown InstanceNotFound exception.")
+        except exception.InstanceNotFound:
+            pass
+
+    def test_bless_instance_migrate(self):
+        self.vmsconn.set_return_val("bless",
+                                    ("newname", "migration_url", ["file1", "file2", "file3"]))
+
+        blessed_uuid = utils.create_instance(self.context)
+        pre_bless_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
+        migration_url = self.gridcentric.bless_instance(self.context, blessed_uuid,
+                                                        "mcdist://migrate_addr")
+        post_bless_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
+
+        self.assertEquals(pre_bless_instance['vm_state'], post_bless_instance['vm_state'])
+        self.assertEquals("migration_url", migration_url)
+        metadata = db.instance_metadata_get(self.context, post_bless_instance['id'])
+        self.assertEquals("file1,file2,file3", metadata['images'])
+        self.assertEquals(pre_bless_instance['launched_at'], post_bless_instance['launched_at'])
+
     def test_discard_a_blessed_instance(self):
+        self.vmsconn.set_return_val("discard", None)
+        blessed_uuid = utils.create_blessed_instance(self.context)
 
-        instance_uuid = utils.create_instance(self.context)
-        blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_uuid)
-        blessed_uuid = blessed_instance['uuid']
-
+        pre_discard_time = datetime.utcnow()
         self.gridcentric.discard_instance(self.context, blessed_uuid)
 
         try:
-            db.instance_get(self.context, blessed_instance['id'])
+            db.instance_get(self.context, blessed_uuid)
             self.fail("The blessed instance should no longer exists after being discarded.")
         except exception.InstanceNotFound:
-            pass
+            # This ensures that the instance has been marked as deleted in the database. Now assert
+            # that the rest of its attributes have been marked.
+            self.context.read_deleted = 'yes'
+            instances = db.instance_get_all_by_project(self.context, self.context.project_id)
+            self.assertEquals(1, len(instances))
+            discarded_instance = instances[0]
+
+            self.assertTrue(pre_discard_time <= discarded_instance['terminated_at'])
+            self.assertEquals(vm_states.DELETED, discarded_instance['vm_state'])
