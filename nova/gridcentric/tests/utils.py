@@ -13,10 +13,15 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import uuid
+
 from nova import db
 from nova import rpc
 from nova.compute import instance_types
 from nova.compute import vm_states
+
+class TestInducedException(Exception):
+    pass
 
 class MockRpc(object):
     """
@@ -39,29 +44,55 @@ mock_rpc = MockRpc()
 rpc.call = mock_rpc.call
 rpc.cast = mock_rpc.cast
 
-def create_user(context, user=None):
+class MockVmsConn(object):
+    """
+    A simple mock vms connection class that allows us to test functionality without relying on 
+    actually communicating with the vms libraries. Essentially used to isolate parts of the system.
+    """
+    def __init__(self):
+        self.return_vals = {}
 
-    if user == None:
-        user = {}
+    def set_return_val(self, method, value):
+        values = self.return_vals.get(method, [])
+        values.append(value)
+        self.return_vals[method] = values
 
-    user.setdefault('id', "some random user")
-    user.setdefault('is_admin', True)
+    def pop_return_value(self, method):
+        values = self.return_vals.get(method, None)
+        if values == [] or values == None:
+            raise Exception("A call to method '%s' was unexpected." % method)
+        val = values.pop()
+        if isinstance(val, Exception):
+            raise val
+        return val
 
-    context.elevated()
-    return db.user_create(context, user)['id']
+    def configure(self):
+        pass
 
-def create_project(context, project=None):
+    def bless(self, context, instance_name, new_instance_ref,
+              migration_url=None, use_image_service=False):
+        return self.pop_return_value("bless")
 
-    if project == None:
-        project = {}
-    project.setdefault('id', "some random project")
-    project.setdefault('name', project['id'])
-    if 'project_manager' not in project:
-        project['project_manager'] = create_user(context)
-    project.setdefault('description', "mock project created by testing framework")
+    def discard(self, context, instance_name, use_image_service=False, image_refs=[]):
+        return self.pop_return_value("discard")
 
-    context.elevated()
-    return db.project_create(context, project)['id']
+    def launch(self, context, instance_name, mem_target,
+               new_instance_ref, network_info, migration_url=None,
+               use_image_service=False, image_refs=[], params={}):
+        return self.pop_return_value("launch")
+
+    def replug(self, instance_name, mac_addresses):
+        return self.pop_return_value("replug")
+
+    def pre_migration(self, context, instance_ref, network_info, migration_url):
+        return self.pop_return_value("pre_migration")
+
+    def post_migration(self, context, instance_ref, network_info, migration_url,
+                       use_image_service=False, image_refs=[]):
+        return self.pop_return_value("post_migration")
+
+def create_uuid():
+    return str(uuid.uuid4())
 
 def create_instance(context, instance=None):
     """Create a test instance"""
@@ -69,8 +100,8 @@ def create_instance(context, instance=None):
     if instance == None:
         instance = {}
 
-    instance.setdefault('user_id', create_user(context))
-    instance.setdefault('project_id', create_project(context, {'project_manager':instance['user_id']}))
+    instance.setdefault('user_id', context.user_id)
+    instance.setdefault('project_id', context.project_id)
     instance.setdefault('instance_type_id', instance_types.get_instance_type_by_name('m1.tiny')['id'])
     instance.setdefault('image_id', 1)
     instance.setdefault('image_ref', 1)
@@ -83,4 +114,34 @@ def create_instance(context, instance=None):
     instance.setdefault('ephemeral_gb', 0)
 
     context.elevated()
-    return db.instance_create(context, instance)['uuid']
+    instance_ref = db.instance_create(context, instance)['uuid']
+    return instance_ref
+
+def create_pre_blessed_instance(context, instance=None, source_uuid=None):
+    """
+    Creates a blessed instance in the state that the API would leave it. In other words an instance
+    that is ready to be blessed by the manager.
+    """
+    if source_uuid == None:
+        source_uuid = create_instance(context)
+    if instance == None:
+        instance = {}
+
+    metadata = instance.get('metadata', {})
+    metadata['blessed_from'] = source_uuid
+    instance['metadata'] = metadata
+
+    return create_instance(context, instance)
+
+
+def create_blessed_instance(context, instance=None):
+    if instance == None:
+        instance = {}
+    instance['vm_state'] = 'blessed'
+    metadata = instance.get('metadata', {})
+    metadata['blessed_from'] = 'UNITTEST'
+    instance['metadata'] = metadata
+
+    return create_instance(context, instance)
+
+
