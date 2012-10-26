@@ -21,6 +21,7 @@ handles RPC calls relating to GridCentric functionality creating instances.
 """
 
 import time
+import threading
 import traceback
 import os
 import re
@@ -103,6 +104,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self.network_api = network.API()
         self.gridcentric_api = API()
         self.compute_manager = compute_manager.ComputeManager()
+        self.cond = threading.Condition()
         super(GridCentricManager, self).__init__(service_name="gridcentric", *args, **kwargs)
 
     def _init_vms(self):
@@ -205,12 +207,56 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Return the memory URL (will be None for a normal bless).
         return migration_url
 
+    def _lock_migration(self, context, instance_uuid):
+        self.cond.acquire()
+        try:
+            # Grab a reference to the instance.
+            metadata = self._instance_metadata(context, instance_uuid)
+            if 'gc:migrating' in metadata:
+                # This instance is already locked for migration
+                return False
+            metadata['gc:migrating'] = "true"
+            self._instance_metadata_update(context, instance_uuid, metadata)
+        finally:
+            self.cond.release()
+        return True
+
+    def _unlock_migration(self, context, instance_uuid):
+        self.cond.acquire()
+        try:
+            # Grab a reference to the instance.
+            metadata = self._instance_metadata(context, instance_uuid)
+            if 'gc:migrating' in metadata:
+                del metadata['gc:migrating']
+            self._instance_metadata_update(context, instance_uuid, metadata)
+        finally:
+            self.cond.release()
+
     def migrate_instance(self, context, instance_uuid, dest):
         """
         Migrates an instance, dealing with special streaming cases as necessary.
         """
         LOG.debug(_("migrate instance called: instance_uuid=%s"), instance_uuid)
 
+        if not self._lock_migration(context, instance_uuid):
+            # This instance is in the middle of migrating so we cannot start another
+            # migration.
+            LOG.warn(_("Unable to migrate instance %s because it is currently being migrated."),
+                       instance_uuid)
+            return
+
+        try:
+            self.do_migrate_instance(context, instance_uuid, dest)
+        finally:
+            self._unlock_migration(context, instance_uuid)
+            instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
+            if instance_ref['vm_state'] == vm_states.MIGRATING:
+                # Only update the state of the instance if it is migrating, otherwise the 
+                # instance's state has been explicitly set, most likely to error, so we should
+                # not change it.
+                self._instance_update(context, instance_ref.id, vm_state=vm_states.ACTIVE)
+
+    def do_migrate_instance(self, context, instance_uuid, dest):
         # FIXME: This live migration code does not currently support volumes,
         # nor floating IPs. Both of these would be fairly straight-forward to
         # add but probably cry out for a better factoring of this class as much
@@ -312,7 +358,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
             self._instance_update(context,
                                   instance_ref.id,
-                                  vm_state=vm_states.ACTIVE,
                                   host=dest,
                                   task_state=None)
 
@@ -330,28 +375,33 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # to move when libvirt cleanup occurs).
             LOG.debug(_("Error during migration: %s"), traceback.format_exc())
 
-            # Clean up the instance from both the source and destination.
-            rpc.call(context, compute_source_queue,
-                 {"method": "rollback_live_migration_at_destination",
-                  "args": {'instance_id': instance_ref.id}})
-            rpc.call(context, compute_dest_queue,
-                 {"method": "rollback_live_migration_at_destination",
-                  "args": {'instance_id': instance_ref.id}})
+            try:
+                # Clean up the instance from both the source and destination.
+                rpc.call(context, compute_source_queue,
+                     {"method": "rollback_live_migration_at_destination",
+                      "args": {'instance_id': instance_ref.id}})
+                rpc.call(context, compute_dest_queue,
+                     {"method": "rollback_live_migration_at_destination",
+                      "args": {'instance_id': instance_ref.id}})
 
-            # Prepare to relaunch here (this is the nasty bit as per above).
-            metadata = self._instance_metadata(context, instance_uuid)
-            image_refs = self._extract_image_refs(metadata)
-            self.vms_conn.post_migration(context, instance_ref, network_info, migration_url,
-                                         use_image_service=FLAGS.gridcentric_use_image_service,
-                                         image_refs=image_refs)
+                # Prepare to relaunch here (this is the nasty bit as per above).
+                metadata = self._instance_metadata(context, instance_uuid)
+                image_refs = self._extract_image_refs(metadata)
+                self.vms_conn.post_migration(context, instance_ref, network_info, migration_url,
+                                             use_image_service=FLAGS.gridcentric_use_image_service,
+                                             image_refs=image_refs)
 
-            # Rollback is launching here again.
-            self.launch_instance(context, instance_uuid, migration_url=migration_url)
-            self._instance_update(context,
-                                  instance_uuid,
-                                  vm_state=vm_states.ACTIVE,
-                                  host=self.host,
-                                  task_state=None)
+                # Rollback is launching here again.
+                self.launch_instance(context, instance_uuid, migration_url=migration_url)
+                self._instance_update(context,
+                                      instance_uuid,
+                                      vm_state=vm_states.ACTIVE,
+                                      host=self.host,
+                                      task_state=None)
+            except Exception as e:
+                # We failed to roll back the instance. It should now be placed in an error state.
+                self._instance_update(context, instance_uuid, vm_state=vm_states.ERROR)
+                raise e
 
     def discard_instance(self, context, instance_uuid):
         """ Discards an instance so that and no further instances maybe be launched from it. """

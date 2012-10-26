@@ -293,8 +293,16 @@ class API(base.Base):
         # Grab the DB representation for the VM.
         instance_ref = self.get(context, instance_uuid)
 
+        if instance_ref['vm_state'] == vm_states.MIGRATING:
+            raise exception.Error(
+                              _("Unable to migrate instance %s because it is already migrating.") %
+                              instance_id)
+        elif instance_ref['vm_state'] != vm_states.ACTIVE:
+            raise exception.Error(_("Unable to migrate instance %s because it is not active") %
+                                  instance_id)
         dest = self._find_migration_target(context, instance_ref['host'], dest)
 
+        self.db.instance_update(context, instance_ref['id'], {'vm_state':vm_states.MIGRATING})
         LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
         self._cast_gridcentric_message('migrate_instance', context,
                                        instance_ref['uuid'], host=instance_ref['host'],
