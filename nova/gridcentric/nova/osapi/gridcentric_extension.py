@@ -95,10 +95,7 @@ class GridcentricServerControllerExtension(wsgi.Controller):
     def _migrate_instance(self, req, id, body):
         context = req.environ["nova.context"]
         try:
-            dest = body['gc_migrate']['dest']
-        except:
-            return webob.Response(status_int=401, body='Invalid destination')
-        try:
+            dest = body['gc_migrate'].get('dest', None)
             self.gridcentric_api.migrate_instance(context, id, dest)
             return webob.Response(status_int=200)
         except novaexc.QuotaError as error:
