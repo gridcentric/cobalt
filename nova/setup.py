@@ -38,15 +38,6 @@ if PACKAGE == 'all' or PACKAGE == 'nova-compute-gridcentric':
           packages=['gridcentric.nova.extension'],
           scripts=['bin/nova-gc'])
 
-if PACKAGE == 'all' or PACKAGE == 'novaclient-gridcentric':
-    setup(name='novaclient-gridcentric',
-          version=os.getenv('VERSION', '1.0'),
-          description='GridCentric extension for OS novaclient.',
-          author='GridCentric',
-          author_email='support@gridcentric.com',
-          url='http://www.gridcentric.com/',
-          packages=['novaclient.v1_1.contrib'])
-
 if PACKAGE == 'all' or PACKAGE == 'nova-api-gridcentric':
     setup(name='nova-api-gridcentric',
           version=os.getenv('VERSION', '1.0'),

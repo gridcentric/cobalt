@@ -8,8 +8,9 @@ dist/
 *.deb
 *.rpm
 *.tgz
+*.tar.gz
 */build/
-*/nova_gridcentric.egg-info/
+*/*.egg-info/
 pylint-*.txt
 test-*.xml
 *.un~
