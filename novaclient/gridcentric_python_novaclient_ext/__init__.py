@@ -65,7 +65,7 @@ def do_discard(cs, args):
 
 
 @utils.arg('server_id', metavar='<instance id>', help="ID of the instance to migrate")
-@utils.arg('dest', metavar='<destination host>', help="Host to migrate to")
+@utils.arg('--dest', metavar='<destination host>', default=None, help="Host to migrate to")
 def do_gc_migrate(cs, args):
     """Migrate an instance using VMS."""
     server = cs.gridcentric.get(args.server_id)
@@ -215,7 +215,7 @@ class GcServer(servers.Server):
     def discard(self):
         self.manager.discard(self)
 
-    def migrate(self, dest):
+    def migrate(self, dest=None):
         self.manager.migrate(self, dest)
 
     def list_launched(self):
@@ -227,29 +227,39 @@ class GcServer(servers.Server):
 class GcServerManager(servers.ServerManager):
     resource_class = GcServer
 
+    def __init__(self, client, *args, **kwargs):
+        servers.ServerManager.__init__(self, client, *args, **kwargs)
+
+        # Make sure this instance is available as gridcentric.
+        if not(hasattr(client, 'gridcentric')):
+            setattr(client, 'gridcentric', self)
+
     def launch(self, server, target="0", guest_params={}):
         header, info = self._action("gc_launch",
-                                   server,
+                                   server.id,
                                    {'target': target,
                                     'guest': guest_params})
         return [self.get(server['id']) for server in info]
 
     def bless(self, server):
-        header, info = self._action("gc_bless", server)
+        header, info = self._action("gc_bless", server.id)
         return [self.get(server['id']) for server in info]
 
     def discard(self, server):
-        return self._action("gc_discard", server)
+        return self._action("gc_discard", server.id)
 
-    def migrate(self, server, dest):
-        return self._action("gc_migrate", server, {'dest':dest})
+    def migrate(self, server, dest=None):
+        params = {}
+        if dest != None:
+            params['dest'] = dest
+        return self._action("gc_migrate", server.id, params)
 
     def list_launched(self, server):
-        header, info = self._action("gc_list_launched", server)
+        header, info = self._action("gc_list_launched", server.id)
         return [self.get(server['id']) for server in info]
 
     def list_blessed(self, server):
-        header, info = self._action("gc_list_blessed", server)
+        header, info = self._action("gc_list_blessed", server.id)
         return [self.get(server['id']) for server in info]
 
     def create(self, name, image, flavor, meta=None, files=None,

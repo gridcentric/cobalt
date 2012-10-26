@@ -14,11 +14,30 @@
 #    under the License.
 
 from nova import db
+from nova.openstack.common import rpc
 from nova.compute import instance_types
 from nova.compute import vm_states
 
-def create_image(context, image={}):
-    pass
+class MockRpc(object):
+    """
+    A simple mock Rpc that used to tests that the proper messages are placed on the queue. In all
+    cases this will return with a None result to ensure that tests do not hang waiting for a 
+    response.
+    """
+
+    def __init__(self):
+        self.call_log = []
+        self.cast_log = []
+
+    def call(self, context, queue, kwargs):
+        self.call_log.append((queue, kwargs))
+
+    def cast(self, context, queue, kwargs):
+        self.cast_log.append((queue, kwargs))
+
+mock_rpc = MockRpc()
+rpc.call = mock_rpc.call
+rpc.cast = mock_rpc.cast
 
 def create_instance(context, instance={}):
         """Create a test instance"""
@@ -33,6 +52,9 @@ def create_instance(context, instance={}):
         instance.setdefault('mac_address', "ca:ca:ca:01")
         instance.setdefault('ami_launch_index', 0)
         instance.setdefault('vm_state', vm_states.ACTIVE)
+        instance.setdefault('root_gb', 0)
+        instance.setdefault('ephemeral_gb', 0)
 
         context.elevated()
         return db.instance_create(context, instance)['uuid']
+

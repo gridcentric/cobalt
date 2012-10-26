@@ -206,7 +206,7 @@ class API(base.Base):
                                      "Cannot bless a launched instance.") % instance_uuid))
         elif instance_ref['vm_state'] != vm_states.ACTIVE:
             # The instance is not active. We cannot bless a non-active instance.
-             raise exception.NovaException(_(("Instance %s is not active. " +
+            raise exception.NovaException(_(("Instance %s is not active. " +
                                       "Cannot bless a non-active instance.") % instance_uuid))
 
         clonenum = self._next_clone_num(context, instance_uuid)
@@ -264,17 +264,42 @@ class API(base.Base):
 
         return self.get(context, new_instance_ref['uuid'])
 
+    def _find_migration_target(self, context, instance_host, dest):
+        gridcentric_hosts = self._list_gridcentric_hosts(context)
+
+        if dest == None:
+            # We will pick a random host.
+            if instance_host in gridcentric_hosts:
+                # We cannot migrate to ourselves so take that host out of the list.
+                gridcentric_hosts.remove(instance_host)
+
+            if len(gridcentric_hosts) == 0:
+                raise exception.NovaException(_("There are no available hosts for the migration target."))
+            random.shuffle(gridcentric_hosts)
+            dest = gridcentric_hosts[0]
+
+        elif dest not in gridcentric_hosts:
+            raise exception.NovaException(_("Cannot migrate to host %s because it is not running the"
+                                    " gridcentric service.") % dest)
+        elif dest == instance_host:
+            raise exception.NovaException(_("Unable to migrate to the same host."))
+
+        return dest
+
     def migrate_instance(self, context, instance_uuid, dest):
         # Grab the DB representation for the VM.
         instance_ref = self.get(context, instance_uuid)
 
-        gridcentric_hosts = self._list_gridcentric_hosts(context)
-        if dest not in gridcentric_hosts:
-            raise exception.NovaException(_("Cannot migrate to host %s because it is not running the"
-                                    " gridcentric service.") % dest)
-        elif dest == instance_ref['host']:
-            raise exception.NovaException(_("Unable to migrate to the same host."))
+        if instance_ref['vm_state'] == vm_states.MIGRATING:
+            raise exception.NovaException(
+                              _("Unable to migrate instance %s because it is already migrating.") %
+                              instance_id)
+        elif instance_ref['vm_state'] != vm_states.ACTIVE:
+            raise exception.NovaException(_("Unable to migrate instance %s because it is not active") %
+                                  instance_id)
+        dest = self._find_migration_target(context, instance_ref['host'], dest)
 
+        self.db.instance_update(context, instance_ref['id'], {'vm_state':vm_states.MIGRATING})
         LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
         self._cast_gridcentric_message('migrate_instance', context,
                                        instance_ref['uuid'], host=instance_ref['host'],
@@ -307,7 +332,7 @@ class API(base.Base):
             # Ensure that the target host is running the gridcentic service.
             target_host = metadata['gc:target_host']
             if target_host not in gc_hosts:
-                raise exception.Error(
+                raise exception.NovaException(
                               _("Only able to launch on hosts running the gridcentric service."))
         return target_host
 
@@ -318,7 +343,7 @@ class API(base.Base):
         """
 
         if not context.is_admin:
-            raise exception.Error(_("This feature is restricted to only admin users."))
+            raise exception.NovaException(_("This feature is restricted to only admin users."))
         metadata = kwargs.get('metadata', None)
         target_host = self._find_boot_host(context, metadata)
 
