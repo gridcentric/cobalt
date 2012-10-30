@@ -50,6 +50,7 @@ class GridCentricApiTestCase(unittest.TestCase):
         num_instance_before = len(db.instance_get_all(self.context))
         blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_uuid)
 
+        self.assertEquals(vm_states.BUILDING, blessed_instance['vm_state'])
         # Ensure that we have a 2nd instance in the database that is a "clone"
         # of our original instance.
         instances = db.instance_get_all(self.context)
