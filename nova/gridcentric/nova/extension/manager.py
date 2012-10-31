@@ -101,7 +101,8 @@ def memory_string_to_pages(mem):
 class GridCentricManager(manager.SchedulerDependentManager):
 
     def __init__(self, *args, **kwargs):
-        self.vms_conn = None
+        self.vms_conn = kwargs.pop('vmsconn', None)
+
         self._init_vms()
         self.network_api = network.API()
         self.gridcentric_api = API()
@@ -111,9 +112,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def _init_vms(self):
         """ Initializes the hypervisor options depending on the openstack connection type. """
-        connection_type = FLAGS.connection_type
-        self.vms_conn = vmsconn.get_vms_connection(connection_type)
-        self.vms_conn.configure()
+        if self.vms_conn == None:
+            connection_type = FLAGS.connection_type
+            self.vms_conn = vmsconn.get_vms_connection(connection_type)
+            self.vms_conn.configure()
 
     def _instance_update(self, context, instance_uuid, **kwargs):
         """Update an instance in the database using kwargs as value."""
@@ -175,7 +177,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
             source_instance_ref = self._get_source_instance(context, instance_uuid)
             migration = False
 
-        self._instance_update(context, instance_ref.id, vm_state=vm_states.BUILDING)
         try:
             # Create a new 'blessed' VM with the given name.
             name, migration_url, blessed_files = self.vms_conn.bless(context,
