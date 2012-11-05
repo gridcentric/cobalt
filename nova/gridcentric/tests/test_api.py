@@ -198,3 +198,19 @@ class GridCentricApiTestCase(unittest.TestCase):
             "The instance should have the 'launched from' metadata set to blessed instanced id after being launched. " \
           + "(value=%s)" % (metadata['launched_from']))
 
+
+    def test_list_blessed_nonexistent_uuid(self):
+        try:
+            # Use a random UUID that doesn't exist.
+            self.gridcentric_api.list_blessed_instances(self.context, utils.create_uuid())
+            self.fail("An InstanceNotFound exception should be thrown")
+        except exception.InstanceNotFound:
+            pass
+
+    def test_list_launched_nonexistent_uuid(self):
+        try:
+            # Use a random UUID that doesn't exist.
+            self.gridcentric_api.list_launched_instances(self.context, utils.create_uuid())
+            self.fail("An InstanceNotFound exception should be thrown")
+        except exception.InstanceNotFound:
+            pass
