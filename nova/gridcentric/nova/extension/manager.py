@@ -191,12 +191,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 notifier.notify(context, 'gridcentric.%s' % self.host,
                                 'gridcentric.instance.bless.end',
                                 notifier.INFO, usage_info)
-                self._instance_update(context, instance_ref.id,
+                self._instance_update(context, instance_ref['uuid'],
                                   vm_state="blessed", task_state=None,
-                                  launched_at=utils.utcnow())
+                                  launched_at=timeutils.utcnow())
         except Exception, e:
             LOG.debug(_("Error during bless %s: %s"), str(e), traceback.format_exc())
-            self._instance_update(context, instance_ref.id,
+            self._instance_update(context, instance_ref['uuid'],
                                   vm_state=vm_states.ERROR, task_state=None)
             # Short-circuit, nothing to be done.
             return
@@ -259,7 +259,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 # Only update the state of the instance if it is migrating, otherwise the 
                 # instance's state has been explicitly set, most likely to error, so we should
                 # not change it.
-                self._instance_update(context, instance_ref.id, vm_state=vm_states.ACTIVE)
+                self._instance_update(context, instance_ref['uuid'], vm_state=vm_states.ACTIVE)
 
     def do_migrate_instance(self, context, instance_uuid, dest):
         # FIXME: This live migration code does not currently support volumes,
@@ -362,7 +362,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                   "args": {'instance_id': instance_ref.id}})
 
             self._instance_update(context,
-                                  instance_ref.id,
+                                  instance_ref['uuid'],
                                   host=dest,
                                   task_state=None)
 
@@ -493,7 +493,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 LOG.debug(_("Making call to network for launching instance=%s"), \
                           instance_ref.name)
 
-                self._instance_update(context, instance_ref.id,
+                self._instance_update(context, instance_ref['uuid'],
                                       vm_state=vm_states.BUILDING,
                                       task_state=task_states.NETWORKING,
                                       host=self.host)

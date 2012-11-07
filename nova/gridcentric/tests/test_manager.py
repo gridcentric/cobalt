@@ -109,7 +109,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         self.assertEquals("blessed", blessed_instance['vm_state'])
         self.assertEquals("migration_url", migration_url)
-        metadata = db.instance_metadata_get(self.context, blessed_instance['id'])
+        metadata = db.instance_metadata_get(self.context, blessed_uuid)
         self.assertEquals("file1,file2,file3", metadata['images'])
         # note(dscannell): Although we set the blessed metadata to True in the code, we need to compare
         # it against '1'. This is because the True gets converted to a '1' when added to the database.
@@ -126,7 +126,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         self.assertEquals(vm_states.ERROR, blessed_instance['vm_state'])
         self.assertEquals(None, migration_url)
-        metadata = db.instance_metadata_get(self.context, blessed_instance['id'])
+        metadata = db.instance_metadata_get(self.context, blessed_uuid)
         self.assertEquals(None, metadata.get('images', None))
         self.assertEquals(None, metadata.get('blessed', None))
         self.assertEquals(None, blessed_instance['launched_at'])
@@ -153,7 +153,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
 
         self.assertEquals(pre_bless_instance['vm_state'], post_bless_instance['vm_state'])
         self.assertEquals("migration_url", migration_url)
-        metadata = db.instance_metadata_get(self.context, post_bless_instance['id'])
+        metadata = db.instance_metadata_get(self.context, blessed_uuid)
         self.assertEquals("file1,file2,file3", metadata['images'])
         self.assertEquals(pre_bless_instance['launched_at'], post_bless_instance['launched_at'])
 
