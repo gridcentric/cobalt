@@ -34,11 +34,11 @@ class MockRpc(object):
         self.call_log = []
         self.cast_log = []
 
-    def call(self, context, queue, kwargs):
-        self.call_log.append((queue, kwargs))
+    def call(self, context, queue, method, **kwargs):
+        self.call_log.append((queue, method, kwargs))
 
-    def cast(self, context, queue, kwargs):
-        self.cast_log.append((queue, kwargs))
+    def cast(self, context, queue, method, **kwargs):
+        self.cast_log.append((queue, method, kwargs))
 
 mock_rpc = MockRpc()
 rpc.call = mock_rpc.call
@@ -133,15 +133,29 @@ def create_pre_blessed_instance(context, instance=None, source_uuid=None):
 
     return create_instance(context, instance)
 
-
-def create_blessed_instance(context, instance=None):
+def create_blessed_instance(context, instance=None, source_uuid=None):
+    if source_uuid == None:
+        source_uuid = create_instance(context)
     if instance == None:
         instance = {}
     instance['vm_state'] = 'blessed'
     metadata = instance.get('metadata', {})
-    metadata['blessed_from'] = 'UNITTEST'
+    metadata['blessed_from'] = source_uuid
+    metadata['images'] = ''
     instance['metadata'] = metadata
 
     return create_instance(context, instance)
 
+def create_pre_launched_instance(context, instance=None, source_uuid=None):
+
+    if source_uuid == None:
+        source_uuid = create_blessed_instance(context)
+    if instance == None:
+        instance = {}
+
+    metadata = instance.get('metadata', {})
+    metadata['launched_from'] = source_uuid
+    instance['metadata'] = metadata
+
+    return create_instance(context, instance)
 

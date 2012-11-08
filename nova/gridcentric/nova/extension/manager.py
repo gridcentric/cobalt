@@ -442,6 +442,45 @@ class GridCentricManager(manager.SchedulerDependentManager):
                         'gridcentric.instance.discard.end',
                         notifier.INFO, usage_info)
 
+    def _instance_network_info(self, context, instance_ref, already_allocated):
+        """
+        Retrieve the network info for the instance. If the info is already_allocated then 
+        this will simply query for the information. Otherwise, it will ask for new network info
+        to be allocated for the instance.
+        """
+
+        network_info = None
+        if FLAGS.stub_network:
+            network_info = network_model.NetworkInfo()
+
+        elif already_allocated:
+            network_info = self.network_api.get_instance_nw_info(context, instance_ref)
+
+        else:
+            # We need to allocate a new network info for the instance.
+
+            # TODO(dscannell): We need to set the is_vpn parameter correctly.
+            # This information might come from the instance, or the user might
+            # have to specify it. Also, we might be able to convert this to a
+            # cast because we are not waiting on any return value.
+
+            is_vpn = False
+            requested_networks = None
+
+            try:
+                LOG.debug(_("Making call to network for launching instance=%s"), \
+                      instance_ref.name)
+                network_info = self.network_api.allocate_for_instance(context,
+                                            instance_ref, vpn=is_vpn,
+                                            requested_networks=requested_networks)
+                LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"),
+                      instance_ref.name, network_info)
+            except Exception, e:
+                LOG.debug(_("Error during network allocation: %s"), str(e))
+
+        return network_info
+
+
     def launch_instance(self, context, instance_uuid, params={}, migration_url=None):
         """
         Construct the launched instance, with uuid instance_uuid. If migration_url is not none then 
@@ -457,17 +496,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Just launch the given blessed instance.
             source_instance_ref = instance_ref
 
-            # Load the old network info.
-            network_info = self.network_api.get_instance_nw_info(context, instance_ref)
-
             # Update the instance state to be migrating. This will be set to
             # active again once it is completed in do_launch() as per all
             # normal launched instances.
-            self._instance_update(context, instance_ref['uuid'],
-                                  vm_state=vm_states.MIGRATING,
-                                  task_state=task_states.SPAWNING,
-                                  host=self.host)
-            instance_ref['host'] = self.host
+            vm_state = vm_states.MIGRATING
+
         else:
             usage_info = utils.usage_from_instance(instance_ref)
             notifier.notify('gridcentric.%s' % self.host,
@@ -475,44 +508,26 @@ class GridCentricManager(manager.SchedulerDependentManager):
                             notifier.INFO, usage_info)
             # Create a new launched instance.
             source_instance_ref = self._get_source_instance(context, instance_uuid)
+            vm_state = vm_states.BUILDING
 
-            if not FLAGS.stub_network:
-                # TODO(dscannell): We need to set the is_vpn parameter correctly.
-                # This information might come from the instance, or the user might
-                # have to specify it. Also, we might be able to convert this to a
-                # cast because we are not waiting on any return value.
-                LOG.debug(_("Making call to network for launching instance=%s"), \
-                          instance_ref.name)
+        self._instance_update(context, instance_ref.id,
+                                  vm_state=vm_state,
+                                  task_state=task_states.NETWORKING,
+                                  host=self.host)
+        instance_ref['host'] = self.host
 
-                self._instance_update(context, instance_ref.id,
-                                      vm_state=vm_states.BUILDING,
-                                      task_state=task_states.NETWORKING,
-                                      host=self.host)
-                instance_ref['host'] = self.host
-                is_vpn = False
-                requested_networks = None
-
-                try:
-                    network_info = self.network_api.allocate_for_instance(context,
-                                                instance_ref, vpn=is_vpn,
-                                                requested_networks=requested_networks)
-                except Exception, e:
-                    LOG.debug(_("Error during network allocation: %s"), str(e))
-                    self._instance_update(context, instance_ref['uuid'],
+        network_info = self._instance_network_info(context, instance_ref, migration_url != None)
+        if network_info == None:
+            # An error would have occured acquiring the instance network info. We should
+            # mark the instances as error and return because there is nothing else we can do.
+            self._instance_update(context, instance_ref['uuid'],
                                           vm_state=vm_states.ERROR,
                                           task_state=None)
-                    # Short-circuit, can't proceed.
-                    return
+            return
 
-                LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"),
-                          instance_ref.name, network_info)
-            else:
-                network_info = []
-
-            # Update the instance state to be in the building state.
-            self._instance_update(context, instance_ref['uuid'],
-                                  vm_state=vm_states.BUILDING,
-                                  task_state=task_states.SPAWNING)
+        # Update the task state to spawning from networking.
+        self._instance_update(context, instance_ref['uuid'],
+                              task_state=task_states.SPAWNING)
 
         # note(dscannell): The target is in pages so we need to convert the value
         # If target is set as None, or not defined, then we default to "0".
@@ -567,6 +582,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   vm_state=vm_states.ACTIVE,
                                   host=self.host,
                                   launched_at=utils.utcnow(),
+                                  task_state=None)
+            else:
+                self._instance_update(context,
+                                  instance_ref['uuid'],
                                   task_state=None)
         except Exception, e:
             LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
