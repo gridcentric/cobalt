@@ -266,41 +266,41 @@ class LibvirtConnection(VmsConnection):
         # libvirt flags can be read in.
         from nova.virt.libvirt import connection as libvirt_connection
 
-        openstack_user = self.determine_openstack_user()
-        if isinstance(openstack_user, str):
-            passwd = pwd.getpwnam(openstack_user)
-        else:
-            passwd = pwd.getpwuid(openstack_user)
-        self.openstack_uid = passwd.pw_uid
-        self.openstack_gid = passwd.pw_gid
-        LOG.info("The openstack user is set to (%s, %s, %s)."
-                 % (passwd.pw_name, self.openstack_uid, self.openstack_gid))
+        self.determine_openstack_user()
 
         self.libvirt_conn = libvirt_connection.get_connection(False)
         config.MANAGEMENT['connection_url'] = self.libvirt_conn.uri
         select_hypervisor('libvirt')
 
     def determine_openstack_user(self):
+        """
+        Determines the openstack user's uid and gid
+        """
 
-        # The user can specify an openstack_user using the flags, or they can leave it blank
-        # and we'll attempt to discover the user. If failing to discover we'll default to 
-        # the same user as the nova-gridcentric process.
-        user = FLAGS.openstack_user
-        if user == '':
-            # Attempt to determine the openstack user.
+        openstack_user = FLAGS.openstack_user
+        if openstack_user == '':
+            # The user has not set an explicit openstack_user. We will attempt to auto-discover
+            # a reasonable value by checking the ownership of of the instances path. If we are
+            # unable to determine in then we default to owner of this process.
             try:
-                # use ps to determine the user running the nova-compute process
-                cmd = "ps aux | grep nova-compute | grep python | grep -v grep | awk '{print $1}'"
-                _, cmd_user, _ = utilities.check_command(cmd)
-                user = cmd_user.strip()
+                openstack_user = os.stat(FLAGS.instances_path).st_uid
             except:
-                user = ''
+                openstack_user = os.getuid()
 
-            if user == '':
-                # We were unable to determine the user. We'll just default to our current user.
-                user = os.getuid()
+        try:
+            if isinstance(openstack_user, str):
+                passwd = pwd.getpwnam(openstack_user)
+            else:
+                passwd = pwd.getpwuid(openstack_user)
+            self.openstack_uid = passwd.pw_uid
+            self.openstack_gid = passwd.pw_gid
+            LOG.info("The openstack user is set to (%s, %s, %s)."
+                     % (passwd.pw_name, self.openstack_uid, self.openstack_gid))
+        except Exception, e:
+            LOG.severe("Failed to find the openstack user %s on this system. Please configure the "
+                       "openstack_user flag correctly." % (openstack_user))
+            raise e
 
-        return user
 
     def pre_launch(self, context,
                    new_instance_ref,
