@@ -35,10 +35,6 @@ from nova.openstack.common import cfg
 LOG = logging.getLogger('nova.gridcentric.vmsconn')
 FLAGS = flags.FLAGS
 vmsconn_opts = [
-               cfg.StrOpt('libvirt_user',
-               default='libvirt-qemu',
-               help='The user that libvirt runs qemu as.'),
-
                cfg.StrOpt('openstack_user',
                default='',
                help='The openstack user')]
@@ -270,8 +266,6 @@ class LibvirtConnection(VmsConnection):
         # libvirt flags can be read in.
         from nova.virt.libvirt import connection as libvirt_connection
 
-        self.configure_path_permissions()
-
         openstack_user = self.determine_openstack_user()
         if isinstance(openstack_user, str):
             passwd = pwd.getpwnam(openstack_user)
@@ -307,97 +301,6 @@ class LibvirtConnection(VmsConnection):
                 user = os.getuid()
 
         return user
-
-    def configure_path_permissions(self):
-        """
-        For libvirt connections we need to ensure that the kvm instances have access to the vms
-        database and to the vmsfs mount point.
-        """
-
-        import vms.db
-        import vms.kvm
-        import vms.config
-
-        try:
-            passwd = pwd.getpwnam(FLAGS.libvirt_user)
-            libvirt_uid = passwd.pw_uid
-            libvirt_gid = passwd.pw_gid
-        except Exception, e:
-            raise Exception("Unable to find the libvirt user %s. "
-                            "Please use the --libvirt_user flag to correct."
-                            "Error: %s" % (FLAGS.libvirt_user, str(e)))
-
-        try:
-            vmsfs_path = vms.kvm.config.find_vmsfs()
-        except Exception, e:
-            raise Exception("Unable to located vmsfs. "
-                            "Please ensure the module is loaded and mounted. "
-                            "Error: %s" % str(e))
-
-        try:
-            for path in vmsfs_path, os.path.join(vmsfs_path, 'vms'):
-                os.chown(path, libvirt_uid, libvirt_gid)
-                os.chmod(path, 0770)
-        except Exception, e:
-            raise Exception("Unable to make %s owner of vmsfs: %s" %
-                            FLAGS.libvirt_user, str(e))
-
-        def can_libvirt_write_access(dir):
-            # Test if libvirt_user has W+X permissions in dir (which are
-            # necessary to create files). Using os.seteuid/os.setegid is
-            # insufficient because they don't affect supplementary
-            # groups. Hence we run
-            #    sudo -u $libvirt_user test -w $dir -a -x $dir
-            # We're not using os.system because of shell escaping of directory
-            # name. We're not using subprocess.call because it's buggy: it
-            # returns 0 regardless of the real return value of the command!
-            command = ['sudo', '-u', FLAGS.libvirt_user,
-                       'test', '-w', dir, '-a', '-x', dir]
-            child = os.fork()
-            if child == 0:
-                os.execvp('sudo', ['sudo', '-u', FLAGS.libvirt_user,
-                                   'test', '-w', dir, '-a', '-x', dir])
-            while True:
-                pid, status = os.waitpid(child, 0)
-                if pid == child:
-                    return os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0
-
-        def mkdir_libvirt(dir):
-            if not os.path.exists(dir):
-                LOG.debug('does not exist %s', dir)
-                utilities.make_directories(dir)
-                os.chown(dir, libvirt_uid, libvirt_gid)
-                os.chmod(dir, 0775) # ug+rwx, a+rx
-            if not can_libvirt_write_access(dir):
-                raise Exception("Directory %s is not writable by %s (uid=%d). "
-                                "If it already exists, make sure that it's "
-                                "writable and executable by %s." %
-                                (dir, FLAGS.libvirt_user, libvirt_uid,
-                                 FLAGS.libvirt_user))
-        try:
-            db_path = vms.db.vms.path
-            mkdir_libvirt(os.path.dirname(db_path))
-            utilities.touch(db_path)
-            os.chown(db_path, libvirt_uid, libvirt_gid)
-
-            # TODO: This should be 0660 (ug+rw), but there's an error I can't
-            # figure out when libvirt creates domains: the vms.db path (default
-            # /dev/shm/vms.db) can't be opened by bsddb when libvirt launches
-            # kvm. This is perplexing because it's launching it as root!
-            os.chmod(db_path, 0666) # aug+rw
-
-            dirs = [config.SHELF,
-                    config.SHARED,
-                    config.LOGS,
-                    config.CACHE,
-                    config.STORE]
-            for dir in dirs:
-                if dir != None:
-                    mkdir_libvirt(dir)
-        except Exception, e:
-            raise Exception("Error creating directories and setting "
-                            "permissions for user %s. Error: %s" %
-                            (FLAGS.libvirt_user, str(e)))
 
     def pre_launch(self, context,
                    new_instance_ref,
