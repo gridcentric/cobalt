@@ -109,13 +109,15 @@ class VmsConnection:
         """ Upload the bless files into nova's image service (e.g. glance). """
         raise Exception("Uploading files to the image service is not supported.")
 
-    def discard(self, context, instance_name, use_image_service=False, image_refs=[]):
+    def discard(self, context, instance_name, migration_url=None, use_image_service=False, image_refs=[]):
         """
-        Dicard all of the vms artifacts associated with a blessed instance
+        Discard all of the vms artifacts associated with a blessed instance
         """
-        LOG.debug(_("Calling commands.discard with name=%s"), instance_name)
-        result = tpool.execute(commands.discard, instance_name)
-        LOG.debug(_("Called commands.discard with name=%s"), instance_name)
+        LOG.debug(_("Calling commands.discard with name=%s, mem_url=%s"),
+                  instance_name, migration_url)
+        result = tpool.execute(commands.discard, instance_name, mem_url=migration_url)
+        LOG.debug(_("Called commands.discard with name=%s, mem_url=%s"),
+                  instance_name, migration_url)
         if use_image_service:
             self._delete_images(context, image_refs)
 
@@ -208,8 +210,8 @@ class VmsConnection:
     def post_migration(self, context, instance_ref, network_info, migration_url,
                        use_image_service=False, image_refs=[]):
         # We call a normal discard to ensure the artifacts are cleaned up.
-        self.discard(context, instance_ref.name, use_image_service=use_image_service,
-                     image_refs=image_refs)
+        self.discard(context, instance_ref.name, migration_url=migration_url,
+                     use_image_service=use_image_service, image_refs=image_refs)
 
 class DummyConnection(VmsConnection):
     def configure(self):
@@ -492,8 +494,8 @@ class LibvirtConnection(VmsConnection):
     def post_migration(self, context, instance_ref, network_info, migration_url,
                        use_image_service=False, image_refs=[]):
         # We call a normal discard to ensure the artifacts are cleaned up.
-        self.discard(context, instance_ref.name, use_image_service=use_image_service,
-                     image_refs=image_refs)
+        self.discard(context, instance_ref.name, migration_url=migration_url,
+                     use_image_service=use_image_service, image_refs=image_refs)
 
         # We make sure that all the memory servers are gone that need it.
         # This looks for any servers that are providing the migration_url we
