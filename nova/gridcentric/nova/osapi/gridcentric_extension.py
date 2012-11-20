@@ -17,8 +17,8 @@ import json
 import webob
 from webob import exc
 
-from nova import log as logging
 from nova import exception as novaexc
+from nova.openstack.common import log as logging
 
 from nova.api.openstack import extensions
 
@@ -36,7 +36,7 @@ def convert_exception(action):
     def fn(self, *args, **kwargs):
         try:
             return action(self, *args, **kwargs)
-        except novaexc.Error as error:
+        except novaexc.NovaException as error:
             raise exc.HTTPBadRequest(explanation=unicode(error))
     # note(dscannell): Openstack sometimes does matching on the function name so we need to
     # ensure that the decorated function returns with the same function name as the action.

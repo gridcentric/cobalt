@@ -36,7 +36,6 @@ class GridCentricManagerTestCase(unittest.TestCase):
     def setUp(self):
 
         FLAGS.connection_type = 'fake'
-        FLAGS.stub_network = True
         # Copy the clean database over
         shutil.copyfile(os.path.join(FLAGS.state_path, FLAGS.sqlite_clean_db),
                         os.path.join(FLAGS.state_path, FLAGS.sqlite_db))
@@ -45,6 +44,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
 
         self.vmsconn = utils.MockVmsConn()
         self.gridcentric = gc_manager.GridCentricManager(vmsconn=self.vmsconn)
+        self.gridcentric._instance_network_info = utils.fake_networkinfo
         self.context = nova_context.RequestContext('fake', 'fake', True)
 
     def test_target_memory_string_conversion_case_insensitive(self):

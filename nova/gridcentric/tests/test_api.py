@@ -34,7 +34,6 @@ class GridCentricApiTestCase(unittest.TestCase):
     def setUp(self):
 
         FLAGS.connection_type = 'fake'
-        FLAGS.stub_network = True
         # Copy the clean database over
         shutil.copyfile(os.path.join(FLAGS.state_path, FLAGS.sqlite_clean_db),
                         os.path.join(FLAGS.state_path, FLAGS.sqlite_db))

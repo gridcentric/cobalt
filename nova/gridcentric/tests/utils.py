@@ -19,6 +19,7 @@ from nova import db
 from nova.openstack.common import rpc
 from nova.compute import instance_types
 from nova.compute import vm_states
+from nova.network import model as network_model
 
 class TestInducedException(Exception):
     pass
@@ -159,3 +160,5 @@ def create_pre_launched_instance(context, instance=None, source_uuid=None):
 
     return create_instance(context, instance)
 
+def fake_networkinfo(*args, **kwargs):
+    return network_model.NetworkInfo()

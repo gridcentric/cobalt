@@ -23,7 +23,6 @@ from nova import flags
 from nova import exception
 from nova.db import base
 from nova import quota
-from nova import exception as novaexc
 from nova.openstack.common import log as logging
 from nova.openstack.common import rpc
 from nova.openstack.common import cfg
@@ -69,7 +68,7 @@ class API(base.Base):
         if not host:
             queue = FLAGS.gridcentric_topic
         else:
-            queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, host)
+            queue = rpc.queue_get_for(context, FLAGS.gridcentric_topic, host)
         params['instance_uuid'] = instance_uuid
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
@@ -255,11 +254,16 @@ class API(base.Base):
 
         LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
                     " instance %(instance_uuid)s") % locals())
+
+        # FIXME: The Folsom scheduler removed support for calling
+        # arbitrary functions via the scheduler. Damn. So now we
+        # have to make scheduling decisions internally. Until this
+        # is sorted, we will simply cast the message and let a random
+        # host pick it up. Note that this is simply a stopgap measure.
         rpc.cast(context,
-                     FLAGS.scheduler_topic,
+                     FLAGS.gridcentric_topic,
                      {"method": "launch_instance",
-                      "args": {"topic": FLAGS.gridcentric_topic,
-                               "instance_uuid": new_instance_ref['uuid'],
+                      "args": {"instance_uuid": new_instance_ref['uuid'],
                                "params": params}})
 
         return self.get(context, new_instance_ref['uuid'])
@@ -371,7 +375,7 @@ class API(base.Base):
                                {'host': target_host,
                                 'scheduled_at': now})
 
-            rpc.cast(context, self.db.queue_get_for(context, FLAGS.compute_topic, target_host),
+            rpc.cast(context, rpc.queue_get_for(context, FLAGS.compute_topic, target_host),
                      {"method": "run_instance",
                       "args": {"instance_uuid": instance_uuid,
                        "availability_zone": availability_zone,
