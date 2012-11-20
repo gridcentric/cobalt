@@ -28,6 +28,44 @@ def __pre_parse_args__():
 def __post_parse_args__(args):
     pass
 
+def _print_server(cs, server, minimal=False):
+    # (dscannell): Note that the follow method was taken from the
+    # main novaclient code base. We duplicate it here to protect ourselves
+    # changes in the method signatures between versions of the novaclient.
+
+    # By default when searching via name we will do a
+    # findall(name=blah) and due a REST /details which is not the same
+    # as a .get() and doesn't get the information about flavors and
+    # images. This fix it as we redo the call with the id which does a
+    # .get() to get all informations.
+    if not 'flavor' in server._info:
+        server = shell._find_server(cs, server.id)
+
+    networks = server.networks
+    info = server._info.copy()
+    for network_label, address_list in networks.items():
+        info['%s network' % network_label] = ', '.join(address_list)
+
+    flavor = info.get('flavor', {})
+    flavor_id = flavor.get('id', '')
+    if minimal:
+        info['flavor'] = flavor_id
+    else:
+        info['flavor'] = shell._find_flavor(cs, flavor_id).name
+
+    image = info.get('image', {})
+    image_id = image.get('id', '')
+    if minimal:
+        info['image'] = image_id
+    else:
+        info['image'] = shell._find_image(cs, image_id).name
+
+    info.pop('links', None)
+    info.pop('addresses', None)
+
+    utils.print_dict(info)
+
+
 #### ACTIONS ####
 
 @utils.arg('blessed_id', metavar='<blessed id>', help="ID of the blessed instance")
@@ -47,7 +85,7 @@ def do_launch(cs, args):
                                            guest_params=guest_params)
 
     for server in launch_servers:
-        shell._print_server(cs, server)
+        _print_server(cs, server)
 
 @utils.arg('server_id', metavar='<instance id>', help="ID of the instance to bless")
 def do_bless(cs, args):
@@ -55,7 +93,7 @@ def do_bless(cs, args):
     server = cs.gridcentric.get(args.server_id)
     blessed_servers = cs.gridcentric.bless(server)
     for server in blessed_servers:
-        shell._print_server(cs, server)
+        _print_server(cs, server)
 
 @utils.arg('blessed_id', metavar='<blessed id>', help="ID of the blessed instance")
 def do_discard(cs, args):
