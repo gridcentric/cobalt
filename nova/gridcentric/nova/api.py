@@ -306,6 +306,8 @@ class API(base.Base):
                                        params={"dest" : dest})
 
     def list_launched_instances(self, context, instance_uuid):
+         # Assert that the instance with the uuid actually exists.
+        self.get(context, instance_uuid)
         filter = {
                   'metadata':{'launched_from':'%s' % instance_uuid},
                   'deleted':False
@@ -314,6 +316,8 @@ class API(base.Base):
         return launched_instances
 
     def list_blessed_instances(self, context, instance_uuid):
+        # Assert that the instance with the uuid actually exists.
+        self.get(context, instance_uuid)
         filter = {
                   'metadata':{'blessed_from':'%s' % instance_uuid},
                   'deleted':False
