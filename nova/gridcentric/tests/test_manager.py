@@ -109,7 +109,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         self.assertEquals("blessed", blessed_instance['vm_state'])
         self.assertEquals("migration_url", migration_url)
-        metadata = db.instance_metadata_get(self.context, blessed_instance['id'])
+        metadata = db.instance_metadata_get(self.context, blessed_uuid)
         self.assertEquals("file1,file2,file3", metadata['images'])
         # note(dscannell): Although we set the blessed metadata to True in the code, we need to compare
         # it against '1'. This is because the True gets converted to a '1' when added to the database.
@@ -126,7 +126,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         self.assertEquals(vm_states.ERROR, blessed_instance['vm_state'])
         self.assertEquals(None, migration_url)
-        metadata = db.instance_metadata_get(self.context, blessed_instance['id'])
+        metadata = db.instance_metadata_get(self.context, blessed_uuid)
         self.assertEquals(None, metadata.get('images', None))
         self.assertEquals(None, metadata.get('blessed', None))
         self.assertEquals(None, blessed_instance['launched_at'])
@@ -153,13 +153,76 @@ class GridCentricManagerTestCase(unittest.TestCase):
 
         self.assertEquals(pre_bless_instance['vm_state'], post_bless_instance['vm_state'])
         self.assertEquals("migration_url", migration_url)
-        metadata = db.instance_metadata_get(self.context, post_bless_instance['id'])
+        metadata = db.instance_metadata_get(self.context, blessed_uuid)
         self.assertEquals("file1,file2,file3", metadata['images'])
         self.assertEquals(pre_bless_instance['launched_at'], post_bless_instance['launched_at'])
 
+    def test_launch_instance(self):
+
+        self.vmsconn.set_return_val("launch", None)
+        launched_uuid = utils.create_pre_launched_instance(self.context)
+
+        pre_launch_time = datetime.utcnow()
+        self.gridcentric.launch_instance(self.context, launched_uuid)
+
+        launched_instance = db.instance_get_by_uuid(self.context, launched_uuid)
+        self.assertEquals("active", launched_instance['vm_state'])
+        self.assertTrue(pre_launch_time <= launched_instance['launched_at'])
+        self.assertEquals(None, launched_instance['task_state'])
+        self.assertEquals(self.gridcentric.host, launched_instance['host'])
+
+    def test_launch_instance_exception(self):
+
+        self.vmsconn.set_return_val("launch", utils.TestInducedException())
+        launched_uuid = utils.create_pre_launched_instance(self.context)
+
+        try:
+            self.gridcentric.launch_instance(self.context, launched_uuid)
+            self.fail("The exception from launch should be re-raised up.")
+        except utils.TestInducedException:
+            pass
+
+        launched_instance = db.instance_get_by_uuid(self.context, launched_uuid)
+        self.assertEquals("error", launched_instance['vm_state'])
+        self.assertEquals(None, launched_instance['task_state'])
+        self.assertEquals(None, launched_instance['launched_at'])
+        self.assertEquals(self.gridcentric.host, launched_instance['host'])
+
+    def test_launch_instance_migrate(self):
+
+        self.vmsconn.set_return_val("launch", None)
+        instance_uuid = utils.create_instance(self.context, {'vm_state': vm_states.ACTIVE})
+        pre_launch_instance = db.instance_get_by_uuid(self.context, instance_uuid)
+        self.gridcentric.launch_instance(self.context, instance_uuid, migration_url="migration_url")
+        post_launch_instance = db.instance_get_by_uuid(self.context, instance_uuid)
+
+        self.assertEquals(pre_launch_instance['vm_state'], post_launch_instance['vm_state'])
+        self.assertEquals(None, post_launch_instance['task_state'])
+        self.assertEquals(pre_launch_instance['launched_at'], post_launch_instance['launched_at'])
+        self.assertEquals(self.gridcentric.host, post_launch_instance['host'])
+
+    def test_launch_instance_migrate_exception(self):
+
+        self.vmsconn.set_return_val("launch", utils.TestInducedException())
+        launched_uuid = utils.create_instance(self.context, {'vm_state': vm_states.ACTIVE})
+
+        try:
+            self.gridcentric.launch_instance(self.context, launched_uuid,
+                                             migration_url="migration_url")
+            self.fail("The launch error should have been re-raised up.")
+        except utils.TestInducedException:
+            pass
+
+        launched_instance = db.instance_get_by_uuid(self.context, launched_uuid)
+        self.assertEquals("error", launched_instance['vm_state'])
+        self.assertEquals(None, launched_instance['task_state'])
+        self.assertEquals(None, launched_instance['launched_at'])
+        self.assertEquals(self.gridcentric.host, launched_instance['host'])
+
+
     def test_discard_a_blessed_instance(self):
         self.vmsconn.set_return_val("discard", None)
-        blessed_uuid = utils.create_blessed_instance(self.context)
+        blessed_uuid = utils.create_blessed_instance(self.context, source_uuid="UNITTEST_DISCARD")
 
         pre_discard_time = datetime.utcnow()
         self.gridcentric.discard_instance(self.context, blessed_uuid)
@@ -172,6 +235,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
             # that the rest of its attributes have been marked.
             self.context.read_deleted = 'yes'
             instances = db.instance_get_all_by_project(self.context, self.context.project_id)
+
             self.assertEquals(1, len(instances))
             discarded_instance = instances[0]
 
