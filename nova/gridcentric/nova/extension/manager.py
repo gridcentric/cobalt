@@ -280,13 +280,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
                        "args": {'instance_id': instance_ref.id}})
 
         # Get a reference to both the destination and source queues
-        gc_dest_queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, dest)
-        compute_dest_queue = self.db.queue_get_for(context, FLAGS.compute_topic, dest)
-        compute_source_queue = self.db.queue_get_for(context, FLAGS.compute_topic, self.host)
+        gc_dest_queue = rpc.queue_get_for(context, FLAGS.gridcentric_topic, dest)
+        compute_dest_queue = rpc.queue_get_for(context, FLAGS.compute_topic, dest)
+        compute_source_queue = rpc.queue_get_for(context, FLAGS.compute_topic, self.host)
 
         rpc.call(context, compute_dest_queue,
                  {"method": "pre_live_migration",
-                  "args": {'instance_id': instance_ref.id,
+                  "version": "2.2",
+                  "args": {'instance': instance_ref,
                            'block_migration': False,
                            'disk': None}})
 
@@ -457,10 +458,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
         """
 
         network_info = None
-        if FLAGS.stub_network:
-            network_info = network_model.NetworkInfo()
 
-        elif already_allocated:
+        if already_allocated:
             network_info = self.network_api.get_instance_nw_info(context, instance_ref)
 
         else:
@@ -567,9 +566,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # do not support having volumes attached at launch time, so we should be safe in
             # this regard.
             rpc.call(context,
-                 self.db.queue_get_for(context, FLAGS.compute_topic, self.host),
+                 rpc.queue_get_for(context, FLAGS.compute_topic, self.host),
                  {"method": "pre_live_migration",
-                  "args": {'instance_id': instance_ref.id,
+                  "version": "2.2",
+                  "args": {'instance': instance_ref,
                            'block_migration': False,
                            'disk': None}},
                  timeout=FLAGS.gridcentric_compute_timeout)
@@ -595,7 +595,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   instance_ref['uuid'],
                                   vm_state=vm_states.ACTIVE,
                                   host=self.host,
-                                  launched_at=utils.utcnow(),
+                                  launched_at=timeutils.utcnow(),
                                   task_state=None)
             else:
                 self._instance_update(context,

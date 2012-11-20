@@ -132,7 +132,8 @@ class VmsConnection:
     def extract_mac_addresses(self, network_info):
         # TODO(dscannell) We should be using the network_info object. This is
         # just here until we figure out how to use it.
-        network_info = compute_utils.legacy_network_info(network_info)
+        if network_info and self.libvirt_conn.legacy_nwinfo():
+            network_info = network_info.legacy()
         mac_addresses = {}
         vif = 0
         for network in network_info:
@@ -435,7 +436,7 @@ class LibvirtConnection(VmsConnection):
         # (dscannell) Check to see if we need to convert the network_info
         # object into the legacy format.
         if network_info and self.libvirt_conn.legacy_nwinfo():
-            network_info = compute_utils.legacy_network_info(network_info)
+            network_info = network_info.legacy()
 
         # We need to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
