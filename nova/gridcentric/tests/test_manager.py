@@ -104,7 +104,8 @@ class GridCentricManagerTestCase(unittest.TestCase):
 
         pre_bless_time = datetime.utcnow()
         blessed_uuid = utils.create_pre_blessed_instance(self.context)
-        migration_url = self.gridcentric.bless_instance(self.context, blessed_uuid, None)
+        migration_url = self.gridcentric.bless_instance(self.context, blessed_uuid,
+                                                        migration_url=None)
 
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         self.assertEquals("blessed", blessed_instance['vm_state'])
@@ -121,7 +122,8 @@ class GridCentricManagerTestCase(unittest.TestCase):
 
         blessed_uuid = utils.create_pre_blessed_instance(self.context)
 
-        migration_url = self.gridcentric.bless_instance(self.context, blessed_uuid, None)
+        migration_url = self.gridcentric.bless_instance(self.context, blessed_uuid,
+                                                        migration_url=None)
 
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         self.assertEquals(vm_states.ERROR, blessed_instance['vm_state'])
@@ -136,7 +138,8 @@ class GridCentricManagerTestCase(unittest.TestCase):
         # Create a new UUID for a non existing instance.
         blessed_uuid = utils.create_uuid()
         try:
-            self.gridcentric.bless_instance(self.context, blessed_uuid, None)
+            self.gridcentric.bless_instance(self.context, blessed_uuid,
+                                            migration_url=None)
             self.fail("Bless should have thrown InstanceNotFound exception.")
         except exception.InstanceNotFound:
             pass
@@ -148,7 +151,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
         blessed_uuid = utils.create_instance(self.context)
         pre_bless_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         migration_url = self.gridcentric.bless_instance(self.context, blessed_uuid,
-                                                        "mcdist://migrate_addr")
+                                                        migration_url="mcdist://migrate_addr")
         post_bless_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
 
         self.assertEquals(pre_bless_instance['vm_state'], post_bless_instance['vm_state'])
