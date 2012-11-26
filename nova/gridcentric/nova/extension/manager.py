@@ -21,13 +21,17 @@ handles RPC calls relating to GridCentric functionality creating instances.
 """
 
 import time
-import threading
 import traceback
 import os
 import re
 import socket
 import subprocess
 
+import greenlet
+from eventlet.green import threading as gthreading
+
+
+from nova import context as nova_context
 from nova import exception
 from nova import flags
 from nova import log as logging
@@ -61,6 +65,29 @@ from nova.notifier import api as notifier
 from gridcentric.nova.api import API
 import gridcentric.nova.extension.vmsconn as vmsconn
 
+def _lock_call(fn):
+    """
+    A decorator to lock methods to ensure that mutliple operations do not occur on the same
+    instance at a time. Note that this is a local lock only, so it just prevents concurrent
+    operations on the same host.
+    """
+    def wrapped_fn(self, context, instance_id, **kwargs):
+
+        LOG.debug(_("%s called: instance_id=%s, %s"), fn.__name__, instance_id, str(kwargs))
+
+        LOG.debug("Locking instance %s (fn:%s)" % (instance_id, fn.__name__))
+        self._lock_instance(instance_id)
+        try:
+            fn(self, context, instance_id, **kwargs)
+        finally:
+            self._unlock_instance(instance_id)
+            LOG.debug(_("Unlocked instance %s (fn: %s)" % (instance_id, fn.__name__)))
+
+    wrapped_fn.__name__ = fn.__name__
+    wrapped_fn.__doc__ = fn.__doc__
+
+    return wrapped_fn
+
 def memory_string_to_pages(mem):
     mem = mem.lower()
     units = { '^(\d+)tb$' : 40,
@@ -91,7 +118,13 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self.network_api = network.API()
         self.gridcentric_api = API()
         self.compute_manager = compute_manager.ComputeManager()
-        self.cond = threading.Condition()
+
+        # Use an eventlet green thread condition lock instead of the regular threading module. This
+        # is required for eventlet threads because they essentially run on a single system thread.
+        # All of the green threads will share the same base lock, defeating the point of using the
+        # it. Since the main threading module is not monkey patched we cannot use it directly.
+        self.cond = gthreading.Condition()
+        self.locked_instances = {}
         super(GridCentricManager, self).__init__(service_name="gridcentric", *args, **kwargs)
 
     def _init_vms(self):
@@ -99,6 +132,42 @@ class GridCentricManager(manager.SchedulerDependentManager):
         connection_type = FLAGS.connection_type
         self.vms_conn = vmsconn.get_vms_connection(connection_type)
         self.vms_conn.configure()
+
+    def _lock_instance(self, instance_id):
+        self.cond.acquire()
+        try:
+            LOG.debug(_("Acquiring lock for instance %s" % (instance_id)))
+            current_thread = id(greenlet.getcurrent())
+
+            while True:
+                (locking_thread, refcount) = self.locked_instances.get(instance_id, (current_thread, 0))
+                if locking_thread != current_thread:
+                    LOG.debug(_("Lock for instance %s already acquired by %s (me: %s)" \
+                            % (instance_id, locking_thread, current_thread)))
+                    self.cond.wait()
+                else:
+                    break
+
+            LOG.debug(_("Acquired lock for instance %s (me: %s, refcount=%s)" \
+                        % (instance_id, current_thread, refcount + 1)))
+            self.locked_instances[instance_id] = (locking_thread, refcount + 1)
+        finally:
+            self.cond.release()
+
+    def _unlock_instance(self, instance_id):
+        self.cond.acquire()
+        try:
+            if instance_id in self.locked_instances:
+                (locking_thread, refcount) = self.locked_instances[instance_id]
+                if refcount == 1:
+                    del self.locked_instances[instance_id]
+                    # The lock is now available for other threads to take so wake them up.
+                    self.cond.notifyAll()
+                else:
+                    self.locked_instances[instance_id] = (locking_thread, refcount - 1)
+        finally:
+            self.cond.release()
+
 
     def _instance_update(self, context, instance_id, **kwargs):
         """Update an instance in the database using kwargs as value."""
@@ -144,13 +213,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # for their missing notification.
             _log_error("notify %s" % (operation), e)
 
+    @_lock_call
     def bless_instance(self, context, instance_id, migration_url=None):
         """
         Construct the blessed instance, with the id instance_id. If migration_url is specified then 
         bless will ensure a memory server is available at the given migration url.
         """
-        LOG.debug(_("bless instance called: instance_id=%s, migration_url=%s"),
-                    instance_id, migration_url)
 
         instance_ref = self.db.instance_get(context, instance_id)
 
@@ -192,31 +260,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Return the memory URL (will be None for a normal bless).
         return migration_url
 
-    def _lock_migration(self, context, instance_id):
-        self.cond.acquire()
-        try:
-            # Grab a reference to the instance.
-            metadata = self.db.instance_metadata_get(context, instance_id)
-            if 'gc:migrating' in metadata:
-                # This instance is already locked for migration
-                return False
-            metadata['gc:migrating'] = "true"
-            self.db.instance_metadata_update(context, instance_id, metadata, True)
-        finally:
-            self.cond.release()
-        return True
-
-    def _unlock_migration(self, context, instance_id):
-        self.cond.acquire()
-        try:
-            # Grab a reference to the instance.
-            metadata = self.db.instance_metadata_get(context, instance_id)
-            if 'gc:migrating' in metadata:
-                del metadata['gc:migrating']
-            self.db.instance_metadata_update(context, instance_id, metadata, True)
-        finally:
-            self.cond.release()
-
     def _migration_reconfigure_networks(self, context, instance_id, dest):
         network_dest_queue = self.db.queue_get_for(context, FLAGS.network_topic, dest)
         network_source_queue = self.db.queue_get_for(context, FLAGS.network_topic, self.host)
@@ -237,31 +280,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
                          {"method":"_setup_network",
                           "args":{"network_ref":network_ref}})
 
-    def migrate_instance(self, context, instance_id, dest):
+    @_lock_call
+    def migrate_instance(self, context, instance_id, dest=None):
         """
         Migrates an instance, dealing with special streaming cases as necessary.
         """
-        LOG.debug(_("migrate instance called: instance_id=%s"), instance_id)
 
-        if not self._lock_migration(context, instance_id):
-            # This instance is in the middle of migrating so we cannot start another
-            # migration.
-            LOG.warn(_("Unable to migrate instance %s because it is currently being migrated."),
-                       instance_id)
-            return
-
-        try:
-            self.do_migrate_instance(context, instance_id, dest)
-        finally:
-            self._unlock_migration(context, instance_id)
-            instance_ref = self.db.instance_get(context, instance_id)
-            if instance_ref['vm_state'] == vm_states.MIGRATING:
-                # Only update the state of the instance if it is migrating, otherwise the 
-                # instance's state has been explicitly set, most likely to error, so we should
-                # not change it.
-                self._instance_update(context, instance_ref.id, vm_state=vm_states.ACTIVE)
-
-    def do_migrate_instance(self, context, instance_id, dest):
         # FIXME: This live migration code does not currently support volumes,
         # nor floating IPs. Both of these would be fairly straight-forward to
         # add but probably cry out for a better factoring of this class as much
@@ -271,6 +295,13 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         instance_ref = self.db.instance_get(context, instance_id)
         src = instance_ref['host']
+        if src != self.host:
+            # This can happen if two migration requests come in at the same time. We lock the
+            # instance so that the migrations will happen serially. However, after the first
+            # migration, we cannot proceed with the second one. For that case we just throw an
+            # exception and leave the instance intact.
+            raise exception.Error(_("Cannot migrate an instance that is on another host."))
+
         if instance_ref['volumes']:
             rpc.call(context,
                       FLAGS.volume_topic,
@@ -408,10 +439,18 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 self._instance_update(context, instance_id, vm_state=vm_states.ERROR)
                 raise e
 
+        # Reload the instance ref because its status may have been changed by the launch operation
+        # on the other host.
+        instance_ref = self.db.instance_get(context, instance_id)
+        if instance_ref['vm_state'] == vm_states.MIGRATING:
+            # Only update the state of the instance if it is migrating, otherwise the
+            # instance's state has been explicitly set, most likely to error, so we should
+            # not change it.
+            self._instance_update(context, instance_ref.id, vm_state=vm_states.ACTIVE)
+
+    @_lock_call
     def discard_instance(self, context, instance_id):
         """ Discards an instance so that no further instances maybe be launched from it. """
-
-        LOG.debug(_("discard instance called: instance_id=%s"), instance_id)
 
         context.elevated()
 
@@ -438,14 +477,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self.db.instance_destroy(context, instance_id)
         self._notify(instance_ref, "discard")
 
+    @_lock_call
     def launch_instance(self, context, instance_id, params={}, migration_url=None):
         """
         Construct the launched instance, with id instance_id. If migration_url is not none then 
         the instance will be launched using the memory server at the migration_url
         """
-
-        LOG.debug(_("Launching new instance: instance_id=%s, migration_url=%s"),
-                    instance_id, migration_url)
 
         # Grab the DB representation for the VM.
         instance_ref = self.db.instance_get(context, instance_id)
