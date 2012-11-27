@@ -66,10 +66,19 @@ class AttribDictionary(dict):
         for key, value in base.iteritems():
             self[key] = value
 
+def configure_logger():
+    # (dscannell): Not that for Essex-only we need to patch up the vms logger because nova
+    # nulls out all of handlers for the root logger. As a result nothing from the vms logger gets
+    # logged. We simply add the same handlers as the nova logger to the vms one, which ensures
+    # vms messages are directed to the same log as the extension.
+    for handler in logging.getLogger().logger.handlers:
+        logger.logger.addHandler(handler)
+
+    logger.setup_for_library()
 
 def get_vms_connection(connection_type):
     # Configure the logger regardless of the type of connection that will be used.
-    logger.setup_for_library()
+    configure_logger()
     if connection_type == 'xenapi':
         return XenApiConnection()
     elif connection_type == 'libvirt':
