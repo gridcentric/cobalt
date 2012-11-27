@@ -42,7 +42,7 @@ all : test package pylint
 .PHONY : all
 
 # Package the extensions.
-package : deb tgz pip
+package : deb tgz pip rpm
 .PHONY : package
 
 # Build the python egg files.
@@ -108,9 +108,9 @@ deb : deb-nova deb-novaclient deb-horizon
 
 deb-% : build-%
 	@rm -rf debbuild && $(INSTALL_DIR) debbuild
-	@rm -rf dist/$*/etc/init.d
 	@rsync -ruav packagers/deb/$*/ debbuild
 	@rsync -ruav dist/$*/ debbuild
+	@rm -rf debbuild/etc/init.d
 	@sed -i "s/\(^Version:\).*/\1 $(VERSION).$(RELEASE)-$(OPENSTACK_RELEASE)py$(PYTHON_VERSION)/" debbuild/DEBIAN/control
 	@dpkg -b debbuild/ .
 	@LIBDIR=`ls -1d debbuild/usr/lib*/python*`; mv $$LIBDIR/site-packages $$LIBDIR/dist-packages
@@ -148,6 +148,9 @@ rpm-nova : rpm-nova-compute-gridcentric
 
 rpm-novaclient : rpm-novaclient-gridcentric
 .PHONY : rpm-novaclient
+
+rpm : rpm-nova rpm-novaclient
+.PHONY : rpm
 
 rpm-%: build-%
 	@rm -rf dist/$*/etc/init
@@ -187,6 +190,7 @@ clean :
 	rm -f pylint-*.txt
 	rm -rf *.deb debbuild
 	rm -rf *.tgz *.tar.gz
+	rm -rf *.rpm rpmbuild
 	rm -rf nova/build novaclient/build horizon/build
 	rm -rf nova/dist novaclient/dist horizon/dist
 	rm -rf novaclient/MANIFEST novaclient/requires.txt novaclient/*.egg-info
