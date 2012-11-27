@@ -78,6 +78,11 @@ def memory_string_to_pages(mem):
             return max(1, memory >> 12)
     raise ValueError('Invalid target string %s.' % mem)
 
+def _log_error(operation, exc):
+    """ Log exceptions with a common format. """
+    log_message = "%s\n%s" % (str(exc), traceback.format_exc())
+    LOG.error(_("Error during %s: %s"), operation, log_message)
+
 class GridCentricManager(manager.SchedulerDependentManager):
 
     def __init__(self, *args, **kwargs):
@@ -158,7 +163,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   vm_state="blessed", task_state=None,
                                   launched_at=utils.utcnow())
         except Exception, e:
-            LOG.debug(_("Error during bless %s: %s"), str(e), traceback.format_exc())
+            _log_error("bless", e)
             self._instance_update(context, instance_ref.id,
                                   vm_state=vm_states.ERROR, task_state=None)
             # Short-circuit, nothing to be done.
@@ -350,7 +355,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   host=dest,
                                   task_state=None)
 
-        except:
+        except Exception, e:
             # TODO(dscannell): This rollback is a bit broken right now because
             # we cannot simply relaunch the instance on this host. The order of
             # events during migration are: 1. Bless instance -- This will leave
@@ -362,7 +367,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # different strategies are needed to rollback e.g We can simply
             # unpause the instance if the qemu process still exists (might need
             # to move when libvirt cleanup occurs).
-            LOG.debug(_("Error during migration: %s"), traceback.format_exc())
+            _log_error("migration", e)
 
             try:
                 # Clean up the instance from both the source and destination.
@@ -476,7 +481,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                 instance_ref, vpn=is_vpn,
                                                 requested_networks=requested_networks)
                 except Exception, e:
-                    LOG.debug(_("Error during network allocation: %s"), str(e))
+                    _log_error("network allocation", e)
                     self._instance_update(context, instance_ref.id,
                                           vm_state=vm_states.ERROR,
                                           task_state=None)
@@ -547,7 +552,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   launched_at=utils.utcnow(),
                                   task_state=None)
         except Exception, e:
-            LOG.debug(_("Error during launch %s: %s"), str(e), traceback.format_exc())
+            _log_error("launch", e)
             self._instance_update(context, instance_ref.id,
                                   vm_state=vm_states.ERROR, task_state=None)
             # Raise the error up.
