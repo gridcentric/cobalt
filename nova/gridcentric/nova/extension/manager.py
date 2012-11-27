@@ -159,6 +159,21 @@ class GridCentricManager(manager.SchedulerDependentManager):
             return self.db.instance_get_by_uuid(context, source_instance_uuid)
         return None
 
+    def _notify(self, instance_ref, operation, network_info=None):
+        try:
+            usage_info = utils.usage_from_instance(instance_ref, network_info=network_info)
+            notifier.notify('gridcentric.%s' % self.host,
+                            'gridcentric.instance.%s' % operation,
+                            notifier.INFO, usage_info)
+        except Exception, e:
+            # (amscanne): We do not put the instance into an error state during a notify exception.
+            # It doesn't seem reasonable to do this, as the instance may still be up and running,
+            # using resources, etc. and the ACTIVE state more accurately reflects this than
+            # the ERROR state. So if there are real systems scanning instances in addition to 
+            # using notification events, they will eventually pick up the instance and correct 
+            # for their missing notification.
+            _log_error("notify %s" % (operation), e)
+
     def bless_instance(self, context, instance_uuid, migration_url=None):
         """
         Construct the blessed instance, with the uuid instance_uuid. If migration_url is specified then 
@@ -173,10 +188,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             source_instance_ref = instance_ref
             migration = True
         else:
-            usage_info = utils.usage_from_instance(instance_ref)
-            notifier.notify('gridcentric.%s' % self.host,
-                            'gridcentric.instance.bless.start',
-                            notifier.INFO, usage_info)
+            self._notify(instance_ref, "bless.start")
             source_instance_ref = self._get_source_instance(context, instance_uuid)
             migration = False
 
@@ -188,10 +200,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                 migration_url=migration_url,
                                                 use_image_service=FLAGS.gridcentric_use_image_service)
             if not(migration):
-                usage_info = utils.usage_from_instance(instance_ref)
-                notifier.notify('gridcentric.%s' % self.host,
-                                'gridcentric.instance.bless.end',
-                                notifier.INFO, usage_info)
+                self._notify(instance_ref, "bless.end")
                 self._instance_update(context, instance_ref.id,
                                   vm_state="blessed", task_state=None,
                                   launched_at=utils.utcnow())
@@ -418,10 +427,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # Grab the DB representation for the VM.
         instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
-        usage_info = utils.usage_from_instance(instance_ref)
-        notifier.notify('gridcentric.%s' % self.host,
-                        'gridcentric.instance.discard.start',
-                        notifier.INFO, usage_info)
+        self._notify(instance_ref, "discard.start")
 
         metadata = self._instance_metadata(context, instance_uuid)
         image_refs = self._extract_image_refs(metadata)
@@ -442,10 +448,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                               terminated_at=utils.utcnow())
 
         self.db.instance_destroy(context, instance_uuid)
-        usage_info = utils.usage_from_instance(instance_ref)
-        notifier.notify('gridcentric.%s' % self.host,
-                        'gridcentric.instance.discard.end',
-                        notifier.INFO, usage_info)
+        self._notify(instance_ref, "discard.end")
 
     def _instance_network_info(self, context, instance_ref, already_allocated):
         """
@@ -507,10 +510,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             vm_state = vm_states.MIGRATING
 
         else:
-            usage_info = utils.usage_from_instance(instance_ref)
-            notifier.notify('gridcentric.%s' % self.host,
-                            'gridcentric.instance.launch.start',
-                            notifier.INFO, usage_info)
+            self._notify(instance_ref, "launch.start")
             # Create a new launched instance.
             source_instance_ref = self._get_source_instance(context, instance_uuid)
             vm_state = vm_states.BUILDING
@@ -578,10 +578,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
             # Perform our database update.
             if migration_url == None:
-                usage_info = utils.usage_from_instance(instance_ref, network_info=network_info)
-                notifier.notify('gridcentric.%s' % self.host,
-                                'gridcentric.instance.launch.end',
-                                notifier.INFO, usage_info)
+                self._notify(instance_ref, "launch.end", network_info=network_info)
                 self._instance_update(context,
                                   instance_ref['uuid'],
                                   vm_state=vm_states.ACTIVE,
