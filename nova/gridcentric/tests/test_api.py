@@ -133,6 +133,7 @@ class GridCentricApiTestCase(unittest.TestCase):
         if no_exception:
             self.fail("Should not be able to bless an instance in a non-active state")
 
+
     def test_discard_a_blessed_instance_with_remaining_launched_ones(self):
 
         instance_uuid = utils.create_instance(self.context)
