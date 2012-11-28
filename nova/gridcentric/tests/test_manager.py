@@ -104,7 +104,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
 
         pre_bless_time = datetime.utcnow()
         blessed_uuid = utils.create_pre_blessed_instance(self.context)
-        migration_url = self.gridcentric.bless_instance(self.context, blessed_uuid,
+        migration_url = self.gridcentric.bless_instance(self.context, instance_uuid=blessed_uuid,
                                                         migration_url=None)
 
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
@@ -122,7 +122,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
 
         blessed_uuid = utils.create_pre_blessed_instance(self.context)
 
-        migration_url = self.gridcentric.bless_instance(self.context, blessed_uuid,
+        migration_url = self.gridcentric.bless_instance(self.context, instance_uuid=blessed_uuid,
                                                         migration_url=None)
 
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
@@ -138,7 +138,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
         # Create a new UUID for a non existing instance.
         blessed_uuid = utils.create_uuid()
         try:
-            self.gridcentric.bless_instance(self.context, blessed_uuid,
+            self.gridcentric.bless_instance(self.context, instance_uuid=blessed_uuid,
                                             migration_url=None)
             self.fail("Bless should have thrown InstanceNotFound exception.")
         except exception.InstanceNotFound:
@@ -150,7 +150,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
 
         blessed_uuid = utils.create_instance(self.context)
         pre_bless_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
-        migration_url = self.gridcentric.bless_instance(self.context, blessed_uuid,
+        migration_url = self.gridcentric.bless_instance(self.context, instance_uuid=blessed_uuid,
                                                         migration_url="mcdist://migrate_addr")
         post_bless_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
 
@@ -166,9 +166,9 @@ class GridCentricManagerTestCase(unittest.TestCase):
         launched_uuid = utils.create_pre_launched_instance(self.context)
 
         pre_launch_time = datetime.utcnow()
-        self.gridcentric.launch_instance(self.context, launched_uuid)
+        self.gridcentric.launch_instance(self.context, instance_uuid=launched_uuid)
 
-        launched_instance = db.instance_get_by_uuid(self.context, launched_uuid)
+        launched_instance = db.instance_get_by_uuid(self.context, instance_uuid=launched_uuid)
         self.assertEquals("active", launched_instance['vm_state'])
         self.assertTrue(pre_launch_time <= launched_instance['launched_at'])
         self.assertEquals(None, launched_instance['task_state'])
@@ -180,7 +180,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
         launched_uuid = utils.create_pre_launched_instance(self.context)
 
         try:
-            self.gridcentric.launch_instance(self.context, launched_uuid)
+            self.gridcentric.launch_instance(self.context, instance_uuid=launched_uuid)
             self.fail("The exception from launch should be re-raised up.")
         except utils.TestInducedException:
             pass
@@ -196,7 +196,8 @@ class GridCentricManagerTestCase(unittest.TestCase):
         self.vmsconn.set_return_val("launch", None)
         instance_uuid = utils.create_instance(self.context, {'vm_state': vm_states.MIGRATING})
         pre_launch_instance = db.instance_get_by_uuid(self.context, instance_uuid)
-        self.gridcentric.launch_instance(self.context, instance_uuid, migration_url="migration_url")
+        self.gridcentric.launch_instance(self.context, instance_uuid=instance_uuid,
+                                         migration_url="migration_url")
         post_launch_instance = db.instance_get_by_uuid(self.context, instance_uuid)
 
         self.assertEquals(pre_launch_instance['vm_state'], post_launch_instance['vm_state'])
@@ -210,7 +211,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
         launched_uuid = utils.create_instance(self.context, {'vm_state': vm_states.MIGRATING})
 
         try:
-            self.gridcentric.launch_instance(self.context, launched_uuid,
+            self.gridcentric.launch_instance(self.context, instance_uuid=launched_uuid,
                                              migration_url="migration_url")
             self.fail("The launch error should have been re-raised up.")
         except utils.TestInducedException:
@@ -228,7 +229,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
         blessed_uuid = utils.create_blessed_instance(self.context, source_uuid="UNITTEST_DISCARD")
 
         pre_discard_time = datetime.utcnow()
-        self.gridcentric.discard_instance(self.context, blessed_uuid)
+        self.gridcentric.discard_instance(self.context, instance_uuid=blessed_uuid)
 
         try:
             db.instance_get(self.context, blessed_uuid)

@@ -89,14 +89,25 @@ def _lock_call(fn):
     instance at a time. Note that this is a local lock only, so it just prevents concurrent
     operations on the same host.
     """
-    def wrapped_fn(self, context, instance_uuid, **kwargs):
 
-        LOG.debug(_("%s called: instance_uuid=%s, %s"), fn.__name__, instance_uuid, str(kwargs))
+    def wrapped_fn(self, context, **kwargs):
+        instance_uuid = kwargs.get('instance_uuid', None)
+        instance_ref = kwargs.get('instance_ref', None)
+
+        # Ensure we've got exactly one of uuid or ref.
+        if instance_uuid and not(instance_ref):
+            instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
+            kwargs['instance_ref'] = instance_ref
+        elif instance_ref and not(instance_uuid):
+            instance_uuid = instance_ref['uuid']
+            kwargs['instance_uuid'] = instance_ref['uuid']
+
+        LOG.debug(_("%s called: %s"), fn.__name__, str(kwargs))
 
         LOG.debug("Locking instance %s (fn:%s)" % (instance_uuid, fn.__name__))
         self._lock_instance(instance_uuid)
         try:
-            return fn(self, context, instance_uuid, **kwargs)
+            return fn(self, context, **kwargs)
         finally:
             self._unlock_instance(instance_uuid)
             LOG.debug(_("Unlocked instance %s (fn: %s)" % (instance_uuid, fn.__name__)))
@@ -244,19 +255,19 @@ class GridCentricManager(manager.SchedulerDependentManager):
             _log_error("notify %s" % (operation), e)
 
     @_lock_call
-    def bless_instance(self, context, instance_uuid, migration_url=None):
+    def bless_instance(self, context, instance_uuid=None, instance_ref=None, migration_url=None):
         """
         Construct the blessed instance, with the uuid instance_uuid. If migration_url is specified then 
         bless will ensure a memory server is available at the given migration url.
         """
 
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
         if migration_url:
             # Tweak only this instance directly.
             source_instance_ref = instance_ref
             migration = True
         else:
             self._notify(instance_ref, "bless.start")
+            # We require the parent instance.
             source_instance_ref = self._get_source_instance(context, instance_uuid)
             migration = False
 
@@ -311,7 +322,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                           "args":{"network_ref":network_ref}})
 
     @_lock_call
-    def migrate_instance(self, context, instance_uuid, dest=None):
+    def migrate_instance(self, context, instance_uuid=None, instance_ref=None, dest=None):
         """
         Migrates an instance, dealing with special streaming cases as necessary.
         """
@@ -322,9 +333,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # as this code can be inherited directly from the ComputeManager. The
         # only real difference is that the migration must not go through
         # libvirt, instead we drive it via our bless, launch routines.
-
-        # Grab a reference to the instance.
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
 
         src = instance_ref['host']
         if src != self.host:
@@ -377,7 +385,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             migration_address = devname
 
         # Bless this instance for migration.
-        migration_url = self.bless_instance(context, instance_uuid,
+        migration_url = self.bless_instance(context, instance_uuid=instance_uuid,
                                             migration_url="mcdist://%s" %
                                             migration_address)
 
@@ -458,7 +466,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                              image_refs=image_refs)
 
                 # Rollback is launching here again.
-                self.launch_instance(context, instance_uuid, migration_url=migration_url)
+                self.launch_instance(context, instance_uuid=instance_uuid,
+                                     migration_url=migration_url)
                 self._instance_update(context,
                                       instance_uuid,
                                       vm_state=vm_states.ACTIVE,
@@ -478,15 +487,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
             self._instance_update(context, instance_ref['uuid'], vm_state=vm_states.ACTIVE)
 
     @_lock_call
-    def discard_instance(self, context, instance_uuid):
+    def discard_instance(self, context, instance_uuid=None, instance_ref=None):
         """ Discards an instance so that no further instances maybe be launched from it. """
 
         context.elevated()
 
-        # Grab the DB representation for the VM.
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
         self._notify(instance_ref, "discard.start")
-
         metadata = self._instance_metadata(context, instance_uuid)
         image_refs = self._extract_image_refs(metadata)
         # Call discard in the backend.
@@ -548,14 +554,15 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
 
     @_lock_call
-    def launch_instance(self, context, instance_uuid, params={}, migration_url=None):
+    def launch_instance(self, context, instance_uuid=None, instance_ref=None,
+                        params=None, migration_url=None):
         """
         Construct the launched instance, with uuid instance_uuid. If migration_url is not none then 
         the instance will be launched using the memory server at the migration_url
         """
 
-        # Grab the DB representation for the VM.
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
+        if params == None:
+            params = {}
 
         if migration_url:
             # Just launch the given blessed instance.
