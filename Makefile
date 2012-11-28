@@ -122,7 +122,7 @@ pylint : pylint-nova.txt
 # Executes the units tests and generated an Junit XML report.
 test-%.xml : test-%
 test-% : ensure-vms-version
-	cd $* && PYTHONPATH=$(NOVA_PATH):$(VMS_PATH)/src/python nosetests \
+	cd $* && PYTHONPATH=$(PYTHONPATH):$(NOVA_PATH):$(VMS_PATH)/src/python nosetests \
 	    --with-xunit --xunit-file=$(CURDIR)/$@.xml gridcentric || true
 test : test-nova
 .PHONY : test

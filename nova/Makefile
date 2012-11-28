@@ -102,23 +102,6 @@ tgz: install
 	tar -cvzf nova-gridcentric_$(VERSION).$(RELEASE)-$(NOVA_RELEASE)py$(PYTHON_VERSION).tgz -C dist .
 .PHONY: tgz
 
-# Runs pylint on the code base
-pylint:
-	@[ -f pylintrc ] && \
-	    pylint --rcfile=pylintrc gridcentric 2>&1 > pylint.txt || true
-.PHONY: pylint
-
-# Executes the units tests and generated an Junit XML report
-test : testenv
-	PYTHONPATH=$(NOVA_PATH):$(VMS_PATH)/src/python nosetests \
-	    --with-xunit --xunit-file=build/$(TEST_REPORT) gridcentric || true
-.PHONY : test
-
-# Builds the test environment
-testenv : 
-	mkdir -p build
-.PHONY : testenv
-
 clean : 
 	rm -f vms.db
 	rm -rf build
