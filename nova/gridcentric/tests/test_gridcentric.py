@@ -174,7 +174,7 @@ class GridCentricTestCase(unittest.TestCase):
         blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_id)
         blessed_id = blessed_instance['id']
 
-        self.gridcentric.discard_instance(self.context, blessed_id)
+        self.gridcentric.discard_instance(self.context, instance_id=blessed_id)
 
         try:
             db.instance_get(self.context, blessed_id)
@@ -192,7 +192,7 @@ class GridCentricTestCase(unittest.TestCase):
 
         no_exception = False
         try:
-            self.gridcentric_api.discard_instance(self.context, blessed_id)
+            self.gridcentric_api.discard_instance(self.context, instance_id=blessed_id)
             no_exception = True
         except:
             pass  # success
