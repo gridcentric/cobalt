@@ -37,8 +37,6 @@ from nova import flags
 from nova import log as logging
 LOG = logging.getLogger('nova.gridcentric.manager')
 FLAGS = flags.FLAGS
-flags.DEFINE_bool('gridcentric_use_image_service', False,
-                  'Gridcentric should use the image service to store disk copies and descriptors.')
 flags.DEFINE_string('gridcentric_outgoing_migration_address', None,
                     'IPv4 address to host migrations from; the VM on the '
                     'migration destination will connect to this address. '
@@ -84,11 +82,14 @@ def _lock_call(fn):
             kwargs['instance_id'] = instance_ref['id']
 
         LOG.debug(_("%s called: %s"), fn.__name__, str(kwargs))
+        if type(instance_ref) == dict:
+            # Cover for the case where we don't have a proper object.
+            instance_ref['name'] = FLAGS.instance_name_template % instance_ref['id']
 
         LOG.debug("Locking instance %s (fn:%s)" % (instance_id, fn.__name__))
         self._lock_instance(instance_id)
         try:
-            fn(self, context, **kwargs)
+            return fn(self, context, **kwargs)
         finally:
             self._unlock_instance(instance_id)
             LOG.debug(_("Unlocked instance %s (fn: %s)" % (instance_id, fn.__name__)))
@@ -115,10 +116,9 @@ def memory_string_to_pages(mem):
             return max(1, memory >> 12)
     raise ValueError('Invalid target string %s.' % mem)
 
-def _log_error(operation, exc):
+def _log_error(operation):
     """ Log exceptions with a common format. """
-    log_message = "%s\n%s" % (str(exc), traceback.format_exc())
-    LOG.error(_("Error during %s: %s"), operation, log_message)
+    LOG.exception(_("Error during %s") % operation)
 
 class GridCentricManager(manager.SchedulerDependentManager):
 
@@ -179,9 +179,126 @@ class GridCentricManager(manager.SchedulerDependentManager):
             self.cond.release()
 
 
+    def _refresh_host(self):
+        context = nova_context.get_admin_context()
+
+        # Grab the global lock and fetch all instances.
+        self.cond.acquire()
+
+        try:
+            # Scan all instances and check for stalled operations.
+            db_instances    = self.db.instance_get_all_by_host(context, self.host)
+            local_instances = self.compute_manager.driver.list_instances()
+            for instance in db_instances:
+
+                # If the instance is locked, then there is some active
+                # tasks working with this instance (and the BUILDING state
+                # and/or MIGRATING state) is completely fine.
+                if instance.id in self.locked_instances:
+                    continue
+
+                if instance['vm_state'] == vm_states.MIGRATING:
+
+                    # Set defaults.
+                    state = None
+                    host  = self.host
+
+                    # Grab metadata.
+                    metadata = self.db.instance_metadata_get(context, instance['id'])
+                    src_host = metadata.get('gc_src_host', None)
+                    dst_host = metadata.get('gc_dst_host', None)
+
+                    if instance['name'] in local_instances:
+                        if self.host == src_host:
+                            # This is a rollback, it's here and no migration is
+                            # going on.  We simply update the database to
+                            # reflect this reality.
+                            state = vm_states.ACTIVE
+
+                        elif self.host == dst_host:
+                            # This shouldn't really happen. The only case in which
+                            # it could happen is below, where we've been punted this
+                            # VM from the source host.
+                            state = vm_states.ACTIVE
+
+                            # Try to ensure the networks are configured correctly.
+                            self._migration_reconfigure_networks(context, instance.id, src_host)
+                    else:
+                        if self.host == src_host:
+                            # The VM may have been moved, but the host did not change.
+                            # We update the host and let the destination take care of
+                            # the status.
+                            state = vm_states.MIGRATING
+                            host  = dst_host
+
+                        elif self.host == dst_host:
+                            # This VM is not here, and there's no way it could be back
+                            # at its origin. We must mark this as an error.
+                            state = vm_states.ERROR
+
+                    if state:
+                        self._instance_update(context, instance.id, vm_state=state, host=host)
+
+        finally:
+            self.cond.release()
+
+    def periodic_tasks(self, context=None):
+        """Tasks to be run at a periodic interval."""
+        error_list = super(GridCentricManager, self).periodic_tasks(context)
+        if error_list is None:
+            error_list = []
+
+        try:
+            # Scan through the host and check on local VMs.
+            self._refresh_host()
+        except Exception, e:
+            error_list.append(e)
+
+        return error_list
+
+    def _get_migration_address(self, dest):
+        if FLAGS.gridcentric_outgoing_migration_address != None:
+            return FLAGS.gridcentric_outgoing_migration_address
+
+        # Figure out the interface to reach 'dest'.
+        # This is used to construct our out-of-band network parameter below.
+        dest_ip = socket.gethostbyname(dest)
+        iproute = subprocess.Popen(["ip", "route", "get", dest_ip], stdout=subprocess.PIPE)
+        (stdout, stderr) = iproute.communicate()
+        lines = stdout.split("\n")
+        if len(lines) < 1:
+            raise exception.Error(_("No route to destination."))
+            _log_error("no route to destination")
+
+        try:
+            (destip, devstr, devname, srcstr, srcip) = lines[0].split()
+        except:
+            _log_error("garbled route output: %s" % lines[0])
+            raise
+
+        # Check that this is not local.
+        if devname == "lo":
+            raise exception.Error(_("Can't migrate to the same host."))
+
+        # Return the device name.
+        return devname
+
     def _instance_update(self, context, instance_id, **kwargs):
-        """Update an instance in the database using kwargs as value."""
-        return self.db.instance_update(context, instance_id, kwargs)
+        """ Update an instance in the database using kwargs as value. """
+        retries = 0
+        while True:
+            try:
+                # Database updates are idempotent, so we can retry this when
+                # we encounter transient failures. We retry up to 10 seconds.
+                return self.db.instance_update(context, instance_id, kwargs)
+            except:
+                # We retry the database update up to 60 seconds. This gives
+                # us a decent window for avoiding database restarts, etc.
+                if retries < 12:
+                    retries += 1
+                    time.sleep(5.0)
+                else:
+                    raise
 
     def _extract_image_refs(self, metadata):
         image_refs = metadata.get('images', '').split(',')
@@ -190,7 +307,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         return image_refs
 
     def _get_source_instance(self, context, instance_id):
-        """ 
+        """
         Returns a the instance reference for the source instance of instance_id. In other words:
         if instance_id is a BLESSED instance, it returns the instance that was blessed
         if instance_id is a LAUNCH instance, it returns the blessed instance.
@@ -214,19 +331,20 @@ class GridCentricManager(manager.SchedulerDependentManager):
             notifier.notify('gridcentric.%s' % self.host,
                             'gridcentric.instance.%s' % operation,
                             notifier.INFO, usage_info)
-        except Exception, e:
+        except:
             # (amscanne): We do not put the instance into an error state during a notify exception.
             # It doesn't seem reasonable to do this, as the instance may still be up and running,
             # using resources, etc. and the ACTIVE state more accurately reflects this than
-            # the ERROR state. So if there are real systems scanning instances in addition to 
-            # using notification events, they will eventually pick up the instance and correct 
+            # the ERROR state. So if there are real systems scanning instances in addition to
+            # using notification events, they will eventually pick up the instance and correct
             # for their missing notification.
-            _log_error("notify %s" % (operation), e)
+            _log_error("notify %s" % operation)
 
     @_lock_call
-    def bless_instance(self, context, instance_id=None, instance_ref=None, migration_url=None):
+    def bless_instance(self, context, instance_id=None, instance_ref=None,
+                       migration_url=None, migration_network_info=None):
         """
-        Construct the blessed instance, with the id instance_id. If migration_url is specified then 
+        Construct the blessed instance, with the id instance_id. If migration_url is specified then
         bless will ensure a memory server is available at the given migration url.
         """
 
@@ -241,37 +359,80 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         try:
             # Create a new 'blessed' VM with the given name.
+            # NOTE: If this is a migration, then a successful bless will mean that
+            # the VM no longer exists. This requires us to *relaunch* it below in
+            # the case of a rollback later on.
             name, migration_url, blessed_files = self.vms_conn.bless(context,
-                                                source_instance_ref.name,
+                                                source_instance_ref['name'],
                                                 instance_ref,
-                                                migration_url=migration_url,
-                                                use_image_service=FLAGS.gridcentric_use_image_service)
+                                                migration_url=migration_url)
+        except:
+            _log_error("bless")
+            if not(migration):
+                self._instance_update(context, instance_id,
+                                      vm_state=vm_states.ERROR, task_state=None)
+            raise
+
+        try:
+            # Extract the image references.
+            # We set the image_refs to an empty array first in case the
+            # post_bless() fails and we need to cleanup artifacts.
+            image_refs = []
+            image_refs = self.vms_conn.post_bless(context, instance_ref, blessed_files)
+
+            # Mark this new instance as being 'blessed'. If this fails,
+            # we simply clean up all metadata and attempt to mark the VM
+            # as in the ERROR state. This may fail also, but at least we
+            # attempt to leave as little around as possible.
+            metadata = self.db.instance_metadata_get(context, instance_id)
+            LOG.debug("image_refs = %s" % image_refs)
+            metadata['images'] = ','.join(image_refs)
+            if not(migration):
+                metadata['blessed'] = True
+            self.db.instance_metadata_update(context, instance_id, metadata, True)
+
             if not(migration):
                 self._notify(instance_ref, "bless")
-                self._instance_update(context, instance_ref.id,
-                                  vm_state="blessed", task_state=None,
-                                  launched_at=utils.utcnow())
-        except Exception, e:
-            _log_error("bless", e)
-            self._instance_update(context, instance_ref.id,
-                                  vm_state=vm_states.ERROR, task_state=None)
-            # Short-circuit, nothing to be done.
-            return
+                self._instance_update(context, instance_id,
+                                      vm_state="blessed", task_state=None,
+                                      launched_at=utils.utcnow())
+        except:
+            if migration:
+                self.vms_conn.launch(context,
+                                     source_instance_ref['name'],
+                                     instance_ref,
+                                     migration_network_info,
+                                     target=0,
+                                     migration_url=migration_url,
+                                     skip_image_service=True,
+                                     image_refs=blessed_files,
+                                     params={})
 
-        # Mark this new instance as being 'blessed'.
-        metadata = self.db.instance_metadata_get(context, instance_ref.id)
-        LOG.debug("blessed_files = %s" % (blessed_files))
-        metadata['images'] = ','.join(blessed_files)
-        if not(migration):
-            metadata['blessed'] = True
-        self.db.instance_metadata_update(context, instance_ref.id, metadata, True)
+            # Ensure that no data is left over here, since we were not
+            # able to update the metadata service to save the locations.
+            self.vms_conn.discard(context, instance_ref['name'], image_refs=image_refs)
+
+            if not(migration):
+                self._instance_update(context, instance_id,
+                                      vm_state=vm_states.ERROR, task_state=None)
+
+        try:
+            # Cleanup the leftover local artifacts.
+            self.vms_conn.bless_cleanup(blessed_files)
+        except:
+            _log_error("bless cleanup")
 
         # Return the memory URL (will be None for a normal bless).
         return migration_url
 
-    def _migration_reconfigure_networks(self, context, instance_id, dest):
-        network_dest_queue = self.db.queue_get_for(context, FLAGS.network_topic, dest)
+    def _migration_reconfigure_networks(self, context, instance_id, dest=None):
         network_source_queue = self.db.queue_get_for(context, FLAGS.network_topic, self.host)
+        if dest:
+            # If dest is not defined, then we are generally calling this function from
+            # the _refresh_host() function above. This is called if instances get stuck in the
+            # MIGRATING state and we need to take them out of it. The source host is left
+            # to fend for itself (a network reconfiguration should happen eventually).
+            network_dest_queue = self.db.queue_get_for(context, FLAGS.network_topic, dest)
 
         vifs = self.db.virtual_interface_get_by_instance(context, instance_id)
         for vif in vifs:
@@ -281,13 +442,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 # the compute host is responsible for the networking of its instances. Otherwise,
                 # there is a global set of network hosts performing the networking and there
                 # is no need to reconfigure.
-                rpc.call(context, network_dest_queue,
-                         {"method":"_setup_network",
-                          "args":{"network_ref":network_ref}})
-
                 rpc.call(context, network_source_queue,
                          {"method":"_setup_network",
                           "args":{"network_ref":network_ref}})
+                if dest:
+                    rpc.call(context, network_dest_queue,
+                            {"method":"_setup_network",
+                             "args":{"network_ref":network_ref}})
+
 
     @_lock_call
     def migrate_instance(self, context, instance_id=None, instance_ref=None, dest=None):
@@ -321,46 +483,30 @@ class GridCentricManager(manager.SchedulerDependentManager):
         compute_dest_queue = self.db.queue_get_for(context, FLAGS.compute_topic, dest)
         compute_source_queue = self.db.queue_get_for(context, FLAGS.compute_topic, self.host)
 
+        # Figure out the migration address.
+        migration_address = self._get_migration_address(dest)
+
+        # Grab the network info.
+        network_info = self.network_api.get_instance_nw_info(context, instance_ref)
+
+        # Update the metadata for migration.
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        metadata['gc_src_host'] = self.host
+        metadata['gc_dst_host'] = dest
+        self.db.instance_metadata_update(context, instance_id, metadata, True)
+
+        # Prepare the destination for live migration.
         rpc.call(context, compute_dest_queue,
                  {"method": "pre_live_migration",
                   "args": {'instance_id': instance_id,
                            'block_migration': False,
                            'disk': None}})
 
-        # Figure out the interface to reach 'dest'.
-        # This is used to construct our out-of-band network parameter below.
-        dest_ip = socket.gethostbyname(dest)
-        iproute = subprocess.Popen(["ip", "route", "get", dest_ip], stdout=subprocess.PIPE)
-        (stdout, stderr) = iproute.communicate()
-        lines = stdout.split("\n")
-        if len(lines) < 1:
-            raise exception.Error(_("Could not reach destination %s.") % dest)
-        try:
-            (destip, devstr, devname, srcstr, srcip) = lines[0].split()
-        except:
-            raise exception.Error(_("Could not determine interface for destination %s.") % dest)
-
-        # Check that this is not local.
-        if devname == "lo":
-            raise exception.Error(_("Can't migrate to the same host."))
-
-        # Grab the network info (to be used for cleanup later on the host).
-        network_info = self.network_api.get_instance_nw_info(context, instance_ref)
-
-        if FLAGS.gridcentric_outgoing_migration_address != None:
-            migration_address = FLAGS.gridcentric_outgoing_migration_address
-        else:
-            migration_address = devname
-
         # Bless this instance for migration.
-        migration_url = self.bless_instance(context, instance_id=instance_id,
-                                            migration_url="mcdist://%s" %
-                                            migration_address)
-
-        if migration_url == None:
-            # If the migration url is None then that means there was an issue with the bless.
-            # We cannot continue with the migration so we just exit.
-            return
+        migration_url = self.bless_instance(context,
+                                            instance_ref=instance_ref,
+                                            migration_url="mcdist://%s" % migration_address,
+                                            migration_network_info=network_info)
 
         # Run our premigration hook.
         self.vms_conn.pre_migration(context, instance_ref, network_info, migration_url)
@@ -373,101 +519,83 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # FIXME: Currently we fix a timeout for this operation at 30 minutes.
             # This is a long, long time. Ideally, this should be a function of the
             # disk size or some other parameter. But we will get a response if an
-            # exception occurs in the remote thread, so the worse case here is 
+            # exception occurs in the remote thread, so the worse case here is
             # really just the machine dying or the service dying unexpectedly.
             rpc.call(context, gc_dest_queue,
-                    {"method": "launch_instance",
-                     "args": {'instance_id': instance_id,
-                              'migration_url': migration_url}})
+                   {"method": "launch_instance",
+                     "args": {'instance_ref': instance_ref,
+                              'migration_url': migration_url,
+                              'migration_network_info': network_info}})
+            changed_hosts = True
 
-            # Teardown on this host (and delete the descriptor).
-            metadata = self.db.instance_metadata_get(context, instance_id)
-            image_refs = self._extract_image_refs(metadata)
-            self.vms_conn.post_migration(context, instance_ref, network_info, migration_url,
-                                         use_image_service=FLAGS.gridcentric_use_image_service,
-                                         image_refs=image_refs)
+        except:
+            _log_error("remote launch")
 
-            # Essentially we want to clean up the instance on the source host. This involves
-            # removing it from the libvirt caches, removing it from the iptables, etc. Since we
-            # are dealing with the iptables, we need the nova-compute process to handle this clean
-            # up. We use the rollback_live_migration_at_destination method of nova-compute because
-            # it does exactly was we need but we use the source host (self.host) instead of
-            # the destination.
-            rpc.call(context, compute_source_queue,
-                 {"method": "rollback_live_migration_at_destination",
-                  "args": {'instance_id': instance_id}})
+            # Try relaunching on the local host. Everything should still be setup
+            # for this to happen smoothly, and the _launch_instance function will
+            # not talk to the database until the very end of operation. (Although
+            # it is possible that is what caused the failure of launch_instance()
+            # remotely... that would be bad. But that VM wouldn't really have any
+            # network connectivity).
+            self.launch_instance(context,
+                                 instance_ref=instance_ref,
+                                 migration_url=migration_url,
+                                 migration_network_info=network_info)
+            changed_hosts = False
+
+        # Teardown any specific migration state on this host.
+        # If this does not succeed, we may be left with some
+        # memory used by the memory server on the current machine.
+        # This isn't ideal but the new VM should be functional
+        # and we were probably migrating off this machine for
+        # maintenance reasons anyways.
+        try:
+            self.vms_conn.post_migration(context, instance_ref, network_info, migration_url)
+        except:
+            _log_error("post migration")
+
+        if changed_hosts:
+            # Essentially we want to clean up the instance on the source host. This
+            # involves removing it from the libvirt caches, removing it from the
+            # iptables, etc. Since we are dealing with the iptables, we need the
+            # nova-compute process to handle this clean up. We use the
+            # rollback_live_migration_at_destination method of nova-compute because
+            # it does exactly was we need but we use the source host (self.host)
+            # instead of the destination.
+            try:
+                rpc.call(context, compute_source_queue,
+                    {"method": "rollback_live_migration_at_destination",
+                     "args": {'instance_id': instance_id}})
+            except:
+                _log_error("post migration cleanup")
 
             # This basically ensures that DHCP is configured and running on the dest host and
             # that the DHCP entries from the source host have been removed.
-            self._migration_reconfigure_networks(context, instance_id, dest)
-
-            self._instance_update(context,
-                                  instance_ref.id,
-                                  host=dest,
-                                  task_state=None)
-
-        except Exception, e:
-            # TODO(dscannell): This rollback is a bit broken right now because
-            # we cannot simply relaunch the instance on this host. The order of
-            # events during migration are: 1. Bless instance -- This will leave
-            # the qemu process in a paused state, but alive 2. Clean up libvirt
-            # state (need to see why it doesn't kill the qemu process) 3. Call
-            # launch on the destination host and wait for the instance to hoard
-            # its memory 4. Call discard that will clean up the descriptor and
-            # kill off the qemu process Depending on what has occurred
-            # different strategies are needed to rollback e.g We can simply
-            # unpause the instance if the qemu process still exists (might need
-            # to move when libvirt cleanup occurs).
-            _log_error("migration", e)
-
             try:
-                # Clean up the instance from both the source and destination.
-                rpc.call(context, compute_source_queue,
-                     {"method": "rollback_live_migration_at_destination",
-                      "args": {'instance_id': instance_id}})
-                rpc.call(context, compute_dest_queue,
-                     {"method": "rollback_live_migration_at_destination",
-                      "args": {'instance_id': instance_id}})
+                self._migration_reconfigure_networks(context, instance_id, dest)
+            except:
+                _log_error("post migration network configuration")
 
-                # Prepare to relaunch here (this is the nasty bit as per above).
-                metadata = self.db.instance_metadata_get(context, instance_id)
-                image_refs = self._extract_image_refs(metadata)
-                self.vms_conn.post_migration(context, instance_ref, network_info, migration_url,
-                                             use_image_service=FLAGS.gridcentric_use_image_service,
-                                             image_refs=image_refs)
+        # Discard the migration artifacts.
+        # Note that if this fails, we may leave around bits of data
+        # (descriptor in glance) but at least we had a functional VM.
+        # There is not much point in changing the state past here.
+        # Or catching any thrown exceptions (after all, it is still
+        # an error -- just not one that should kill the VM).
+        metadata = self.db.instance_metadata_get(context, instance_id)
+        image_refs = self._extract_image_refs(metadata)
 
-                # Rollback is launching here again.
-                self.launch_instance(context, instance_id=instance_id, migration_url=migration_url)
-                self._instance_update(context,
-                                  instance_ref.id,
-                                  host=self.host,
-                                  task_state=None)
-            except Exception as e:
-                # We failed to roll back the instance. It should now be placed in an error state.
-                self._instance_update(context, instance_id, vm_state=vm_states.ERROR)
-                raise e
-
-        # Reload the instance ref because its status may have been changed by the launch operation
-        # on the other host.
-        instance_ref = self.db.instance_get(context, instance_id)
-        if instance_ref['vm_state'] == vm_states.MIGRATING:
-            # Only update the state of the instance if it is migrating, otherwise the
-            # instance's state has been explicitly set, most likely to error, so we should
-            # not change it.
-            self._instance_update(context, instance_ref.id, vm_state=vm_states.ACTIVE)
+        self.vms_conn.discard(context, instance_ref["name"], image_refs=image_refs)
 
     @_lock_call
     def discard_instance(self, context, instance_id=None, instance_ref=None):
         """ Discards an instance so that no further instances maybe be launched from it. """
 
-        context.elevated()
-
         metadata = self.db.instance_metadata_get(context, instance_id)
         image_refs = self._extract_image_refs(metadata)
+
         # Call discard in the backend.
-        self.vms_conn.discard(context, instance_ref.name,
-                              use_image_service=FLAGS.gridcentric_use_image_service,
-                              image_refs=image_refs)
+        self.vms_conn.discard(context, instance_ref['name'], image_refs=image_refs)
 
         # Update the instance metadata (for completeness).
         metadata['blessed'] = False
@@ -484,9 +612,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     @_lock_call
     def launch_instance(self, context, instance_id=None, instance_ref=None,
-                        params=None, migration_url=None):
+                        params=None, migration_url=None, migration_network_info=None):
         """
-        Construct the launched instance, with id instance_id. If migration_url is not none then 
+        Construct the launched instance, with id instance_id. If migration_url is not none then
         the instance will be launched using the memory server at the migration_url
         """
 
@@ -496,59 +624,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
         if migration_url:
             # Just launch the given blessed instance.
             source_instance_ref = instance_ref
-
-            # Load the old network info.
-            network_info = self.network_api.get_instance_nw_info(context, instance_ref)
-
-            # Update the instance state to be migrating. This will be set to
-            # active again once it is completed in do_launch() as per all
-            # normal launched instances.
-            self._instance_update(context, instance_ref.id,
-                                  vm_state=vm_states.MIGRATING,
-                                  task_state=task_states.SPAWNING,
-                                  host=self.host)
-            instance_ref['host'] = self.host
         else:
             # Create a new launched instance.
             source_instance_ref = self._get_source_instance(context, instance_id)
-
-            if not FLAGS.stub_network:
-                # TODO(dscannell): We need to set the is_vpn parameter correctly.
-                # This information might come from the instance, or the user might
-                # have to specify it. Also, we might be able to convert this to a
-                # cast because we are not waiting on any return value.
-                LOG.debug(_("Making call to network for launching instance=%s"), \
-                          instance_ref.name)
-
-                self._instance_update(context, instance_ref.id,
-                                      vm_state=vm_states.BUILDING,
-                                      task_state=task_states.NETWORKING,
-                                      host=self.host)
-                instance_ref['host'] = self.host
-                is_vpn = False
-                requested_networks = None
-
-                try:
-                    network_info = self.network_api.allocate_for_instance(context,
-                                                instance_ref, vpn=is_vpn,
-                                                requested_networks=requested_networks)
-                except Exception, e:
-                    _log_error("network allocation", e)
-                    self._instance_update(context, instance_ref.id,
-                                          vm_state=vm_states.ERROR,
-                                          task_state=None)
-                    # Short-circuit, can't proceed.
-                    return
-
-                LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"),
-                          instance_ref.name, network_info)
-            else:
-                network_info = []
-
-            # Update the instance state to be in the building state.
-            self._instance_update(context, instance_ref.id,
-                                  vm_state=vm_states.BUILDING,
-                                  task_state=task_states.SPAWNING)
 
         # note(dscannell): The target is in pages so we need to convert the value
         # If target is set as None, or not defined, then we default to "0".
@@ -560,9 +638,54 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 LOG.warn(_('%s -> defaulting to no target'), str(e))
                 target = "0"
 
-        # Extract out the image ids from the source instance's metadata. 
+        # Extract out the image ids from the source instance's metadata.
         metadata = self.db.instance_metadata_get(context, source_instance_ref['id'])
         image_refs = self._extract_image_refs(metadata)
+
+        if migration_url:
+            # Grab the original network info.
+            network_info = migration_network_info
+
+            # Update the instance state to be migrating. This will be set to
+            # active again once it is completed in do_launch() as per all
+            # normal launched instances.
+            self._instance_update(context, instance_id,
+                                  vm_state=vm_states.MIGRATING,
+                                  task_state=task_states.SPAWNING)
+        else:
+            if not FLAGS.stub_network:
+                try:
+                    # TODO(dscannell): We need to set the is_vpn parameter correctly.
+                    # This information might come from the instance, or the user might
+                    # have to specify it. Also, we might be able to convert this to a
+                    # cast because we are not waiting on any return value.
+                    self._instance_update(context, instance_id,
+                                          vm_state=vm_states.BUILDING,
+                                          task_state=task_states.NETWORKING,
+                                          host=self.host)
+                    instance_ref['host'] = self.host
+
+                    network_info = self.network_api.allocate_for_instance(context,
+                                                instance_ref, vpn=False,
+                                                requested_networks=None)
+
+                    LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"),
+                              instance_ref['name'], network_info)
+                except:
+                    _log_error("network allocation")
+                    self._instance_update(context, instance_id,
+                                          vm_state=vm_states.ERROR,
+                                          task_state=None)
+                    raise
+
+            else:
+                network_info = []
+
+            # Update the instance state to be in the building state.
+            self._instance_update(context, instance_id,
+                                  vm_state=vm_states.BUILDING,
+                                  task_state=task_states.SPAWNING)
+
         try:
             # The main goal is to have the nova-compute process take ownership of setting up
             # the networking for the launched instance. This ensures that later changes to the
@@ -575,34 +698,49 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # TODO(dscannell): How this behaves with volumes attached is an unknown. We currently
             # do not support having volumes attached at launch time, so we should be safe in
             # this regard.
-            rpc.call(context,
-                 self.db.queue_get_for(context, FLAGS.compute_topic, self.host),
-                 {"method": "pre_live_migration",
-                  "args": {'instance_id': instance_ref.id,
-                           'block_migration': False,
-                           'disk': None}})
+            #
+            # NOTE(amscanne): This will happen prior to launching in the migration code, so
+            # we don't need to bother with this call in that case.
+            if not(migration_url):
+                rpc.call(context,
+                    self.db.queue_get_for(context, FLAGS.compute_topic, self.host),
+                    {"method": "pre_live_migration",
+                     "args": {'instance_id': instance_id,
+                              'block_migration': False,
+                              'disk': None}})
+
             self.vms_conn.launch(context,
-                                 source_instance_ref.name,
-                                 str(target),
+                                 source_instance_ref['name'],
                                  instance_ref,
                                  network_info,
+                                 target=target,
                                  migration_url=migration_url,
-                                 use_image_service=FLAGS.gridcentric_use_image_service,
                                  image_refs=image_refs,
                                  params=params)
-
-            # Perform our database update.
-            if migration_url == None:
+            if not(migration_url):
                 self._notify(instance_ref, "launch")
+        except:
+            _log_error("launch")
+            if not(migration_url):
                 self._instance_update(context,
-                                  instance_ref.id,
+                                      instance_id,
+                                      vm_state=vm_states.ERROR,
+                                      task_state=None)
+            raise
+
+        try:
+            # Perform our database update.
+            self._instance_update(context,
+                                  instance_id,
                                   vm_state=vm_states.ACTIVE,
                                   host=self.host,
                                   launched_at=utils.utcnow(),
                                   task_state=None)
-        except Exception, e:
-            _log_error("launch", e)
-            self._instance_update(context, instance_ref.id,
-                                  vm_state=vm_states.ERROR, task_state=None)
-            # Raise the error up.
-            raise e
+        except:
+            # NOTE(amscanne): In this case, we do not throw an exception.
+            # The VM is either in the BUILD state (on a fresh launch) or in
+            # the MIGRATING state. These cases will be caught by the _refresh_host()
+            # function above because it would technically be wrong to destroy
+            # the VM at this point, we simply need to make sure the database
+            # is updated at some point with the correct state.
+            _log_error("post launch update")
