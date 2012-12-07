@@ -258,7 +258,7 @@ class LibvirtConnection(VmsConnection):
     def configure(self):
         # (dscannell) import the libvirt module to ensure that the the
         # libvirt flags can be read in.
-        from nova.virt.libvirt import connection as libvirt_connection
+        from nova.virt.libvirt.driver import LibvirtDriver
 
         self.configure_path_permissions()
 
@@ -272,7 +272,7 @@ class LibvirtConnection(VmsConnection):
         LOG.info("The openstack user is set to (%s, %s, %s)."
                  % (passwd.pw_name, self.openstack_uid, self.openstack_gid))
 
-        self.libvirt_conn = libvirt_connection.get_connection(False)
+        self.libvirt_conn = LibvirtDriver(False)
         config.MANAGEMENT['connection_url'] = self.libvirt_conn.uri
         select_hypervisor('libvirt')
 
