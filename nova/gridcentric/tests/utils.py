@@ -74,12 +74,18 @@ class MockVmsConn(object):
               migration_url=None, use_image_service=False):
         return self.pop_return_value("bless")
 
+    def post_bless(self, context, new_instance_ref, blessed_files):
+        return self.pop_return_value("post_bless")
+
+    def bless_cleanup(self, blessed_files):
+        return self.pop_return_value("bless_cleanup")
+
     def discard(self, context, instance_name, use_image_service=False, image_refs=[]):
         return self.pop_return_value("discard")
 
-    def launch(self, context, instance_name, mem_target,
-               new_instance_ref, network_info, migration_url=None,
-               use_image_service=False, image_refs=[], params={}):
+    def launch(self, context, instance_name, new_instance_ref,
+               network_info, skip_image_service=False, target=0,
+               migration_url=None, image_refs=[], params={}):
         return self.pop_return_value("launch")
 
     def replug(self, instance_name, mac_addresses):

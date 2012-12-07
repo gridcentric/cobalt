@@ -28,16 +28,18 @@ import tempfile
 import nova
 from nova import exception
 from nova import flags
+
 from nova.virt import images
 from nova.compute import utils as compute_utils
 from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 LOG = logging.getLogger('nova.gridcentric.vmsconn')
 FLAGS = flags.FLAGS
+
 vmsconn_opts = [
-               cfg.StrOpt('libvirt_user',
-               default='libvirt-qemu',
-               help='The user that libvirt runs qemu as.'),
+               cfg.BoolOpt('gridcentric_use_image_service',
+               default=False,
+               help='Gridcentric should use the image service to store disk copies and descriptors.'),
 
                cfg.StrOpt('openstack_user',
                default='',
@@ -66,7 +68,6 @@ class AttribDictionary(dict):
         for key, value in base.iteritems():
             self[key] = value
 
-
 def get_vms_connection(connection_type):
     # Configure the logger regardless of the type of connection that will be used.
     logger.setup_for_library()
@@ -85,6 +86,20 @@ def select_hypervisor(hypervisor):
     virt.select(hypervisor)
     LOG.debug(_("Virt initialized as auto=%s"), virt.AUTO)
 
+def _log_call(fn):
+    def wrapped_fn(self, *args, **kwargs):
+        try:
+            LOG.debug(_("Calling %s with args=%s kwargs=%s") % \
+                       (fn.__name__, str(args), str(kwargs)))
+            return fn(self, *args, **kwargs)
+        finally:
+            LOG.debug(_("Called %s with args=%s kwargs=%s") % \
+                       (fn.__name__, str(args), str(kwargs)))
+
+    wrapped_fn.__name__ = fn.__name__
+    wrapped_fn.__doc__ = fn.__doc__
+    return wrapped_fn
+
 class VmsConnection:
     def configure(self):
         """
@@ -92,41 +107,56 @@ class VmsConnection:
         """
         pass
 
-    def bless(self, context, instance_name, new_instance_ref,
-              migration_url=None, use_image_service=False):
+    @_log_call
+    def bless(self, context, instance_name, new_instance_ref, migration_url=None):
         """
         Create a new blessed VM from the instance with name instance_name and gives the blessed
         instance the name new_instance_name.
         """
         new_instance_name = new_instance_ref['name']
-        LOG.debug(_("Calling commands.bless with name=%s, new_name=%s, migration_url=%s"),
-                    instance_name, new_instance_name, str(migration_url))
         (newname, network, blessed_files) = tpool.execute(commands.bless,
                                instance_name,
                                new_instance_name,
                                mem_url=migration_url,
                                migration=(migration_url and True))
-        LOG.debug(_("Called commands.bless with name=%s, new_name=%s, migration_url=%s"),
-                    instance_name, new_instance_name, str(migration_url))
-        if use_image_service:
-            blessed_files = self.upload_files(context, new_instance_ref, blessed_files)
+        self._chmod_blessed_files(blessed_files)
+
         return (newname, network, blessed_files)
 
-    def upload_files(self, context, instance_ref, bless_files):
+    def _chmod_blessed_files(self, blessed_files):
+        """ Change the permission on the blessed files """
+        pass
+
+    @_log_call
+    def post_bless(self, context, new_instance_ref, blessed_files):
+        if FLAGS.gridcentric_use_image_service:
+            return self._upload_files(context, new_instance_ref, blessed_files)
+        else:
+            return blessed_files
+
+    @_log_call
+    def bless_cleanup(self, blessed_files):
+        if FLAGS.gridcentric_use_image_service:
+            for blessed_file in blessed_files:
+                if os.path.exists(blessed_file):
+                    os.unlink(blessed_file)
+
+    @_log_call
+    def _upload_files(self, context, instance_ref, blessed_files):
         """ Upload the bless files into nova's image service (e.g. glance). """
         raise Exception("Uploading files to the image service is not supported.")
 
-    def discard(self, context, instance_name, use_image_service=False, image_refs=[]):
+    @_log_call
+    def discard(self, context, instance_name, migration_url=None, image_refs=[]):
         """
-        Dicard all of the vms artifacts associated with a blessed instance
+        Discard all of the vms artifacts associated with a blessed instance
         """
-        LOG.debug(_("Calling commands.discard with name=%s"), instance_name)
-        result = tpool.execute(commands.discard, instance_name)
-        LOG.debug(_("Called commands.discard with name=%s"), instance_name)
-        if use_image_service:
+        result = tpool.execute(commands.discard, instance_name, mem_url=migration_url)
+        if FLAGS.gridcentric_use_image_service:
             self._delete_images(context, image_refs)
 
-    def _delete_images(self, image_refs):
+    @_log_call
+    def _delete_images(self, context, image_refs):
         pass
 
     def extract_mac_addresses(self, network_info):
@@ -143,40 +173,31 @@ class VmsConnection:
         return mac_addresses
 
 
-    def launch(self, context, instance_name, mem_target,
-               new_instance_ref, network_info, migration_url=None,
-               use_image_service=False, image_refs=[], params={}):
+    @_log_call
+    def launch(self, context, instance_name, new_instance_ref,
+               network_info, skip_image_service=False, target=0,
+               migration_url=None, image_refs=[], params={}):
         """
         Launch a blessed instance
         """
         newname, path = self.pre_launch(context, new_instance_ref, network_info,
-                                  migration=(migration_url and True),
-                                  use_image_service=use_image_service,
-                                  image_refs=image_refs)
+                                        migration=(migration_url and True),
+                                        skip_image_service=skip_image_service,
+                                        image_refs=image_refs)
 
         vmsargs = vmsrun.Arguments()
         for key, value in params.get('guest', {}).iteritems():
             vmsargs.add_param(key, value)
 
         # Launch the new VM.
-        LOG.debug(_("Calling vms.launch with name=%s, new_name=%s, target=%s, "
-                    "migration_url=%s, vmsargs=%s"),
-                  instance_name, newname, mem_target, str(migration_url),
-                  str(vmsargs.jsonize()))
-
         result = tpool.execute(commands.launch,
                                instance_name,
                                newname,
-                               str(mem_target),
+                               target,
                                path=path,
                                mem_url=migration_url,
                                migration=(migration_url and True),
                                vmsargs=vmsargs)
-
-        LOG.debug(_("Called vms.launch with name=%s, new_name=%s, target=%s, "
-                    "migration_url=%s, vmsargs=%s"),
-                  instance_name, newname, mem_target, str(migration_url),
-                  str(vmsargs.jsonize()))
 
         # Take care of post-launch.
         self.post_launch(context,
@@ -185,28 +206,29 @@ class VmsConnection:
                          migration=(migration_url and True))
         return result
 
+    @_log_call
     def replug(self, instance_name, mac_addresses):
         """
         Replugs the network interfaces on the instance
         """
         # We want to unplug the vifs before adding the new ones so that we do
         # not mess around with the interfaces exposed inside the guest.
-        LOG.debug(_("Calling vms.replug with name=%s"), instance_name)
         result = tpool.execute(commands.replug,
                                instance_name,
                                plugin_first=False,
                                mac_addresses=mac_addresses)
-        LOG.debug(_("Called vms.replug with name=%s"), instance_name)
 
+    @_log_call
     def pre_launch(self, context,
                    new_instance_ref,
                    network_info=None,
                    block_device_info=None,
                    migration=False,
-                   use_image_service=False,
+                   skip_image_service=False,
                    image_refs=[]):
         return (new_instance_ref.name, None)
 
+    @_log_call
     def post_launch(self, context,
                     new_instance_ref,
                     network_info=None,
@@ -214,14 +236,13 @@ class VmsConnection:
                     migration=False):
         pass
 
+    @_log_call
     def pre_migration(self, context, instance_ref, network_info, migration_url):
         pass
 
-    def post_migration(self, context, instance_ref, network_info, migration_url,
-                       use_image_service=False, image_refs=[]):
-        # We call a normal discard to ensure the artifacts are cleaned up.
-        self.discard(context, instance_ref.name, use_image_service=use_image_service,
-                     image_refs=image_refs)
+    @_log_call
+    def post_migration(self, context, instance_ref, network_info, migration_url):
+        pass
 
 class DummyConnection(VmsConnection):
     def configure(self):
@@ -242,6 +263,7 @@ class XenApiConnection(VmsConnection):
         config.MANAGEMENT['connection_password'] = FLAGS.xenapi_connection_password
         select_hypervisor('xcp')
 
+    @_log_call
     def post_launch(self, context,
                     new_instance_ref,
                     network_info=None,
@@ -260,145 +282,54 @@ class LibvirtConnection(VmsConnection):
         # libvirt flags can be read in.
         from nova.virt.libvirt.driver import LibvirtDriver
 
-        self.configure_path_permissions()
-
-        openstack_user = self.determine_openstack_user()
-        if isinstance(openstack_user, str):
-            passwd = pwd.getpwnam(openstack_user)
-        else:
-            passwd = pwd.getpwuid(openstack_user)
-        self.openstack_uid = passwd.pw_uid
-        self.openstack_gid = passwd.pw_gid
-        LOG.info("The openstack user is set to (%s, %s, %s)."
-                 % (passwd.pw_name, self.openstack_uid, self.openstack_gid))
+        self.determine_openstack_user()
 
         self.libvirt_conn = LibvirtDriver(False)
         config.MANAGEMENT['connection_url'] = self.libvirt_conn.uri
         select_hypervisor('libvirt')
 
+    @_log_call
     def determine_openstack_user(self):
+        """
+        Determines the openstack user's uid and gid
+        """
 
-        # The user can specify an openstack_user using the flags, or they can leave it blank
-        # and we'll attempt to discover the user. If failing to discover we'll default to 
-        # the same user as the nova-gridcentric process.
-        user = FLAGS.openstack_user
-        if user == '':
-            # Attempt to determine the openstack user.
+        openstack_user = FLAGS.openstack_user
+        if openstack_user == '':
+            # The user has not set an explicit openstack_user. We will attempt to auto-discover
+            # a reasonable value by checking the ownership of of the instances path. If we are
+            # unable to determine in then we default to owner of this process.
             try:
-                # use ps to determine the user running the nova-compute process
-                cmd = "ps aux | grep nova-compute | grep python | grep -v grep | awk '{print $1}'"
-                _, cmd_user, _ = utilities.check_command(cmd)
-                user = cmd_user.strip()
+                openstack_user = os.stat(FLAGS.instances_path).st_uid
             except:
-                user = ''
-
-            if user == '':
-                # We were unable to determine the user. We'll just default to our current user.
-                user = os.getuid()
-
-        return user
-
-    def configure_path_permissions(self):
-        """
-        For libvirt connections we need to ensure that the kvm instances have access to the vms
-        database and to the vmsfs mount point.
-        """
-
-        import vms.db
-        import vms.kvm
-        import vms.config
+                openstack_user = os.getuid()
 
         try:
-            passwd = pwd.getpwnam(FLAGS.libvirt_user)
-            libvirt_uid = passwd.pw_uid
-            libvirt_gid = passwd.pw_gid
+            if isinstance(openstack_user, str):
+                passwd = pwd.getpwnam(openstack_user)
+            else:
+                passwd = pwd.getpwuid(openstack_user)
+            self.openstack_uid = passwd.pw_uid
+            self.openstack_gid = passwd.pw_gid
+            LOG.info("The openstack user is set to (%s, %s, %s)."
+                     % (passwd.pw_name, self.openstack_uid, self.openstack_gid))
         except Exception, e:
-            raise Exception("Unable to find the libvirt user %s. "
-                            "Please use the --libvirt_user flag to correct."
-                            "Error: %s" % (FLAGS.libvirt_user, str(e)))
+            LOG.severe("Failed to find the openstack user %s on this system. " \
+                       "Please configure the openstack_user flag correctly." % (openstack_user))
+            raise e
 
-        try:
-            vmsfs_path = vms.kvm.config.find_vmsfs()
-        except Exception, e:
-            raise Exception("Unable to located vmsfs. "
-                            "Please ensure the module is loaded and mounted. "
-                            "Error: %s" % str(e))
 
-        try:
-            for path in vmsfs_path, os.path.join(vmsfs_path, 'vms'):
-                os.chown(path, libvirt_uid, libvirt_gid)
-                os.chmod(path, 0770)
-        except Exception, e:
-            raise Exception("Unable to make %s owner of vmsfs: %s" %
-                            FLAGS.libvirt_user, str(e))
-
-        def can_libvirt_write_access(dir):
-            # Test if libvirt_user has W+X permissions in dir (which are
-            # necessary to create files). Using os.seteuid/os.setegid is
-            # insufficient because they don't affect supplementary
-            # groups. Hence we run
-            #    sudo -u $libvirt_user test -w $dir -a -x $dir
-            # We're not using os.system because of shell escaping of directory
-            # name. We're not using subprocess.call because it's buggy: it
-            # returns 0 regardless of the real return value of the command!
-            command = ['sudo', '-u', FLAGS.libvirt_user,
-                       'test', '-w', dir, '-a', '-x', dir]
-            child = os.fork()
-            if child == 0:
-                os.execvp('sudo', ['sudo', '-u', FLAGS.libvirt_user,
-                                   'test', '-w', dir, '-a', '-x', dir])
-            while True:
-                pid, status = os.waitpid(child, 0)
-                if pid == child:
-                    return os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0
-
-        def mkdir_libvirt(dir):
-            if not os.path.exists(dir):
-                LOG.debug('does not exist %s', dir)
-                utilities.make_directories(dir)
-                os.chown(dir, libvirt_uid, libvirt_gid)
-                os.chmod(dir, 0775) # ug+rwx, a+rx
-            if not can_libvirt_write_access(dir):
-                raise Exception("Directory %s is not writable by %s (uid=%d). "
-                                "If it already exists, make sure that it's "
-                                "writable and executable by %s." %
-                                (dir, FLAGS.libvirt_user, libvirt_uid,
-                                 FLAGS.libvirt_user))
-        try:
-            db_path = vms.db.vms.path
-            mkdir_libvirt(os.path.dirname(db_path))
-            utilities.touch(db_path)
-            os.chown(db_path, libvirt_uid, libvirt_gid)
-
-            # TODO: This should be 0660 (ug+rw), but there's an error I can't
-            # figure out when libvirt creates domains: the vms.db path (default
-            # /dev/shm/vms.db) can't be opened by bsddb when libvirt launches
-            # kvm. This is perplexing because it's launching it as root!
-            os.chmod(db_path, 0666) # aug+rw
-
-            dirs = [config.SHELF,
-                    config.SHARED,
-                    config.LOGS,
-                    config.CACHE,
-                    config.STORE]
-            for dir in dirs:
-                if dir != None:
-                    mkdir_libvirt(dir)
-        except Exception, e:
-            raise Exception("Error creating directories and setting "
-                            "permissions for user %s. Error: %s" %
-                            (FLAGS.libvirt_user, str(e)))
-
+    @_log_call
     def pre_launch(self, context,
                    new_instance_ref,
                    network_info=None,
                    block_device_info=None,
                    migration=False,
-                   use_image_service=False,
+                   skip_image_service=False,
                    image_refs=[]):
 
         image_base_path = None
-        if use_image_service:
+        if not(skip_image_service) and FLAGS.gridcentric_use_image_service:
             # We need to first download the descriptor and the disk files
             # from the image service.
             LOG.debug("Downloading images %s from the image service." % (image_refs))
@@ -463,8 +394,7 @@ class LibvirtConnection(VmsConnection):
         # The name attribute is special and does not carry over like the rest
         # of the attributes.
         instance_dict['name'] = new_instance_ref['name']
-        instance_dict.os_type = new_instance_ref.os_type
-
+        instance_dict.os_type = new_instance_ref['os_type']
         instance_dict['key_data'] = None
         instance_dict['metadata'] = []
         for network_ref, mapping in network_info:
@@ -486,7 +416,8 @@ class LibvirtConnection(VmsConnection):
         # openstack user.
         for root, dirs, files in os.walk(working_dir, followlinks=True):
             for path in dirs + files:
-                LOG.debug("chowning path=%s to openstack user %s" % (os.path.join(root, path), self.openstack_uid))
+                LOG.debug("chowning path=%s to openstack user %s" % \
+                         (os.path.join(root, path), self.openstack_uid))
                 os.chown(os.path.join(root, path), self.openstack_uid, self.openstack_gid)
 
         # Return the libvirt file, this will be passed in as the name. This
@@ -494,6 +425,7 @@ class LibvirtConnection(VmsConnection):
         # special case.
         return (libvirt_file, image_base_path)
 
+    @_log_call
     def post_launch(self, context,
                     new_instance_ref,
                     network_info=None,
@@ -502,19 +434,15 @@ class LibvirtConnection(VmsConnection):
         self.libvirt_conn._enable_hairpin(new_instance_ref)
         self.libvirt_conn.firewall_driver.apply_instance_filter(new_instance_ref, network_info)
 
+    @_log_call
     def pre_migration(self, context, instance_ref, network_info, migration_url):
         # Make sure that the disk reflects all current state for this VM.
         # It's times like these that I wish there was a way to do this on a
         # per-file basis, but we have no choice here but to sync() globally.
         utilities.call_command(["sync"])
 
-    def post_migration(self, context, instance_ref, network_info, migration_url,
-                       use_image_service=False, image_refs=[]):
-
-        # We call a normal discard to ensure the artifacts are cleaned up.
-        self.discard(context, instance_ref.name, use_image_service=use_image_service,
-                     image_refs=image_refs)
-
+    @_log_call
+    def post_migration(self, context, instance_ref, network_info, migration_url):
         # We make sure that all the memory servers are gone that need it.
         # This looks for any servers that are providing the migration_url we
         # used above -- since we no longer need it. This is done this way
@@ -528,7 +456,14 @@ class LibvirtConnection(VmsConnection):
             except control.ControlException:
                 pass
 
-    def create_image(self, context, image_service, instance_ref, image_name):
+    def _chmod_blessed_files(self, blessed_files):
+        for blessed_file in blessed_files:
+            try:
+                os.chmod(blessed_file, 0644)
+            except OSError:
+                pass
+
+    def _create_image(self, context, image_service, instance_ref, image_name):
         # Create the image in the image_service.
         properties = {'instance_uuid': instance_ref['uuid'],
                   'user_id': str(context.user_id),
@@ -540,13 +475,13 @@ class LibvirtConnection(VmsConnection):
         image_id = recv_meta['id']
         return str(image_id)
 
-    def upload_files(self, context, instance_ref, bless_files):
+    def _upload_files(self, context, instance_ref, blessed_files):
         image_service = nova.image.get_default_image_service()
         blessed_image_refs = []
-        for bless_file in bless_files:
+        for blessed_file in blessed_files:
 
-            image_name = bless_file.split("/")[-1]
-            image_ref = self.create_image(context, image_service, instance_ref, image_name)
+            image_name = blessed_file.split("/")[-1]
+            image_ref = self._create_image(context, image_service, instance_ref, image_name)
             blessed_image_refs.append(image_ref)
 
             # Send up the file data to the newly created image.
@@ -561,15 +496,15 @@ class LibvirtConnection(VmsConnection):
             metadata['container_format'] = "bare"
 
             # Upload that image to the image service
-            with open(bless_file) as image_file:
+            with open(blessed_file) as image_file:
                 image_service.update(context,
                                      image_ref,
                                      metadata,
                                      image_file)
-            os.unlink(bless_file)
 
         return blessed_image_refs
 
+    @_log_call
     def _delete_images(self, context, image_refs):
         image_service = nova.image.get_default_image_service()
         for image_ref in image_refs:
@@ -578,5 +513,4 @@ class LibvirtConnection(VmsConnection):
             except exception.ImageNotFound:
                 # Simply ignore this error because the end result
                 # is that the image is no longer there.
-                LOG.debug("The image %s was not found in the image service when removing it."
-                          % (image_ref))
+                LOG.debug("The image %s was not found in the image service when removing it." % (image_ref))
