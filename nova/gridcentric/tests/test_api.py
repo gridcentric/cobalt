@@ -22,7 +22,7 @@ from nova import flags
 from nova import context as nova_context
 from nova import exception
 
-from nova.compute import vm_states
+from nova.compute import vm_states, task_states
 
 import gridcentric.nova.api as gc_api
 import gridcentric.tests.utils as utils
@@ -216,4 +216,59 @@ class GridCentricApiTestCase(unittest.TestCase):
             self.gridcentric_api.list_launched_instances(self.context, utils.create_uuid())
             self.fail("An InstanceNotFound exception should be thrown")
         except exception.InstanceNotFound:
+            pass
+
+    def test_migrate_instance_with_destination(self):
+        instance_uuid = utils.create_instance(self.context, {"vm_state":vm_states.ACTIVE})
+        gc_service = utils.create_gridcentric_service(self.context)
+        dest = gc_service['host']
+
+        self.gridcentric_api.migrate_instance(self.context, instance_uuid, dest)
+
+        instance_ref = db.instance_get_by_uuid(self.context, instance_uuid)
+        self.assertEquals(task_states.MIGRATING, instance_ref['task_state'])
+        self.assertEquals(vm_states.ACTIVE, instance_ref['vm_state'])
+
+    def test_migrate_instance_no_destination(self):
+        instance_uuid = utils.create_instance(self.context, {"vm_state":vm_states.ACTIVE})
+        # Create a service so that one can be found by the api.
+        utils.create_gridcentric_service(self.context)
+
+        self.gridcentric_api.migrate_instance(self.context, instance_uuid, None)
+
+        instance_ref = db.instance_get_by_uuid(self.context, instance_uuid)
+        self.assertEquals(task_states.MIGRATING, instance_ref['task_state'])
+        self.assertEquals(vm_states.ACTIVE, instance_ref['vm_state'])
+
+
+    def test_migrate_inactive_instance(self):
+        instance_uuid = utils.create_instance(self.context, {"vm_state":vm_states.BUILDING})
+        # Create a service so that one can be found by the api.
+        utils.create_gridcentric_service(self.context)
+
+        try:
+            self.gridcentric_api.migrate_instance(self.context, instance_uuid, None)
+            self.fail("Should not be able to migrate an inactive instance.")
+        except exception.NovaException:
+            pass
+
+    def test_migrate_migrating_instance(self):
+        instance_uuid = utils.create_instance(self.context, {"task_state":task_states.MIGRATING})
+        # Create a service so that one can be found by the api.
+        utils.create_gridcentric_service(self.context)
+
+        try:
+            self.gridcentric_api.migrate_instance(self.context, instance_uuid, None)
+            self.fail("Should not be able to migrate a migrating instance.")
+        except exception.NovaException:
+            pass
+
+    def test_migrate_bad_destination(self):
+        instance_uuid = utils.create_instance(self.context, {"task_state":task_states.MIGRATING})
+
+
+        try:
+            self.gridcentric_api.migrate_instance(self.context, instance_uuid, "no_destination")
+            self.fail("Should not be able to migrate a non-existent destination.")
+        except exception.NovaException:
             pass

@@ -168,3 +168,11 @@ def create_pre_launched_instance(context, instance=None, source_uuid=None):
 
 def fake_networkinfo(*args, **kwargs):
     return network_model.NetworkInfo()
+
+def create_gridcentric_service(context):
+    service = {'name': 'gridcentric-test-service',
+               'topic': 'gridcentric',
+               'host': create_uuid()
+               }
+    db.service_create(context, service)
+    return service
