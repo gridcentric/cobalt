@@ -18,9 +18,13 @@ An extension module for novaclient that allows the `nova` application access to 
 API extensions.
 """
 
+import os
+
 from novaclient import utils
 from novaclient.v1_1 import servers
 from novaclient.v1_1 import shell
+
+from . import agent
 
 def __pre_parse_args__():
     pass
@@ -235,6 +239,30 @@ def do_gc_boot(cs, args):
     if args.poll:
         shell._poll_for_status(cs.servers.get, info['id'], 'building', ['active'])
 
+@utils.arg('server_id', metavar='<instance id>', help="ID of the instance to install on")
+@utils.arg('--user',
+     default='root',
+     metavar='<user>',
+     help="The login user.")
+@utils.arg('--key_path',
+     default=os.path.join(os.getenv("HOME"), ".ssh", "id_rsa"),
+     metavar='<key_path>',
+     help="The path to the private key.")
+@utils.arg('--agent_location',
+     default=None,
+     metavar='<agent_location>',
+     help="Install packages from a custom location.")
+@utils.arg('--agent_version',
+     default=None,
+     metavar='<agent_version>',
+     help="Install a specific agent version.")
+def do_gc_install_agent(cs, args):
+    """Install the agent onto an instance."""
+    server = cs.gridcentric.get(args.server_id)
+    server.install_agent(args.user,
+                         args.key_path,
+                         location=args.agent_location,
+                         version=args.agent_version)
 
 class GcServer(servers.Server):
     """
@@ -257,6 +285,9 @@ class GcServer(servers.Server):
 
     def list_blessed(self):
         return self.manager.list_blessed(self)
+
+    def install_agent(self, user, key_path, location=None, version=None):
+        self.manager.install_agent(self, user, key_path, location=location, version=version)
 
 class GcServerManager(servers.ServerManager):
     resource_class = GcServer
@@ -324,3 +355,6 @@ class GcServerManager(servers.ServerManager):
         response_key = "server"
         return self._boot(resource_url, response_key, *boot_args,
                 **boot_kwargs)
+
+    def install_agent(self, server, user, key_path, location=None, version=None):
+        agent.install(server, user, key_path, location=location, version=version)
