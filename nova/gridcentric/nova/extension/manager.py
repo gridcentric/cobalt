@@ -268,12 +268,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                             state = vm_states.ACTIVE
 
                             # Try to ensure the networks are configured correctly.
-                            # TODO(dscannell): There is not _migration_reconfigure_networks
-                            # in essex beacuse its pre_live_migration handles it for us. We might
-                            # need to pull this function in from stable/diablo to ensure this 
-                            # corrective function occurs, or there might be a nova-compute function
-                            # we can use.
-                            # self._migration_reconfigure_networks(context, instance.id, src_host)
+                            self.network_api.setup_networks_on_host(context, instance)
                     else:
                         if self.host == src_host:
                             # The VM may have been moved, but the host did not change.
@@ -469,12 +464,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # exception and leave the instance intact.
             raise exception.NovaException(_("Cannot migrate an instance that is on another host."))
 
-        if instance_ref['volumes']:
-            rpc.call(context,
-                      FLAGS.volume_topic,
-                      {"method": "check_for_export",
-                       "args": {'instance_id': instance_ref.id}})
-
         # Get a reference to both the destination and source queues
         gc_dest_queue = rpc.queue_get_for(context, FLAGS.gridcentric_topic, dest)
         compute_dest_queue = rpc.queue_get_for(context, FLAGS.compute_topic, dest)
@@ -565,6 +554,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                     {"method": "rollback_live_migration_at_destination",
                      "version": "2.2",
                      "args": {'instance': instance_ref}})
+                # Ensure that the networks have been configured on the destination host.
+                self.network_api.setup_networks_on_host(context, instance_ref, host=dest)
             except:
                 _log_error("post migration cleanup")
 
@@ -681,7 +672,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
             source_instance_ref = self._get_source_instance(context, instance_uuid)
 
         if migration_network_info != None:
-            network_info = migration_network_info
+            # (dscannell): Since this migration_network_info came over the wire we need
+            # to hydrate it back into a full NetworkInfo object.
+            network_info = network_model.NetworkInfo.hydrate(migration_network_info)
         else:
             network_info = self._instance_network_info(context, instance_ref, migration_url != None)
             if network_info == None:
