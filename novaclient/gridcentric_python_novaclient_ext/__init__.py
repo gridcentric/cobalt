@@ -101,7 +101,6 @@ def do_discard(cs, args):
     server = cs.gridcentric.get(args.blessed_id)
     cs.gridcentric.discard(server)
 
-
 @utils.arg('server_id', metavar='<instance id>', help="ID of the instance to migrate")
 @utils.arg('--dest', metavar='<destination host>', default=None, help="Host to migrate to")
 def do_gc_migrate(cs, args):
@@ -115,13 +114,11 @@ def _print_list(servers):
     formatters = {'Networks':utils._format_servers_list_networks}
     utils.print_list(servers, columns, formatters)
 
-
 @utils.arg('blessed_id', metavar='<blessed id>', help="ID of the blessed instance")
 def do_list_launched(cs, args):
     """List instances launched from this blessed instance."""
     server = cs.gridcentric.get(args.blessed_id)
     _print_list(cs.gridcentric.list_launched(server))
-
 
 @utils.arg('server_id', metavar='<server id>', help="ID of the instance")
 def do_list_blessed(cs, args):
@@ -207,7 +204,6 @@ def do_gc_boot(cs, args):
 
     boot_args, boot_kwargs = shell._boot(cs, args)
 
-    print boot_kwargs
     if args.host and 'meta' in boot_kwargs:
         boot_kwargs['meta'].update({"gc:target_host": args.host})
     elif args.host:
