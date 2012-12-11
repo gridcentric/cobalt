@@ -19,7 +19,9 @@ from nova import db
 from nova.openstack.common import rpc
 from nova.compute import instance_types
 from nova.compute import vm_states
+from nova.compute import power_state
 from nova.network import model as network_model
+from nova.virt.fake import FakeInstance
 
 class TestInducedException(Exception):
     pass
@@ -101,7 +103,7 @@ class MockVmsConn(object):
 def create_uuid():
     return str(uuid.uuid4())
 
-def create_instance(context, instance=None):
+def create_instance(context, instance=None, driver=None):
     """Create a test instance"""
 
     if instance == None:
@@ -121,8 +123,14 @@ def create_instance(context, instance=None):
     instance.setdefault('ephemeral_gb', 0)
 
     context.elevated()
-    instance_ref = db.instance_create(context, instance)['uuid']
-    return instance_ref
+    instance_ref = db.instance_create(context, instance)
+
+    if driver:
+        # Add this instance to the driver
+        driver.instances[instance_ref.name] = FakeInstance(instance_ref.name,
+                                                           instance_ref.get('power_state',
+                                                                             power_state.RUNNING))
+    return instance_ref['uuid']
 
 def create_pre_blessed_instance(context, instance=None, source_uuid=None):
     """

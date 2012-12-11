@@ -260,12 +260,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
                             # going on.  We simply update the database to
                             # reflect this reality.
                             state = vm_states.ACTIVE
+                            task = None
 
                         elif self.host == dst_host:
                             # This shouldn't really happen. The only case in which
                             # it could happen is below, where we've been punted this
                             # VM from the source host.
                             state = vm_states.ACTIVE
+                            task = None
 
                             # Try to ensure the networks are configured correctly.
                             self.network_api.setup_networks_on_host(context, instance)
@@ -275,15 +277,19 @@ class GridCentricManager(manager.SchedulerDependentManager):
                             # We update the host and let the destination take care of
                             # the status.
                             state = instance['vm_state']
+                            task = instance['task_state']
                             host = dst_host
+
 
                         elif self.host == dst_host:
                             # This VM is not here, and there's no way it could be back
                             # at its origin. We must mark this as an error.
                             state = vm_states.ERROR
+                            task = None
 
                     if state:
-                        self._instance_update(context, instance.id, vm_state=state, host=host)
+                        self._instance_update(context, instance['uuid'], vm_state=state,
+                                              task_state=task, host=host)
 
         finally:
             self.cond.release()

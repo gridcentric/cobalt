@@ -37,6 +37,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
     def setUp(self):
 
         FLAGS.connection_type = 'fake'
+        FLAGS.compute_driver = 'nova.virt.fake.FakeDriver'
         # Copy the clean database over
         shutil.copyfile(os.path.join(FLAGS.state_path, FLAGS.sqlite_clean_db),
                         os.path.join(FLAGS.state_path, FLAGS.sqlite_db))
@@ -261,3 +262,110 @@ class GridCentricManagerTestCase(unittest.TestCase):
 
             self.assertTrue(pre_discard_time <= discarded_instance['terminated_at'])
             self.assertEquals(vm_states.DELETED, discarded_instance['vm_state'])
+
+    def test_reset_host_different_host_instance(self):
+
+        host = "test-host"
+        instance_uuid = utils.create_instance(self.context,
+                                             {'task_state':task_states.MIGRATING,
+                                              'host': host})
+        self.gridcentric.host = 'different-host'
+        self.gridcentric._refresh_host(self.context)
+
+        instance = db.instance_get_by_uuid(self.context, instance_uuid)
+        self.assertEquals(host, instance['host'])
+        self.assertEquals(task_states.MIGRATING, instance['task_state'])
+
+
+    def test_reset_host_locked_instance(self):
+
+        host = "test-host"
+        locked_instance_uuid = utils.create_instance(self.context,
+                                                     {'task_state':task_states.MIGRATING,
+                                                      'host': host})
+        self.gridcentric.host = host
+        self.gridcentric._lock_instance(locked_instance_uuid)
+        self.gridcentric._refresh_host(self.context)
+
+        instance = db.instance_get_by_uuid(self.context, locked_instance_uuid)
+        self.assertEquals(host, instance['host'])
+        self.assertEquals(task_states.MIGRATING, instance['task_state'])
+
+    def test_reset_host_non_migrating_instance(self):
+
+        host = "test-host"
+        instance_uuid = utils.create_instance(self.context,
+                                             {'host': host})
+        self.gridcentric.host = host
+        self.gridcentric._refresh_host(self.context)
+
+        instance = db.instance_get_by_uuid(self.context, instance_uuid)
+        self.assertEquals(host, instance['host'])
+        self.assertEquals(None, instance['task_state'])
+
+    def test_reset_host_local_src(self):
+
+        src_host = "src-test-host"
+        dst_host = "dst-test-host"
+        instance_uuid = utils.create_instance(self.context,
+                                             {'task_state':task_states.MIGRATING,
+                                              'host': src_host,
+                                              'metadata': {'gc_src_host': src_host,
+                                                           'gc_dst_host': dst_host}},
+                                            driver=self.gridcentric.compute_manager.driver)
+        self.gridcentric.host = src_host
+        self.gridcentric._refresh_host(self.context)
+
+        instance = db.instance_get_by_uuid(self.context, instance_uuid)
+        self.assertEquals(src_host, instance['host'])
+        self.assertEquals(None, instance['task_state'])
+
+    def test_reset_host_local_dst(self):
+
+        src_host = "src-test-host"
+        dst_host = "dst-test-host"
+        instance_uuid = utils.create_instance(self.context,
+                                             {'task_state':task_states.MIGRATING,
+                                              'host': dst_host,
+                                              'metadata': {'gc_src_host': src_host,
+                                                           'gc_dst_host': dst_host}},
+                                            driver=self.gridcentric.compute_manager.driver)
+        self.gridcentric.host = dst_host
+        self.gridcentric._refresh_host(self.context)
+
+        instance = db.instance_get_by_uuid(self.context, instance_uuid)
+        self.assertEquals(dst_host, instance['host'])
+        self.assertEquals(None, instance['task_state'])
+
+    def test_reset_host_not_local_src(self):
+
+        src_host = "src-test-host"
+        dst_host = "dst-test-host"
+        instance_uuid = utils.create_instance(self.context,
+                                             {'task_state':task_states.MIGRATING,
+                                              'host': src_host,
+                                              'metadata': {'gc_src_host': src_host,
+                                                           'gc_dst_host': dst_host}})
+        self.gridcentric.host = src_host
+        self.gridcentric._refresh_host(self.context)
+
+        instance = db.instance_get_by_uuid(self.context, instance_uuid)
+        self.assertEquals(dst_host, instance['host'])
+        self.assertEquals(task_states.MIGRATING, instance['task_state'])
+
+    def test_reset_host_not_local_dst(self):
+
+        src_host = "src-test-host"
+        dst_host = "dst-test-host"
+        instance_uuid = utils.create_instance(self.context,
+                                             {'task_state':task_states.MIGRATING,
+                                              'host': dst_host,
+                                              'metadata': {'gc_src_host': src_host,
+                                                           'gc_dst_host': dst_host}})
+        self.gridcentric.host = dst_host
+        self.gridcentric._refresh_host(self.context)
+
+        instance = db.instance_get_by_uuid(self.context, instance_uuid)
+        self.assertEquals(dst_host, instance['host'])
+        self.assertEquals(None, instance['task_state'])
+        self.assertEquals(vm_states.ERROR, instance['vm_state'])
