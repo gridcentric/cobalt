@@ -23,6 +23,8 @@ from nova import context as nova_context
 from nova import exception
 
 from nova.compute import vm_states, task_states
+from nova.db.sqlalchemy import session as session
+from nova.db.sqlalchemy import api as sqlalchemy_db
 
 import gridcentric.nova.api as gc_api
 import gridcentric.tests.utils as utils
@@ -40,6 +42,8 @@ class GridCentricApiTestCase(unittest.TestCase):
 
         self.mock_rpc = utils.mock_rpc
 
+        # Mock out all of the policy enforcement (the tests don't have a defined policy)
+        utils.mock_policy()
         self.gridcentric_api = gc_api.API()
         self.context = nova_context.RequestContext('fake', 'fake', True)
 
@@ -47,6 +51,7 @@ class GridCentricApiTestCase(unittest.TestCase):
         instance_uuid = utils.create_instance(self.context)
 
         num_instance_before = len(db.instance_get_all(self.context))
+
         blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_uuid)
 
         self.assertEquals(vm_states.BUILDING, blessed_instance['vm_state'])
@@ -54,7 +59,7 @@ class GridCentricApiTestCase(unittest.TestCase):
         # of our original instance.
         instances = db.instance_get_all(self.context)
         self.assertTrue(len(instances) == (num_instance_before + 1),
-                        "There should be one new instances after blessing.")
+                        "There should be one new instance after blessing.")
 
         # The virtual machine should be marked that it is now blessed.
         metadata = db.instance_metadata_get(self.context, blessed_instance['uuid'])
@@ -132,6 +137,96 @@ class GridCentricApiTestCase(unittest.TestCase):
         if no_exception:
             self.fail("Should not be able to bless an instance in a non-active state")
 
+    def test_bless_quota(self):
+
+        def assert_quotas(expected_increased):
+            _pre_usages = dict(pre_usages)
+            post_usages = sqlalchemy_db._get_quota_usages(self.context, session.get_session())
+            # Need to assert something about the quota consumption
+            for quota_key in ['instances', 'ram', 'cores']:
+                self.assertEquals(_pre_usages.pop(quota_key).in_use + expected_increased[quota_key],
+                              post_usages[quota_key].in_use)
+
+            for key, quota_usage in _pre_usages.iteritems():
+                self.assertEquals(quota_usage.total, post_usages[key].total)
+
+
+        instance_uuid = utils.create_instance(self.context)
+        instance = db.instance_get_by_uuid(self.context, instance_uuid)
+
+        # Set the quota so that we can have two blessed instances (+ the instance we are blessing).
+        db.quota_create(self.context, self.context.project_id,
+                        'ram', 3 * instance['memory_mb'])
+
+        pre_usages = sqlalchemy_db._get_quota_usages(self.context, session.get_session())
+
+        # The amount of resources a blessed instance consumes.
+        blessed_uuids = []
+        for i in range(1, 3):
+            blessed_uuids.append(
+                        self.gridcentric_api.bless_instance(self.context, instance_uuid)['uuid'])
+            expected = dict(zip(['instances', 'ram', 'cores'],
+                                map(lambda x: i * x,
+                                    [1, instance['memory_mb'], instance['vcpus']])))
+
+            assert_quotas(expected)
+
+        try:
+            self.gridcentric_api.bless_instance(self.context, instance_uuid)
+            self.fail("We should not have the quota to bless one more instance.")
+        except exception.TooManyInstances:
+            pass
+
+        # Discard the blessed uuid and ensure that the quota increases.
+        remaining = len(blessed_uuids)
+        for blessed_uuid in blessed_uuids:
+            self.gridcentric_api.discard_instance(self.context, blessed_uuid)
+            remaining -= 1
+            expected = dict(zip(['instances', 'ram', 'cores'],
+                                map(lambda x: remaining * x,
+                                    [1, instance['memory_mb'], instance['vcpus']])))
+            assert_quotas(expected)
+
+    def test_discard(self):
+
+        blessed_uuid = utils.create_blessed_instance(self.context)
+        pre_usages = sqlalchemy_db._get_quota_usages(self.context, session.get_session())
+
+        self.gridcentric_api.discard_instance(self.context, blessed_uuid)
+
+        instance = db.instance_get_by_uuid(self.context, blessed_uuid)
+
+        self.assertEqual(task_states.DELETING, instance['task_state'])
+
+        # Assert that the resources have diminished.
+        post_usages = sqlalchemy_db._get_quota_usages(self.context, session.get_session())
+        self.assertEqual(pre_usages['instances'].in_use - 1,
+                         post_usages['instances'].in_use)
+        self.assertEqual(pre_usages['ram'].in_use - instance['memory_mb'],
+                         post_usages['ram'].in_use)
+        self.assertEqual(pre_usages['cores'].in_use - instance['vcpus'],
+                         post_usages['cores'].in_use)
+
+    def test_double_discard(self):
+        blessed_uuid = utils.create_blessed_instance(self.context)
+        pre_usages = sqlalchemy_db._get_quota_usages(self.context, session.get_session())
+
+        self.gridcentric_api.discard_instance(self.context, blessed_uuid)
+        self.gridcentric_api.discard_instance(self.context, blessed_uuid)
+
+        instance = db.instance_get_by_uuid(self.context, blessed_uuid)
+
+        self.assertEqual(task_states.DELETING, instance['task_state'])
+
+        # Assert that the resources have diminished only once and not twice since we have
+        # discarded twice.
+        post_usages = sqlalchemy_db._get_quota_usages(self.context, session.get_session())
+        self.assertEqual(pre_usages['instances'].in_use - 1,
+                         post_usages['instances'].in_use)
+        self.assertEqual(pre_usages['ram'].in_use - instance['memory_mb'],
+                         post_usages['ram'].in_use)
+        self.assertEqual(pre_usages['cores'].in_use - instance['vcpus'],
+                         post_usages['cores'].in_use)
 
     def test_discard_a_blessed_instance_with_remaining_launched_ones(self):
 
@@ -201,7 +296,6 @@ class GridCentricApiTestCase(unittest.TestCase):
             "The instance should have the 'launched from' metadata set to blessed instanced id after being launched. " \
           + "(value=%s)" % (metadata['launched_from']))
 
-
     def test_list_blessed_nonexistent_uuid(self):
         try:
             # Use a random UUID that doesn't exist.
@@ -265,7 +359,6 @@ class GridCentricApiTestCase(unittest.TestCase):
 
     def test_migrate_bad_destination(self):
         instance_uuid = utils.create_instance(self.context, {"task_state":task_states.MIGRATING})
-
 
         try:
             self.gridcentric_api.migrate_instance(self.context, instance_uuid, "no_destination")
