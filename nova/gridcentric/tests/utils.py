@@ -16,6 +16,8 @@
 import uuid
 
 from nova import db
+from nova import quota
+from nova import policy
 from nova.openstack.common import rpc
 from nova.compute import instance_types
 from nova.compute import vm_states
@@ -46,6 +48,11 @@ class MockRpc(object):
 mock_rpc = MockRpc()
 rpc.call = mock_rpc.call
 rpc.cast = mock_rpc.cast
+
+def mock_policy():
+    def _mock_enforce(*args, **kwargs):
+        pass
+    policy.enforce = _mock_enforce
 
 class MockVmsConn(object):
     """
@@ -119,8 +126,15 @@ def create_instance(context, instance=None, driver=None):
     instance.setdefault('mac_address', "ca:ca:ca:01")
     instance.setdefault('ami_launch_index', 0)
     instance.setdefault('vm_state', vm_states.ACTIVE)
-    instance.setdefault('root_gb', 0)
-    instance.setdefault('ephemeral_gb', 0)
+    instance.setdefault('root_gb', 10)
+    instance.setdefault('ephemeral_gb', 10)
+    instance.setdefault('memory_mb', 512)
+    instance.setdefault('vcpus', 1)
+
+        # We should record in the quotas information about this instance.
+    reservations = quota.QUOTAS.reserve(context, instances=1,
+                         ram=instance['memory_mb'],
+                         cores=instance['vcpus'])
 
     context.elevated()
     instance_ref = db.instance_create(context, instance)
@@ -130,6 +144,9 @@ def create_instance(context, instance=None, driver=None):
         driver.instances[instance_ref.name] = FakeInstance(instance_ref.name,
                                                            instance_ref.get('power_state',
                                                                              power_state.RUNNING))
+
+    quota.QUOTAS.commit(context, reservations)
+
     return instance_ref['uuid']
 
 def create_pre_blessed_instance(context, instance=None, source_uuid=None):

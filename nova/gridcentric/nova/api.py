@@ -74,25 +74,29 @@ class API(base.Base):
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
 
-    def _check_quota(self, context, instance_uuid):
+    def _acquire_addition_reservation(self, context, instance):
         # Check the quota to see if we can launch a new instance.
-        instance = self.get(context, instance_uuid)
         instance_type = instance['instance_type']
-        metadata = instance['metadata']
 
-        req_cores = instance_type['vcpus']
-        req_ram = instance_type['memory_mb']
-
+        # check against metadata
+        metadata = self.db.instance_metadata_get(context, instance['uuid'])
+        self.compute_api._check_metadata_properties_quota(context, metadata)
+        # Grab a reservation for a single instance
         max_count, reservations = self.compute_api._check_num_instances_quota(context,
                                                                               instance_type,
                                                                               1,
                                                                               1)
+        return reservations
 
-        # check against metadata
-        metadata = self.db.instance_metadata_get(context, instance_uuid)
-        self.compute_api._check_metadata_properties_quota(context, metadata)
+    def _acquire_subtraction_reservation(self, context, instance):
+        return quota.QUOTAS.reserve(context, instances= -1, ram= -instance['memory_mb'],
+                                    cores= -instance['vcpus'])
 
-        return max_count, reservations
+    def _commit_reservation(self, context, reservations):
+        quota.QUOTAS.commit(context, reservations)
+
+    def _rollback_reservation(self, context, reservations):
+        quota.QUOTAS.rollback(context, reservations)
 
     def _copy_instance(self, context, instance_uuid, new_suffix, launch=False):
         # (dscannell): Basically we want to copy all of the information from
@@ -192,7 +196,7 @@ class API(base.Base):
 
     def bless_instance(self, context, instance_uuid):
         # Setup the DB representation for the new VM.
-        instance_ref = self.get(context, instance_uuid)
+        instance = self.get(context, instance_uuid)
 
         is_blessed = self._is_instance_blessed(context, instance_uuid)
         is_launched = self._is_instance_launched(context, instance_uuid)
@@ -204,25 +208,32 @@ class API(base.Base):
             # The instance is a launched one. We cannot bless launched instances.
             raise exception.NovaException(_(("Instance %s has been launched. " +
                                      "Cannot bless a launched instance.") % instance_uuid))
-        elif instance_ref['vm_state'] != vm_states.ACTIVE:
+        elif instance['vm_state'] != vm_states.ACTIVE:
             # The instance is not active. We cannot bless a non-active instance.
             raise exception.NovaException(_(("Instance %s is not active. " +
                                       "Cannot bless a non-active instance.") % instance_uuid))
 
-        clonenum = self._next_clone_num(context, instance_uuid)
-        new_instance_ref = self._copy_instance(context, instance_uuid, str(clonenum), launch=False)
+        reservations = self._acquire_addition_reservation(context, instance)
+        try:
+            clonenum = self._next_clone_num(context, instance_uuid)
+            new_instance = self._copy_instance(context, instance_uuid, str(clonenum), launch=False)
 
-        LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
-        self._cast_gridcentric_message('bless_instance', context, new_instance_ref['uuid'],
-                                       host=instance_ref['host'])
+            LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
+            self._cast_gridcentric_message('bless_instance', context, new_instance['uuid'],
+                                       host=instance['host'])
+            self._commit_reservation(context, reservations)
+        except:
+            self._rollback_reservation(context, reservations)
+            raise
 
         # We reload the instance because the manager may have change its state (most likely it 
         # did).
-        return self.get(context, new_instance_ref['uuid'])
+        return self.get(context, new_instance['uuid'])
 
     def discard_instance(self, context, instance_uuid):
         LOG.debug(_("Casting gridcentric message for discard_instance") % locals())
 
+        instance = self.get(context, instance_uuid)
         if not self._is_instance_blessed(context, instance_uuid):
             # The instance is not blessed. We can't discard it.
             raise exception.NovaException(_(("Instance %s is not blessed. " +
@@ -233,39 +244,54 @@ class API(base.Base):
                                      "Cannot discard an instance with remaining launched ones.") %
                                      instance_uuid))
 
-        self._cast_gridcentric_message('discard_instance', context, instance_uuid)
+        old, updated = self.db.instance_update_and_get_original(context, instance_uuid,
+                                                                {'task_state':task_states.DELETING})
+        reservations = None
+        if old['task_state'] != task_states.DELETING:
+            # To avoid double counting if discard is called twice, we check if the instance
+            # was already being discarded. If it was not, then we need to handle the quotas,
+            # otherwise we can skip it.
+            reservations = self._acquire_subtraction_reservation(context, instance)
+        try:
+            self._cast_gridcentric_message('discard_instance', context, instance_uuid)
+            self._commit_reservation(context, reservations)
+        except:
+            self._rollback_reservation(context, reservations)
+            raise
 
     def launch_instance(self, context, instance_uuid, params={}):
         pid = context.project_id
         uid = context.user_id
 
-        # TODO(dscannell): Need to figure out how these quota reservations work and what
-        # we need to do with them.
-        num_instances, reservations = self._check_quota(context, instance_uuid)
         instance = self.get(context, instance_uuid)
-
         if not(self._is_instance_blessed(context, instance_uuid)):
             # The instance is not blessed. We can't launch new instances from it.
             raise exception.NovaException(
                   _(("Instance %s is not blessed. " +
                      "Please bless the instance before launching from it.") % instance_uuid))
 
-        # Create a new launched instance.
-        new_instance_ref = self._copy_instance(context, instance_uuid, "clone", launch=True)
+        reservations = self._acquire_addition_reservation(context, instance)
+        try:
+            # Create a new launched instance.
+            new_instance_ref = self._copy_instance(context, instance_uuid, "clone", launch=True)
 
-        LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
-                    " instance %(instance_uuid)s") % locals())
+            LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
+                        " instance %(instance_uuid)s") % locals())
 
-        # FIXME: The Folsom scheduler removed support for calling
-        # arbitrary functions via the scheduler. Damn. So now we
-        # have to make scheduling decisions internally. Until this
-        # is sorted, we will simply cast the message and let a random
-        # host pick it up. Note that this is simply a stopgap measure.
-        rpc.cast(context,
-                     FLAGS.gridcentric_topic,
-                     {"method": "launch_instance",
-                      "args": {"instance_uuid": new_instance_ref['uuid'],
-                               "params": params}})
+            # FIXME: The Folsom scheduler removed support for calling
+            # arbitrary functions via the scheduler. Damn. So now we
+            # have to make scheduling decisions internally. Until this
+            # is sorted, we will simply cast the message and let a random
+            # host pick it up. Note that this is simply a stopgap measure.
+            rpc.cast(context,
+                         FLAGS.gridcentric_topic,
+                         {"method": "launch_instance",
+                          "args": {"instance_uuid": new_instance_ref['uuid'],
+                                   "params": params}})
+            self._commit_reservation(context, reservations)
+        except:
+            self._rollback_reservation(context, reservations)
+            raise
 
         return self.get(context, new_instance_ref['uuid'])
 
