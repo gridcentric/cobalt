@@ -69,15 +69,19 @@ def _print_server(cs, server, minimal=False):
 
     utils.print_dict(info)
 
+def _find_server(cs, server):
+    """ Returns a sever by name or ID. """
+    return utils.find_resource(cs.gridcentric, server)
+
 
 #### ACTIONS ####
 
-@utils.arg('blessed_id', metavar='<blessed id>', help="ID of the blessed instance")
+@utils.arg('blessed_server', metavar='<blessed instance>', help="ID or name of the blessed instance")
 @utils.arg('--target', metavar='<target memory>', default='0', help="The memory target of the launched instance")
 @utils.arg('--params', action='append', default=[], metavar='<key=value>', help='Guest parameters to send to vms-agent')
 def do_launch(cs, args):
     """Launch a new instance."""
-    server = cs.gridcentric.get(args.blessed_id)
+    server = _find_server(cs, args.blessed_server)
     guest_params = {}
     for param in args.params:
         components = param.split("=")
@@ -91,25 +95,25 @@ def do_launch(cs, args):
     for server in launch_servers:
         _print_server(cs, server)
 
-@utils.arg('server_id', metavar='<instance id>', help="ID of the instance to bless")
+@utils.arg('server', metavar='<instance>', help="ID or name of the instance to bless")
 def do_bless(cs, args):
     """Bless an instance."""
-    server = cs.gridcentric.get(args.server_id)
+    server = _find_server(cs, args.server)
     blessed_servers = cs.gridcentric.bless(server)
     for server in blessed_servers:
         _print_server(cs, server)
 
-@utils.arg('blessed_id', metavar='<blessed id>', help="ID of the blessed instance")
+@utils.arg('blessed_server', metavar='<blessed instance>', help="ID or name of the blessed instance")
 def do_discard(cs, args):
     """Discard a blessed instance."""
-    server = cs.gridcentric.get(args.blessed_id)
+    server = _find_server(cs, args.blessed_server)
     cs.gridcentric.discard(server)
 
-@utils.arg('server_id', metavar='<instance id>', help="ID of the instance to migrate")
+@utils.arg('server', metavar='<instance>', help="ID or name of the instance to migrate")
 @utils.arg('--dest', metavar='<destination host>', default=None, help="Host to migrate to")
 def do_gc_migrate(cs, args):
     """Migrate an instance using VMS."""
-    server = cs.gridcentric.get(args.server_id)
+    server = _find_server(cs, args.server)
     cs.gridcentric.migrate(server, args.dest)
 
 def _print_list(servers):
@@ -118,16 +122,16 @@ def _print_list(servers):
     formatters = {'Networks':utils._format_servers_list_networks}
     utils.print_list(servers, columns, formatters)
 
-@utils.arg('blessed_id', metavar='<blessed id>', help="ID of the blessed instance")
+@utils.arg('blessed_server', metavar='<blessed instance>', help="ID or name of the blessed instance")
 def do_list_launched(cs, args):
     """List instances launched from this blessed instance."""
-    server = cs.gridcentric.get(args.blessed_id)
+    server = _find_server(cs, args.blessed_server)
     _print_list(cs.gridcentric.list_launched(server))
 
-@utils.arg('server_id', metavar='<server id>', help="ID of the instance")
+@utils.arg('server', metavar='<server>', help="ID or name of the instance")
 def do_list_blessed(cs, args):
     """List instances blessed from this instance."""
-    server = cs.gridcentric.get(args.server_id)
+    server = _find_server(cs, args.server)
     _print_list(cs.gridcentric.list_blessed(server))
 
 @utils.arg('--flavor',
@@ -239,7 +243,7 @@ def do_gc_boot(cs, args):
     if args.poll:
         shell._poll_for_status(cs.servers.get, info['id'], 'building', ['active'])
 
-@utils.arg('server_id', metavar='<instance id>', help="ID of the instance to install on")
+@utils.arg('server', metavar='<instance>', help="ID or name of the instance to install on")
 @utils.arg('--user',
      default='root',
      metavar='<user>',
@@ -258,7 +262,7 @@ def do_gc_boot(cs, args):
      help="Install a specific agent version.")
 def do_gc_install_agent(cs, args):
     """Install the agent onto an instance."""
-    server = cs.gridcentric.get(args.server_id)
+    server = _find_server(cs, args.server)
     server.install_agent(args.user,
                          args.key_path,
                          location=args.agent_location,
