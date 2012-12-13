@@ -122,6 +122,8 @@ class GridCentricManagerTestCase(unittest.TestCase):
         self.assertEquals('1', metadata['blessed'])
         self.assertTrue(pre_bless_time <= blessed_instance['launched_at'])
 
+        self.assertTrue(blessed_instance['disable_terminate'])
+
     def test_bless_instance_exception(self):
         self.vmsconn.set_return_val("bless", utils.TestInducedException())
 
@@ -143,6 +145,8 @@ class GridCentricManagerTestCase(unittest.TestCase):
         self.assertEquals(None, metadata.get('images', None))
         self.assertEquals(None, metadata.get('blessed', None))
         self.assertEquals(None, blessed_instance['launched_at'])
+
+        self.assertFalse(blessed_instance.get('disable_terminate', False))
 
     def test_bless_instance_not_found(self):
 
@@ -172,6 +176,8 @@ class GridCentricManagerTestCase(unittest.TestCase):
         metadata = db.instance_metadata_get(self.context, blessed_uuid)
         self.assertEquals("file1_ref,file2_ref,file3_ref", metadata['images'])
         self.assertEquals(pre_bless_instance['launched_at'], post_bless_instance['launched_at'])
+        self.assertFalse(pre_bless_instance.get('disable_terminate', None),
+                         post_bless_instance.get('disable_terminate', None))
 
     def test_launch_instance(self):
 

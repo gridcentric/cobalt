@@ -419,7 +419,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 self._notify(context, instance_ref, "bless.end")
                 self._instance_update(context, instance_uuid,
                                       vm_state="blessed", task_state=None,
-                                      launched_at=timeutils.utcnow())
+                                      launched_at=timeutils.utcnow(),
+                                      disable_terminate=True)
         except:
             if migration:
                 self.vms_conn.launch(context,
