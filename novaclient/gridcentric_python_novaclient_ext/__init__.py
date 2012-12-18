@@ -21,6 +21,7 @@ API extensions.
 import os
 
 from novaclient import utils
+from novaclient import base
 from novaclient.v1_1 import servers
 from novaclient.v1_1 import shell
 
@@ -304,31 +305,30 @@ class GcServerManager(servers.ServerManager):
             setattr(client, 'gridcentric', self)
 
     def launch(self, server, target="0", guest_params={}):
-        header, info = self._action("gc_launch",
-                                   server.id,
+        header, info = self._action("gc_launch", base.getid(server),
                                    {'target': target,
                                     'guest': guest_params})
         return [self.get(server['id']) for server in info]
 
     def bless(self, server):
-        header, info = self._action("gc_bless", server.id)
+        header, info = self._action("gc_bless", base.getid(server))
         return [self.get(server['id']) for server in info]
 
     def discard(self, server):
-        return self._action("gc_discard", server.id)
+        return self._action("gc_discard", base.getid(server))
 
     def migrate(self, server, dest=None):
         params = {}
         if dest != None:
             params['dest'] = dest
-        return self._action("gc_migrate", server.id, params)
+        return self._action("gc_migrate", base.getid(server), params)
 
     def list_launched(self, server):
-        header, info = self._action("gc_list_launched", server.id)
+        header, info = self._action("gc_list_launched", base.getid(server))
         return [self.get(server['id']) for server in info]
 
     def list_blessed(self, server):
-        header, info = self._action("gc_list_blessed", server.id)
+        header, info = self._action("gc_list_blessed", base.getid(server))
         return [self.get(server['id']) for server in info]
 
     def create(self, name, image, flavor, meta=None, files=None,
