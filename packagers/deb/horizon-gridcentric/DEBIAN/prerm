@@ -23,6 +23,6 @@ case $1 in
     remove)
         remove_extension \
             /etc/openstack-dashboard/local_settings.py \
-            horizon.gridcentric
+            gridcentric.horizon
         ;;
 esac

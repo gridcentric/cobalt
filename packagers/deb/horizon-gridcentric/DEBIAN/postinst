@@ -14,7 +14,7 @@ function add_extension {
     if [ -f $DJANGO_SETTINGS ]; then
         # Add the extension.
         if ! cat $DJANGO_SETTINGS | grep $EXTENSION >/dev/null 2>&1; then
-            echo "import settings; settings.INSTALLED_APPS += ('$2',)" >> $DJANGO_SETTINGS
+            echo "import sys; mod = sys.modules['openstack_dashboard.settings']; mod.INSTALLED_APPS += ('$EXTENSION',)" >> $DJANGO_SETTINGS
         fi
 
         # Restart apache (if that's the server engine).
@@ -26,6 +26,6 @@ case $1 in
     configure)
         add_extension \
             /etc/openstack-dashboard/local_settings.py \
-            horizon.gridcentric
+            gridcentric.horizon
         ;;
 esac

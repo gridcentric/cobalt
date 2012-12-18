@@ -15,13 +15,23 @@
 
 from django.utils.translation import ugettext as _
 
-import horizon
-import horizon.dashboards.nova.dashboard as dashboard
-import horizon.dashboards.nova.instances_and_volumes.panel as panel
+from horizon.dashboards.nova import dashboard
+from horizon.dashboards.nova.instances import panel
 
-import logging
+# Ensure that the API is loaded and our tables have
+# monkey-patch the internal instance tables. Note that
+# at this point, we don't actually need to remove and
+# re-register our Panel class but we do so in case we'd
+# like to add more functionality down the line.
+from . import api
+from . import tables
 
-class GridcentricInstances(panel.InstancesAndVolumes):
-    name = _("Gridcentric")
-    slug = 'gridcentric'
+class Instances(panel.Instances):
+    pass
 
+# Pretend we're instances.
+# This will allow us to use all the standard instance templates.
+__file__ = panel.__file__
+
+dashboard.Nova.unregister(panel.Instances)
+dashboard.Nova.register(Instances)
