@@ -249,7 +249,7 @@ def do_gc_boot(cs, args):
      metavar='<user>',
      help="The login user.")
 @utils.arg('--key_path',
-     default=os.path.join(os.getenv("HOME"), ".ssh", "id_rsa"),
+     default=os.path.join(os.getenv("HOME") or "", ".ssh", "id_rsa"),
      metavar='<key_path>',
      help="The path to the private key.")
 @utils.arg('--agent_location',
