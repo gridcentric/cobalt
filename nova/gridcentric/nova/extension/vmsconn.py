@@ -186,18 +186,6 @@ class VmsConnection:
         return result
 
     @_log_call
-    def replug(self, instance_name, mac_addresses):
-        """
-        Replugs the network interfaces on the instance
-        """
-        # We want to unplug the vifs before adding the new ones so that we do
-        # not mess around with the interfaces exposed inside the guest.
-        result = tpool.execute(commands.replug,
-                               instance_name,
-                               plugin_first=False,
-                               mac_addresses=mac_addresses)
-
-    @_log_call
     def pre_launch(self, context,
                    new_instance_ref,
                    network_info=None,
@@ -241,15 +229,6 @@ class XenApiConnection(VmsConnection):
         config.MANAGEMENT['connection_username'] = FLAGS.xenapi_connection_username
         config.MANAGEMENT['connection_password'] = FLAGS.xenapi_connection_password
         select_hypervisor('xcp')
-
-    @_log_call
-    def post_launch(self, context,
-                    new_instance_ref,
-                    network_info=None,
-                    block_device_info=None,
-                    migration=False):
-        if network_info:
-            self.replug(new_instance_ref.name, self.extract_mac_addresses(network_info))
 
 class LibvirtConnection(VmsConnection):
     """
