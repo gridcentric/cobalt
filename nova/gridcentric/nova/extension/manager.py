@@ -557,12 +557,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # it does exactly was we need but we use the source host (self.host)
             # instead of the destination.
             try:
+                # Ensure that the networks have been configured on the destination host.
+                self.network_api.setup_networks_on_host(context, instance_ref, host=dest)
                 rpc.call(context, compute_source_queue,
                     {"method": "rollback_live_migration_at_destination",
                      "version": "2.2",
                      "args": {'instance': instance_ref}})
-                # Ensure that the networks have been configured on the destination host.
-                self.network_api.setup_networks_on_host(context, instance_ref, host=dest)
             except:
                 _log_error("post migration cleanup")
 
