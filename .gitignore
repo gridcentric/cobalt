@@ -14,3 +14,5 @@ dist/
 pylint-*.txt
 test-*.xml
 *.un~
+.project
+.pydevproject
