@@ -79,6 +79,7 @@ def _find_server(cs, server):
 
 @utils.arg('blessed_server', metavar='<blessed instance>', help="ID or name of the blessed instance")
 @utils.arg('--target', metavar='<target memory>', default='0', help="The memory target of the launched instance")
+@utils.arg('--name', metavar='<instance name>', default=None, help='The name of the launched instance')
 @utils.arg('--params', action='append', default=[], metavar='<key=value>', help='Guest parameters to send to vms-agent')
 def do_launch(cs, args):
     """Launch a new instance."""
@@ -91,6 +92,7 @@ def do_launch(cs, args):
 
     launch_servers = cs.gridcentric.launch(server,
                                            target=args.target,
+                                           name=args.name,
                                            guest_params=guest_params)
 
     for server in launch_servers:
@@ -273,8 +275,8 @@ class GcServer(servers.Server):
     """
     A server object extended to provide gridcentric capabilities
     """
-    def launch(self, target="0", guest_params={}):
-        return self.manager.launch(self, target, guest_params)
+    def launch(self, target="0", name=None, guest_params={}):
+        return self.manager.launch(self, target, name, guest_params)
 
     def bless(self):
         return self.manager.bless(self)
@@ -304,9 +306,10 @@ class GcServerManager(servers.ServerManager):
         if not(hasattr(client, 'gridcentric')):
             setattr(client, 'gridcentric', self)
 
-    def launch(self, server, target="0", guest_params={}):
+    def launch(self, server, target="0", name=None, guest_params={}):
         header, info = self._action("gc_launch", base.getid(server),
                                    {'target': target,
+                                    'name': name,
                                     'guest': guest_params})
         return [self.get(server['id']) for server in info]
 

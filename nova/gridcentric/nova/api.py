@@ -98,7 +98,7 @@ class API(base.Base):
         metadata = self.db.instance_metadata_get(context, instance['id'])
         self.compute_api._check_metadata_properties_quota(context, metadata)
 
-    def _copy_instance(self, context, instance_uuid, new_suffix, launch=False):
+    def _copy_instance(self, context, instance_uuid, new_name, launch=False):
         # (dscannell): Basically we want to copy all of the information from
         # instance with id=instance_uuid into a new instance. This is because we
         # are basically "cloning" the vm as far as all the properties are
@@ -127,7 +127,7 @@ class API(base.Base):
            'vcpus': instance_ref['vcpus'],
            'root_gb': instance_ref['root_gb'],
            'ephemeral_gb': instance_ref['ephemeral_gb'],
-           'display_name': "%s-%s" % (instance_ref['display_name'], new_suffix),
+           'display_name': new_name,
            'display_description': instance_ref['display_description'],
            'user_data': instance_ref.get('user_data', ''),
            'key_name': instance_ref.get('key_name', ''),
@@ -216,7 +216,7 @@ class API(base.Base):
                                       "Cannot bless a non-active instance.") % instance_uuid))
 
         clonenum = self._next_clone_num(context, instance_uuid)
-        new_instance_ref = self._copy_instance(context, instance_uuid, str(clonenum), launch=False)
+        new_instance_ref = self._copy_instance(context, instance_uuid, "%s-%s" % (instance_ref['display_name'], str(clonenum)), launch=False)
 
         LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
         self._cast_gridcentric_message('bless_instance', context, new_instance_ref['uuid'],
@@ -255,7 +255,7 @@ class API(base.Base):
                      "Please bless the instance before launching from it.") % instance_uuid))
 
         # Create a new launched instance.
-        new_instance_ref = self._copy_instance(context, instance_uuid, "clone", launch=True)
+        new_instance_ref = self._copy_instance(context, instance_uuid, params.get('name', "%s-%s" % (instance['display_name'], "clone")), launch=True)
 
         LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
                     " instance %(instance_uuid)s") % locals())
