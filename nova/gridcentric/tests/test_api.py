@@ -215,3 +215,20 @@ class GridCentricApiTestCase(unittest.TestCase):
             self.fail("An InstanceNotFound exception should be thrown")
         except exception.InstanceNotFound:
             pass
+
+    def test_launch_set_name(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_instance_uuid, params={'name': 'test-instance'})
+        name = launched_instance['display_name']
+        self.assertTrue(name == 'test-instance', 'The name should have been set to test-instance but is actually {}'.format(name))
+
+    def test_launch_no_name(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_instance_uuid, params={})
+        name = launched_instance['display_name']
+        print 'instance name: {}'.format(name)
+        self.assertTrue(name == 'None-0-clone', 'The name should have been set to None-0-clone but is actually {}'.format(name))
