@@ -180,6 +180,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
         self.gridcentric.launch_instance(self.context, instance_uuid=launched_uuid)
 
         launched_instance = db.instance_get_by_uuid(self.context, launched_uuid)
+        self.assertNotEquals(None, launched_instance['power_state'])
         self.assertEquals("active", launched_instance['vm_state'])
         self.assertTrue(pre_launch_time <= launched_instance['launched_at'])
         self.assertEquals(None, launched_instance['task_state'])
