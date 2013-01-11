@@ -26,6 +26,7 @@ from nova.compute import vm_states
 
 import gridcentric.nova.api as gc_api
 import gridcentric.tests.utils as utils
+import base64
 
 FLAGS = flags.FLAGS
 
@@ -232,3 +233,21 @@ class GridCentricApiTestCase(unittest.TestCase):
         name = launched_instance['display_name']
         print 'instance name: {}'.format(name)
         self.assertTrue(name == 'None-0-clone', 'The name should have been set to None-0-clone but is actually {}'.format(name))
+
+    def test_launch_with_user_data(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        test_data = "here is some test user data"
+        test_data_encoded = base64.b64encode(test_data)
+        launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_instance_uuid, params={'user_data': test_data_encoded})
+        user_data = launched_instance['user_data']
+        self.assertEqual(user_data, test_data_encoded)
+
+    def test_launch_without_user_data(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_instance_uuid, params={})
+        user_data = launched_instance['user_data']
+        self.assertEqual(user_data, '')
