@@ -19,6 +19,7 @@ API extensions.
 """
 
 import os
+import base64
 
 from novaclient import utils
 from novaclient import base
@@ -80,6 +81,8 @@ def _find_server(cs, server):
 @utils.arg('blessed_server', metavar='<blessed instance>', help="ID or name of the blessed instance")
 @utils.arg('--target', metavar='<target memory>', default='0', help="The memory target of the launched instance")
 @utils.arg('--name', metavar='<instance name>', default=None, help='The name of the launched instance')
+@utils.arg('--user_data', metavar='<user-data>', default=None,
+           help='User data file to pass to be exposed by the metadata server')
 @utils.arg('--params', action='append', default=[], metavar='<key=value>', help='Guest parameters to send to vms-agent')
 def do_launch(cs, args):
     """Launch a new instance."""
@@ -90,9 +93,15 @@ def do_launch(cs, args):
         if len(components) > 0:
             guest_params[components[0]] = "=".join(components[1:])
 
+    if args.user_data:
+        user_data = open(args.user_data)
+    else:
+        user_data = None
+
     launch_servers = cs.gridcentric.launch(server,
                                            target=args.target,
                                            name=args.name,
+                                           user_data=user_data,
                                            guest_params=guest_params)
 
     for server in launch_servers:
@@ -275,8 +284,8 @@ class GcServer(servers.Server):
     """
     A server object extended to provide gridcentric capabilities
     """
-    def launch(self, target="0", name=None, guest_params={}):
-        return self.manager.launch(self, target, name, guest_params)
+    def launch(self, target="0", name=None, user_data=None, guest_params={}):
+        return self.manager.launch(self, target, name, user_data, guest_params)
 
     def bless(self):
         return self.manager.bless(self)
@@ -306,12 +315,22 @@ class GcServerManager(servers.ServerManager):
         if not(hasattr(client, 'gridcentric')):
             setattr(client, 'gridcentric', self)
 
-    def launch(self, server, target="0", name=None, guest_params={}):
+    def launch(self, server, target="0", name=None, user_data=None, guest_params={}):
         params = {'target': target,
                   'guest': guest_params}
 
         if name != None:
             params['name'] = name
+
+        if user_data:
+            if hasattr(user_data, 'read'):
+                real_user_data = user_data.read()
+            elif isinstance(user_data, unicode):
+                real_user_data = user_data.encode('utf-8')
+            else:
+                real_user_data = user_data
+
+            params['user_data'] = base64.b64encode(real_user_data)
 
         header, info = self._action("gc_launch", base.getid(server), params)
         return [self.get(server['id']) for server in info]

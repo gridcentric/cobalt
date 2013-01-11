@@ -98,7 +98,7 @@ class API(base.Base):
         metadata = self.db.instance_metadata_get(context, instance['id'])
         self.compute_api._check_metadata_properties_quota(context, metadata)
 
-    def _copy_instance(self, context, instance_uuid, new_name, launch=False):
+    def _copy_instance(self, context, instance_uuid, new_name, launch=False, new_user_data=None):
         # (dscannell): Basically we want to copy all of the information from
         # instance with id=instance_uuid into a new instance. This is because we
         # are basically "cloning" the vm as far as all the properties are
@@ -129,7 +129,7 @@ class API(base.Base):
            'ephemeral_gb': instance_ref['ephemeral_gb'],
            'display_name': new_name,
            'display_description': instance_ref['display_description'],
-           'user_data': instance_ref.get('user_data', ''),
+           'user_data': new_user_data or '',
            'key_name': instance_ref.get('key_name', ''),
            'key_data': instance_ref.get('key_data', ''),
            'locked': False,
@@ -222,7 +222,7 @@ class API(base.Base):
         self._cast_gridcentric_message('bless_instance', context, new_instance_ref['uuid'],
                                        host=instance_ref['host'])
 
-        # We reload the instance because the manager may have change its state (most likely it 
+        # We reload the instance because the manager may have change its state (most likely it
         # did).
         return self.get(context, new_instance_ref['uuid'])
 
@@ -255,7 +255,9 @@ class API(base.Base):
                      "Please bless the instance before launching from it.") % instance_uuid))
 
         # Create a new launched instance.
-        new_instance_ref = self._copy_instance(context, instance_uuid, params.get('name', "%s-%s" % (instance['display_name'], "clone")), launch=True)
+        new_instance_ref = self._copy_instance(context, instance_uuid,
+            params.get('name', "%s-%s" % (instance['display_name'], "clone")),
+            launch=True, new_user_data=params.pop('user_data', None))
 
         LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
                     " instance %(instance_uuid)s") % locals())
@@ -386,6 +388,6 @@ class API(base.Base):
             return self.get(context, instance_uuid)
 
         # Stub out the call to the scheduler and then delegate the rest of the work to the
-        # compute api. 
+        # compute api.
         compute_api._schedule_run_instance = host_schedule
         return compute_api.create(context, *args, **kwargs)
