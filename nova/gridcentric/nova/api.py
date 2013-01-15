@@ -298,10 +298,10 @@ class API(base.Base):
         if instance_ref['vm_state'] == vm_states.MIGRATING:
             raise exception.Error(
                               _("Unable to migrate instance %s because it is already migrating.") %
-                              instance_id)
+                              instance_uuid)
         elif instance_ref['vm_state'] != vm_states.ACTIVE:
             raise exception.Error(_("Unable to migrate instance %s because it is not active") %
-                                  instance_id)
+                                  instance_uuid)
         dest = self._find_migration_target(context, instance_ref['host'], dest)
 
         self.db.instance_update(context, instance_ref['id'], {'vm_state':vm_states.MIGRATING})
@@ -311,7 +311,7 @@ class API(base.Base):
                                        params={"dest" : dest})
 
     def list_launched_instances(self, context, instance_uuid):
-         # Assert that the instance with the uuid actually exists.
+        # Assert that the instance with the uuid actually exists.
         self.get(context, instance_uuid)
         filter = {
                   'metadata':{'launched_from':'%s' % instance_uuid},
