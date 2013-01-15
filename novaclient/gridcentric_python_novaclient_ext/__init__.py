@@ -307,10 +307,13 @@ class GcServerManager(servers.ServerManager):
             setattr(client, 'gridcentric', self)
 
     def launch(self, server, target="0", name=None, guest_params={}):
-        header, info = self._action("gc_launch", base.getid(server),
-                                   {'target': target,
-                                    'name': name,
-                                    'guest': guest_params})
+        params = {'target': target,
+                  'guest': guest_params}
+
+        if name != None:
+            params['name'] = name
+
+        header, info = self._action("gc_launch", base.getid(server), params)
         return [self.get(server['id']) for server in info]
 
     def bless(self, server):
