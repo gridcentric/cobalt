@@ -83,6 +83,7 @@ def _find_server(cs, server):
 @utils.arg('--name', metavar='<instance name>', default=None, help='The name of the launched instance')
 @utils.arg('--user_data', metavar='<user-data>', default=None,
            help='User data file to pass to be exposed by the metadata server')
+@utils.arg('--security-groups', metavar='<security groups>', default=None, help='comma separated list of security group names.')
 @utils.arg('--params', action='append', default=[], metavar='<key=value>', help='Guest parameters to send to vms-agent')
 def do_launch(cs, args):
     """Launch a new instance."""
@@ -98,11 +99,17 @@ def do_launch(cs, args):
     else:
         user_data = None
 
+    if args.security_groups:
+        security_groups = args.security_groups.split(',')
+    else:
+        security_groups = None
+
     launch_servers = cs.gridcentric.launch(server,
                                            target=args.target,
                                            name=args.name,
                                            user_data=user_data,
-                                           guest_params=guest_params)
+                                           guest_params=guest_params,
+                                           security_groups=security_groups)
 
     for server in launch_servers:
         _print_server(cs, server)
@@ -284,8 +291,9 @@ class GcServer(servers.Server):
     """
     A server object extended to provide gridcentric capabilities
     """
-    def launch(self, target="0", name=None, user_data=None, guest_params={}):
-        return self.manager.launch(self, target, name, user_data, guest_params)
+
+    def launch(self, target="0", name=None, user_data=None, guest_params={}, security_groups=None):
+        return self.manager.launch(self, target, name, user_data, guest_params, security_groups)
 
     def bless(self):
         return self.manager.bless(self)
@@ -315,9 +323,10 @@ class GcServerManager(servers.ServerManager):
         if not(hasattr(client, 'gridcentric')):
             setattr(client, 'gridcentric', self)
 
-    def launch(self, server, target="0", name=None, user_data=None, guest_params={}):
+    def launch(self, server, target="0", name=None, user_data=None, guest_params={}, security_groups=None):
         params = {'target': target,
-                  'guest': guest_params}
+                  'guest': guest_params,
+                  'security_groups': security_groups}
 
         if name != None:
             params['name'] = name
