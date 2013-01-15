@@ -100,6 +100,12 @@ class MockVmsConn(object):
 def create_uuid():
     return str(uuid.uuid4())
 
+def create_security_group(context, values):
+    values = values.copy()
+    values['user_id'] = context.user_id
+    values['project_id'] = context.project_id
+    return db.security_group_create(context, values)
+
 def create_instance(context, instance=None):
     """Create a test instance"""
 
