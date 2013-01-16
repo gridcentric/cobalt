@@ -18,9 +18,15 @@ An extension module for novaclient that allows the `nova` application access to 
 API extensions.
 """
 
+import os
+import base64
+
 from novaclient import utils
+from novaclient import base
 from novaclient.v1_1 import servers
 from novaclient.v1_1 import shell
+
+from . import agent
 
 def __pre_parse_args__():
     pass
@@ -65,48 +71,61 @@ def _print_server(cs, server, minimal=False):
 
     utils.print_dict(info)
 
+def _find_server(cs, server):
+    """ Returns a sever by name or ID. """
+    return utils.find_resource(cs.gridcentric, server)
+
 
 #### ACTIONS ####
 
-@utils.arg('blessed_id', metavar='<blessed id>', help="ID of the blessed instance")
+@utils.arg('blessed_server', metavar='<blessed instance>', help="ID or name of the blessed instance")
 @utils.arg('--target', metavar='<target memory>', default='0', help="The memory target of the launched instance")
+@utils.arg('--name', metavar='<instance name>', default=None, help='The name of the launched instance')
+@utils.arg('--user_data', metavar='<user-data>', default=None,
+           help='User data file to pass to be exposed by the metadata server')
 @utils.arg('--params', action='append', default=[], metavar='<key=value>', help='Guest parameters to send to vms-agent')
 def do_launch(cs, args):
     """Launch a new instance."""
-    server = cs.gridcentric.get(args.blessed_id)
+    server = _find_server(cs, args.blessed_server)
     guest_params = {}
     for param in args.params:
         components = param.split("=")
         if len(components) > 0:
             guest_params[components[0]] = "=".join(components[1:])
 
+    if args.user_data:
+        user_data = open(args.user_data)
+    else:
+        user_data = None
+
     launch_servers = cs.gridcentric.launch(server,
                                            target=args.target,
+                                           name=args.name,
+                                           user_data=user_data,
                                            guest_params=guest_params)
 
     for server in launch_servers:
         _print_server(cs, server)
 
-@utils.arg('server_id', metavar='<instance id>', help="ID of the instance to bless")
+@utils.arg('server', metavar='<instance>', help="ID or name of the instance to bless")
 def do_bless(cs, args):
     """Bless an instance."""
-    server = cs.gridcentric.get(args.server_id)
+    server = _find_server(cs, args.server)
     blessed_servers = cs.gridcentric.bless(server)
     for server in blessed_servers:
         _print_server(cs, server)
 
-@utils.arg('blessed_id', metavar='<blessed id>', help="ID of the blessed instance")
+@utils.arg('blessed_server', metavar='<blessed instance>', help="ID or name of the blessed instance")
 def do_discard(cs, args):
     """Discard a blessed instance."""
-    server = cs.gridcentric.get(args.blessed_id)
+    server = _find_server(cs, args.blessed_server)
     cs.gridcentric.discard(server)
 
-
-@utils.arg('server_id', metavar='<instance id>', help="ID of the instance to migrate")
+@utils.arg('server', metavar='<instance>', help="ID or name of the instance to migrate")
 @utils.arg('--dest', metavar='<destination host>', default=None, help="Host to migrate to")
 def do_gc_migrate(cs, args):
     """Migrate an instance using VMS."""
-    server = cs.gridcentric.get(args.server_id)
+    server = _find_server(cs, args.server)
     cs.gridcentric.migrate(server, args.dest)
 
 def _print_list(servers):
@@ -115,18 +134,16 @@ def _print_list(servers):
     formatters = {'Networks':utils._format_servers_list_networks}
     utils.print_list(servers, columns, formatters)
 
-
-@utils.arg('blessed_id', metavar='<blessed id>', help="ID of the blessed instance")
+@utils.arg('blessed_server', metavar='<blessed instance>', help="ID or name of the blessed instance")
 def do_list_launched(cs, args):
     """List instances launched from this blessed instance."""
-    server = cs.gridcentric.get(args.blessed_id)
+    server = _find_server(cs, args.blessed_server)
     _print_list(cs.gridcentric.list_launched(server))
 
-
-@utils.arg('server_id', metavar='<server id>', help="ID of the instance")
+@utils.arg('server', metavar='<server>', help="ID or name of the instance")
 def do_list_blessed(cs, args):
     """List instances blessed from this instance."""
-    server = cs.gridcentric.get(args.server_id)
+    server = _find_server(cs, args.server)
     _print_list(cs.gridcentric.list_blessed(server))
 
 @utils.arg('--flavor',
@@ -207,7 +224,6 @@ def do_gc_boot(cs, args):
 
     boot_args, boot_kwargs = shell._boot(cs, args)
 
-    print boot_kwargs
     if args.host and 'meta' in boot_kwargs:
         boot_kwargs['meta'].update({"gc:target_host": args.host})
     elif args.host:
@@ -239,13 +255,37 @@ def do_gc_boot(cs, args):
     if args.poll:
         shell._poll_for_status(cs.servers.get, info['id'], 'building', ['active'])
 
+@utils.arg('server', metavar='<instance>', help="ID or name of the instance to install on")
+@utils.arg('--user',
+     default='root',
+     metavar='<user>',
+     help="The login user.")
+@utils.arg('--key_path',
+     default=os.path.join(os.getenv("HOME") or "", ".ssh", "id_rsa"),
+     metavar='<key_path>',
+     help="The path to the private key.")
+@utils.arg('--agent_location',
+     default=None,
+     metavar='<agent_location>',
+     help="Install packages from a custom location.")
+@utils.arg('--agent_version',
+     default=None,
+     metavar='<agent_version>',
+     help="Install a specific agent version.")
+def do_gc_install_agent(cs, args):
+    """Install the agent onto an instance."""
+    server = _find_server(cs, args.server)
+    server.install_agent(args.user,
+                         args.key_path,
+                         location=args.agent_location,
+                         version=args.agent_version)
 
 class GcServer(servers.Server):
     """
     A server object extended to provide gridcentric capabilities
     """
-    def launch(self, target="0", guest_params={}):
-        return self.manager.launch(self, target, guest_params)
+    def launch(self, target="0", name=None, user_data=None, guest_params={}):
+        return self.manager.launch(self, target, name, user_data, guest_params)
 
     def bless(self):
         return self.manager.bless(self)
@@ -262,6 +302,9 @@ class GcServer(servers.Server):
     def list_blessed(self):
         return self.manager.list_blessed(self)
 
+    def install_agent(self, user, key_path, location=None, version=None):
+        self.manager.install_agent(self, user, key_path, location=location, version=version)
+
 class GcServerManager(servers.ServerManager):
     resource_class = GcServer
 
@@ -272,32 +315,45 @@ class GcServerManager(servers.ServerManager):
         if not(hasattr(client, 'gridcentric')):
             setattr(client, 'gridcentric', self)
 
-    def launch(self, server, target="0", guest_params={}):
-        header, info = self._action("gc_launch",
-                                   server.id,
-                                   {'target': target,
-                                    'guest': guest_params})
+    def launch(self, server, target="0", name=None, user_data=None, guest_params={}):
+        params = {'target': target,
+                  'guest': guest_params}
+
+        if name != None:
+            params['name'] = name
+
+        if user_data:
+            if hasattr(user_data, 'read'):
+                real_user_data = user_data.read()
+            elif isinstance(user_data, unicode):
+                real_user_data = user_data.encode('utf-8')
+            else:
+                real_user_data = user_data
+
+            params['user_data'] = base64.b64encode(real_user_data)
+
+        header, info = self._action("gc_launch", base.getid(server), params)
         return [self.get(server['id']) for server in info]
 
     def bless(self, server):
-        header, info = self._action("gc_bless", server.id)
+        header, info = self._action("gc_bless", base.getid(server))
         return [self.get(server['id']) for server in info]
 
     def discard(self, server):
-        return self._action("gc_discard", server.id)
+        return self._action("gc_discard", base.getid(server))
 
     def migrate(self, server, dest=None):
         params = {}
         if dest != None:
             params['dest'] = dest
-        return self._action("gc_migrate", server.id, params)
+        return self._action("gc_migrate", base.getid(server), params)
 
     def list_launched(self, server):
-        header, info = self._action("gc_list_launched", server.id)
+        header, info = self._action("gc_list_launched", base.getid(server))
         return [self.get(server['id']) for server in info]
 
     def list_blessed(self, server):
-        header, info = self._action("gc_list_blessed", server.id)
+        header, info = self._action("gc_list_blessed", base.getid(server))
         return [self.get(server['id']) for server in info]
 
     def create(self, name, image, flavor, meta=None, files=None,
@@ -328,3 +384,6 @@ class GcServerManager(servers.ServerManager):
         response_key = "server"
         return self._boot(resource_url, response_key, *boot_args,
                 **boot_kwargs)
+
+    def install_agent(self, server, user, key_path, location=None, version=None):
+        agent.install(server, user, key_path, location=location, version=version)
