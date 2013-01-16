@@ -370,6 +370,11 @@ class API(base.Base):
         blessed_instances = self.compute_api.get_all(context, filter)
         return blessed_instances
 
+    def check_delete(self, context, instance_uuid):
+        """ Raises an error if the instance uuid is blessed. """
+        if self._is_instance_blessed(context, instance_uuid):
+            raise exception.NovaException("Cannot delete a blessed instance. Please discard it instead.")
+
     def _find_boot_host(self, context, metadata):
 
         gc_hosts = self._list_gridcentric_hosts(context)
