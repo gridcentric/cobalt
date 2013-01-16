@@ -402,6 +402,18 @@ class GridCentricApiTestCase(unittest.TestCase):
         except exception.NovaException:
             pass
 
+    def test_check_delete(self):
+
+        instance_uuid = utils.create_instance(self.context)
+        # This should not raise an error because the instance is not blessed.
+        self.gridcentric_api.check_delete(self.context, instance_uuid)
+
+        blessed_instance_uuid = utils.create_blessed_instance(self.context)
+        try:
+            self.gridcentric_api.check_delete(self.context, blessed_instance_uuid)
+            self.fail("Check delete should fail for a blessed instance.")
+        except exception.NovaException:
+            pass
     def test_launch_with_security_groups(self):
         instance_uuid = utils.create_instance(self.context)
         blessed_instance = self.gridcentric_api.bless_instance(self.context,

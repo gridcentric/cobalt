@@ -113,6 +113,15 @@ class GridcentricServerControllerExtension(wsgi.Controller):
         context = req.environ["nova.context"]
         return self._build_instance_list(req, self.gridcentric_api.list_blessed_instances(context, id))
 
+    @wsgi.extends
+    @convert_exception
+    def delete(self, req, resp_obj, **kwargs):
+         """ We want to raise an error to the user if they attempt to delete a blessed instance. """
+         context = req.environ["nova.context"]
+         instance_uuid = kwargs.get("id", None)
+         if instance_uuid != None:
+             self.gridcentric_api.check_delete(context, instance_uuid)
+
     def _build_instance_list(self, req, instances):
         def _build_view(req, instance, is_detail=True):
             project_id = getattr(req.environ['nova.context'], 'project_id', '')
