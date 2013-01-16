@@ -98,7 +98,7 @@ class API(base.Base):
     def _rollback_reservation(self, context, reservations):
         quota.QUOTAS.rollback(context, reservations)
 
-    def _copy_instance(self, context, instance_uuid, new_suffix, launch=False):
+    def _copy_instance(self, context, instance_uuid, new_name, launch=False, new_user_data=None):
         # (dscannell): Basically we want to copy all of the information from
         # instance with id=instance_uuid into a new instance. This is because we
         # are basically "cloning" the vm as far as all the properties are
@@ -127,9 +127,9 @@ class API(base.Base):
            'vcpus': instance_ref['vcpus'],
            'root_gb': instance_ref['root_gb'],
            'ephemeral_gb': instance_ref['ephemeral_gb'],
-           'display_name': "%s-%s" % (instance_ref['display_name'], new_suffix),
+           'display_name': new_name,
            'display_description': instance_ref['display_description'],
-           'user_data': instance_ref.get('user_data', ''),
+           'user_data': new_user_data or '',
            'key_name': instance_ref.get('key_name', ''),
            'key_data': instance_ref.get('key_data', ''),
            'locked': False,
@@ -216,7 +216,8 @@ class API(base.Base):
         reservations = self._acquire_addition_reservation(context, instance)
         try:
             clonenum = self._next_clone_num(context, instance_uuid)
-            new_instance = self._copy_instance(context, instance_uuid, str(clonenum), launch=False)
+            new_instance = self._copy_instance(context, instance_uuid,
+                                               "%s-%s" % (instance['display_name'], str(clonenum)), launch=False)
 
             LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
             self._cast_gridcentric_message('bless_instance', context, new_instance['uuid'],
@@ -226,7 +227,7 @@ class API(base.Base):
             self._rollback_reservation(context, reservations)
             raise
 
-        # We reload the instance because the manager may have change its state (most likely it 
+        # We reload the instance because the manager may have change its state (most likely it
         # did).
         return self.get(context, new_instance['uuid'])
 
@@ -273,7 +274,10 @@ class API(base.Base):
         reservations = self._acquire_addition_reservation(context, instance)
         try:
             # Create a new launched instance.
-            new_instance_ref = self._copy_instance(context, instance_uuid, "clone", launch=True)
+            new_instance_ref = self._copy_instance(context, instance_uuid,
+                params.get('name', "%s-%s" % (instance['display_name'], "clone")),
+                launch=True, new_user_data=params.pop('user_data', None))
+
 
             LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
                         " instance %(instance_uuid)s") % locals())
@@ -414,6 +418,6 @@ class API(base.Base):
             return self.get(context, instance_uuid)
 
         # Stub out the call to the scheduler and then delegate the rest of the work to the
-        # compute api. 
+        # compute api.
         compute_api._schedule_run_instance = host_schedule
         return compute_api.create(context, *args, **kwargs)

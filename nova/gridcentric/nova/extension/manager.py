@@ -744,9 +744,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         try:
             # Perform our database update.
-            update_params = {'vm_state': vm_states.ACTIVE,
-                             'host':self.host,
-                             'task_state':None}
+            power_state = self.compute_manager._get_power_state(context, instance_ref)
+            update_params = {'power_state': power_state,
+                             'vm_state': vm_states.ACTIVE,
+                             'host': self.host,
+                             'task_state': None}
             if not(migration_url):
                 update_params['launched_at'] = timeutils.utcnow()
             self._instance_update(context,
