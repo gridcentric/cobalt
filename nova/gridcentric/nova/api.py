@@ -98,7 +98,7 @@ class API(base.Base):
     def _rollback_reservation(self, context, reservations):
         quota.QUOTAS.rollback(context, reservations)
 
-    def _copy_instance(self, context, instance_uuid, new_name, launch=False, new_user_data=None):
+    def _copy_instance(self, context, instance_uuid, new_name, launch=False, new_user_data=None, security_groups=None):
         # (dscannell): Basically we want to copy all of the information from
         # instance with id=instance_uuid into a new instance. This is because we
         # are basically "cloning" the vm as far as all the properties are
@@ -145,7 +145,8 @@ class API(base.Base):
         new_instance_ref = self.db.instance_get(context, new_instance_ref.id)
 
         elevated = context.elevated()
-        security_groups = self.db.security_group_get_by_instance(context, instance_ref['id'])
+        if security_groups == None:
+            security_groups = self.db.security_group_get_by_instance(context, instance_ref['id'])
         for security_group in security_groups:
             self.db.instance_add_security_group(elevated,
                                                 new_instance_ref['uuid'],
@@ -271,12 +272,21 @@ class API(base.Base):
                   _(("Instance %s is not blessed. " +
                      "Please bless the instance before launching from it.") % instance_uuid))
 
+        # Set up security groups to be added - we are passed in names, but need ID's
+        security_group_names = params.pop('security_groups', None)
+        if security_group_names != None:
+            security_groups = [self.db.security_group_get_by_name(context,
+                context.project_id, sg) for sg in security_group_names]
+        else:
+            security_groups = None
+
         reservations = self._acquire_addition_reservation(context, instance)
         try:
             # Create a new launched instance.
             new_instance_ref = self._copy_instance(context, instance_uuid,
                 params.get('name', "%s-%s" % (instance['display_name'], "clone")),
-                launch=True, new_user_data=params.pop('user_data', None))
+                launch=True, new_user_data=params.pop('user_data', None),
+                security_groups=security_groups)
 
 
             LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
