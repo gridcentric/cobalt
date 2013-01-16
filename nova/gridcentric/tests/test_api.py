@@ -242,7 +242,7 @@ class GridCentricApiTestCase(unittest.TestCase):
             self.gridcentric_api.discard_instance(self.context, blessed_uuid)
             no_exception = True
         except:
-            pass  # success
+            pass # success
 
         if no_exception:
             self.fail("Should not be able to discard a blessed instance while launched ones still remain.")
@@ -401,3 +401,30 @@ class GridCentricApiTestCase(unittest.TestCase):
             self.fail("Should not be able to migrate a non-existent destination.")
         except exception.NovaException:
             pass
+
+    def test_launch_with_security_groups(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context,
+                                                               instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        sg = utils.create_security_group(self.context,
+                                    {'name': 'test-sg',
+                                     'description': 'test security group'})
+        inst = self.gridcentric_api.launch_instance(self.context,
+            blessed_instance_uuid, params={'security_groups': ['test-sg']})
+        self.assertEqual(inst['security_groups'][0].id, sg.id)
+        self.assertEqual(1, len(inst['security_groups']))
+
+    def test_launch_default_security_group(self):
+        sg = utils.create_security_group(self.context,
+                                    {'name': 'test-sg',
+                                     'description': 'test security group'})
+        instance_uuid = utils.create_instance(self.context,
+                                              {'security_groups': [sg['name']]})
+        blessed_instance = self.gridcentric_api.bless_instance(self.context,
+                                                               instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        inst = self.gridcentric_api.launch_instance(self.context,
+                                                    blessed_instance_uuid,
+                                                    params={})
+        self.assertEqual(inst['security_groups'][0].id, sg.id)
