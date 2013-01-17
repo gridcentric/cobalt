@@ -19,7 +19,6 @@ import random
 
 from nova import compute
 from nova.compute import vm_states
-from nova import flags
 from nova import exception
 from nova.db import base
 from nova import quota
@@ -31,13 +30,13 @@ from nova import utils
 
 
 LOG = logging.getLogger('nova.gridcentric.api')
-FLAGS = flags.FLAGS
+CONF = cfg.CONF
 
 gridcentric_api_opts = [
                cfg.StrOpt('gridcentric_topic',
                default='gridcentric',
                help='the topic gridcentric nodes listen on') ]
-FLAGS.register_opts(gridcentric_api_opts)
+CONF.register_opts(gridcentric_api_opts)
 
 class API(base.Base):
     """API for interacting with the gridcentric manager."""
@@ -67,9 +66,9 @@ class API(base.Base):
             instance = self.get(context, instance_uuid)
             host = instance['host']
         if not host:
-            queue = FLAGS.gridcentric_topic
+            queue = CONF.gridcentric_topic
         else:
-            queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, host)
+            queue = self.db.queue_get_for(context, CONF.gridcentric_topic, host)
         params['instance_uuid'] = instance_uuid
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
@@ -183,7 +182,7 @@ class API(base.Base):
     def _list_gridcentric_hosts(self, context):
         """ Returns a list of all the hosts known to openstack running the gridcentric service. """
         admin_context = context.elevated()
-        services = self.db.service_get_all_by_topic(admin_context, FLAGS.gridcentric_topic)
+        services = self.db.service_get_all_by_topic(admin_context, CONF.gridcentric_topic)
         hosts = []
         for srv in services:
             if srv['host'] not in hosts:
@@ -256,9 +255,9 @@ class API(base.Base):
         LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
                     " instance %(instance_uuid)s") % locals())
         rpc.cast(context,
-                     FLAGS.scheduler_topic,
+                     CONF.scheduler_topic,
                      {"method": "launch_instance",
-                      "args": {"topic": FLAGS.gridcentric_topic,
+                      "args": {"topic": CONF.gridcentric_topic,
                                "instance_uuid": new_instance_ref['uuid'],
                                "params": params}})
 
@@ -371,7 +370,7 @@ class API(base.Base):
                                {'host': target_host,
                                 'scheduled_at': now})
 
-            rpc.cast(context, self.db.queue_get_for(context, FLAGS.compute_topic, target_host),
+            rpc.cast(context, self.db.queue_get_for(context, CONF.compute_topic, target_host),
                      {"method": "run_instance",
                       "args": {"instance_uuid": instance_uuid,
                        "availability_zone": availability_zone,

@@ -27,13 +27,12 @@ import tempfile
 
 import nova
 from nova import exception
-from nova import flags
 from nova.virt import images
 from nova.compute import utils as compute_utils
 from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 LOG = logging.getLogger('nova.gridcentric.vmsconn')
-FLAGS = flags.FLAGS
+CONF = cfg.CONF
 vmsconn_opts = [
                cfg.StrOpt('libvirt_user',
                default='libvirt-qemu',
@@ -42,7 +41,7 @@ vmsconn_opts = [
                cfg.StrOpt('openstack_user',
                default='',
                help='The openstack user')]
-FLAGS.register_opts(vmsconn_opts)
+CONF.register_opts(vmsconn_opts)
 
 from eventlet import tpool
 
@@ -236,9 +235,9 @@ class XenApiConnection(VmsConnection):
         # flags can be read in.
         from nova.virt import xenapi_conn
 
-        config.MANAGEMENT['connection_url'] = FLAGS.xenapi_connection_url
-        config.MANAGEMENT['connection_username'] = FLAGS.xenapi_connection_username
-        config.MANAGEMENT['connection_password'] = FLAGS.xenapi_connection_password
+        config.MANAGEMENT['connection_url'] = CONF.xenapi_connection_url
+        config.MANAGEMENT['connection_username'] = CONF.xenapi_connection_username
+        config.MANAGEMENT['connection_password'] = CONF.xenapi_connection_password
         select_hypervisor('xcp')
 
     def post_launch(self, context,
@@ -280,7 +279,7 @@ class LibvirtConnection(VmsConnection):
         # The user can specify an openstack_user using the flags, or they can leave it blank
         # and we'll attempt to discover the user. If failing to discover we'll default to 
         # the same user as the nova-gridcentric process.
-        user = FLAGS.openstack_user
+        user = CONF.openstack_user
         if user == '':
             # Attempt to determine the openstack user.
             try:
@@ -308,13 +307,13 @@ class LibvirtConnection(VmsConnection):
         import vms.config
 
         try:
-            passwd = pwd.getpwnam(FLAGS.libvirt_user)
+            passwd = pwd.getpwnam(CONF.libvirt_user)
             libvirt_uid = passwd.pw_uid
             libvirt_gid = passwd.pw_gid
         except Exception, e:
             raise Exception("Unable to find the libvirt user %s. "
                             "Please use the --libvirt_user flag to correct."
-                            "Error: %s" % (FLAGS.libvirt_user, str(e)))
+                            "Error: %s" % (CONF.libvirt_user, str(e)))
 
         try:
             vmsfs_path = vms.kvm.config.find_vmsfs()
@@ -329,7 +328,7 @@ class LibvirtConnection(VmsConnection):
                 os.chmod(path, 0770)
         except Exception, e:
             raise Exception("Unable to make %s owner of vmsfs: %s" %
-                            FLAGS.libvirt_user, str(e))
+                            CONF.libvirt_user, str(e))
 
         def can_libvirt_write_access(dir):
             # Test if libvirt_user has W+X permissions in dir (which are
@@ -340,11 +339,11 @@ class LibvirtConnection(VmsConnection):
             # We're not using os.system because of shell escaping of directory
             # name. We're not using subprocess.call because it's buggy: it
             # returns 0 regardless of the real return value of the command!
-            command = ['sudo', '-u', FLAGS.libvirt_user,
+            command = ['sudo', '-u', CONF.libvirt_user,
                        'test', '-w', dir, '-a', '-x', dir]
             child = os.fork()
             if child == 0:
-                os.execvp('sudo', ['sudo', '-u', FLAGS.libvirt_user,
+                os.execvp('sudo', ['sudo', '-u', CONF.libvirt_user,
                                    'test', '-w', dir, '-a', '-x', dir])
             while True:
                 pid, status = os.waitpid(child, 0)
@@ -361,8 +360,8 @@ class LibvirtConnection(VmsConnection):
                 raise Exception("Directory %s is not writable by %s (uid=%d). "
                                 "If it already exists, make sure that it's "
                                 "writable and executable by %s." %
-                                (dir, FLAGS.libvirt_user, libvirt_uid,
-                                 FLAGS.libvirt_user))
+                                (dir, CONF.libvirt_user, libvirt_uid,
+                                 CONF.libvirt_user))
         try:
             db_path = vms.db.vms.path
             mkdir_libvirt(os.path.dirname(db_path))
@@ -386,7 +385,7 @@ class LibvirtConnection(VmsConnection):
         except Exception, e:
             raise Exception("Error creating directories and setting "
                             "permissions for user %s. Error: %s" %
-                            (FLAGS.libvirt_user, str(e)))
+                            (CONF.libvirt_user, str(e)))
 
     def pre_launch(self, context,
                    new_instance_ref,
@@ -401,7 +400,7 @@ class LibvirtConnection(VmsConnection):
             # We need to first download the descriptor and the disk files
             # from the image service.
             LOG.debug("Downloading images %s from the image service." % (image_refs))
-            image_base_path = os.path.join(FLAGS.instances_path, '_base')
+            image_base_path = os.path.join(CONF.instances_path, '_base')
             if not os.path.exists(image_base_path):
                 LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
                 mkdir_as(image_base_path, self.openstack_uid)
@@ -439,7 +438,7 @@ class LibvirtConnection(VmsConnection):
 
         # We need to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
-        working_dir = os.path.join(FLAGS.instances_path, new_instance_ref['name'])
+        working_dir = os.path.join(CONF.instances_path, new_instance_ref['name'])
         disk_file = os.path.join(working_dir, "disk")
         libvirt_file = os.path.join(working_dir, "libvirt.xml")
 
