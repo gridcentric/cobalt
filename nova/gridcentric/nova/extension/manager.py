@@ -29,12 +29,11 @@ import socket
 import subprocess
 
 from nova import exception
-from nova import flags
 from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova.openstack.common import timeutils
 LOG = logging.getLogger('nova.gridcentric.manager')
-FLAGS = flags.FLAGS
+CONF = cfg.CONF
 
 gridcentric_opts = [
                cfg.BoolOpt('gridcentric_use_image_service',
@@ -57,7 +56,7 @@ gridcentric_opts = [
                      'This timeout can be raised to ensure that launch waits long enough '
                      'for nova-compute to process its request. By default this uses the '
                      'standard nova-wide rpc timeout.')]
-FLAGS.register_opts(gridcentric_opts)
+CONF.register_opts(gridcentric_opts)
 
 from nova import manager
 from nova import utils
@@ -113,7 +112,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
     def _init_vms(self):
         """ Initializes the hypervisor options depending on the openstack connection type. """
         if self.vms_conn == None:
-            connection_type = FLAGS.connection_type
+            connection_type = CONF.connection_type
             self.vms_conn = vmsconn.get_vms_connection(connection_type)
             self.vms_conn.configure()
 
@@ -183,7 +182,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                 source_instance_ref.name,
                                                 instance_ref,
                                                 migration_url=migration_url,
-                                                use_image_service=FLAGS.gridcentric_use_image_service)
+                                                use_image_service=CONF.gridcentric_use_image_service)
             if not(migration):
                 usage_info = notifications.info_from_instance(context, instance_ref,
                                                           network_info=None,
@@ -275,14 +274,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
         src = instance_ref['host']
         if instance_ref['volumes']:
             rpc.call(context,
-                      FLAGS.volume_topic,
+                      CONF.volume_topic,
                       {"method": "check_for_export",
                        "args": {'instance_id': instance_ref.id}})
 
         # Get a reference to both the destination and source queues
-        gc_dest_queue = self.db.queue_get_for(context, FLAGS.gridcentric_topic, dest)
-        compute_dest_queue = self.db.queue_get_for(context, FLAGS.compute_topic, dest)
-        compute_source_queue = self.db.queue_get_for(context, FLAGS.compute_topic, self.host)
+        gc_dest_queue = rpc.queue_get_for(context, CONF.gridcentric_topic, dest)
+        compute_dest_queue = rpc.queue_get_for(context, CONF.compute_topic, dest)
+        compute_source_queue = rpc.queue_get_for(context, CONF.compute_topic, self.host)
 
         rpc.call(context, compute_dest_queue,
                  {"method": "pre_live_migration",
@@ -310,8 +309,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Grab the network info (to be used for cleanup later on the host).
         network_info = self.network_api.get_instance_nw_info(context, instance_ref)
 
-        if FLAGS.gridcentric_outgoing_migration_address != None:
-            migration_address = FLAGS.gridcentric_outgoing_migration_address
+        if CONF.gridcentric_outgoing_migration_address != None:
+            migration_address = CONF.gridcentric_outgoing_migration_address
         else:
             migration_address = devname
 
@@ -348,7 +347,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             metadata = self._instance_metadata(context, instance_uuid)
             image_refs = self._extract_image_refs(metadata)
             self.vms_conn.post_migration(context, instance_ref, network_info, migration_url,
-                                         use_image_service=FLAGS.gridcentric_use_image_service,
+                                         use_image_service=CONF.gridcentric_use_image_service,
                                          image_refs=image_refs)
 
             # Essentially we want to clean up the instance on the source host. This involves
@@ -393,7 +392,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 metadata = self._instance_metadata(context, instance_uuid)
                 image_refs = self._extract_image_refs(metadata)
                 self.vms_conn.post_migration(context, instance_ref, network_info, migration_url,
-                                             use_image_service=FLAGS.gridcentric_use_image_service,
+                                             use_image_service=CONF.gridcentric_use_image_service,
                                              image_refs=image_refs)
 
                 # Rollback is launching here again.
@@ -428,7 +427,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         image_refs = self._extract_image_refs(metadata)
         # Call discard in the backend.
         self.vms_conn.discard(context, instance_ref.name,
-                              use_image_service=FLAGS.gridcentric_use_image_service,
+                              use_image_service=CONF.gridcentric_use_image_service,
                               image_refs=image_refs)
 
         # Update the instance metadata (for completeness).
@@ -457,7 +456,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         """
 
         network_info = None
-        if FLAGS.stub_network:
+        if CONF.stub_network:
             network_info = network_model.NetworkInfo()
 
         elif already_allocated:
@@ -567,19 +566,19 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # do not support having volumes attached at launch time, so we should be safe in
             # this regard.
             rpc.call(context,
-                 self.db.queue_get_for(context, FLAGS.compute_topic, self.host),
+                 rpc.queue_get_for(context, CONF.compute_topic, self.host),
                  {"method": "pre_live_migration",
                   "args": {'instance_id': instance_ref.id,
                            'block_migration': False,
                            'disk': None}},
-                 timeout=FLAGS.gridcentric_compute_timeout)
+                 timeout=CONF.gridcentric_compute_timeout)
             self.vms_conn.launch(context,
                                  source_instance_ref.name,
                                  str(target),
                                  instance_ref,
                                  network_info,
                                  migration_url=migration_url,
-                                 use_image_service=FLAGS.gridcentric_use_image_service,
+                                 use_image_service=CONF.gridcentric_use_image_service,
                                  image_refs=image_refs,
                                  params=params)
 
@@ -595,7 +594,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                   instance_ref['uuid'],
                                   vm_state=vm_states.ACTIVE,
                                   host=self.host,
-                                  launched_at=utils.utcnow(),
+                                  launched_at=timeutils.utcnow(),
                                   task_state=None)
             else:
                 self._instance_update(context,

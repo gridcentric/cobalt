@@ -20,7 +20,7 @@ import shutil
 from datetime import datetime
 
 from nova import db
-from nova import flags
+from nova.openstack.common import cfg
 from nova import context as nova_context
 from nova import exception
 
@@ -29,17 +29,18 @@ from nova.compute import vm_states
 import gridcentric.nova.extension.manager as gc_manager
 import gridcentric.tests.utils as utils
 
-FLAGS = flags.FLAGS
+CONF = cfg.CONF
 
 class GridCentricManagerTestCase(unittest.TestCase):
 
     def setUp(self):
 
-        FLAGS.connection_type = 'fake'
-        FLAGS.stub_network = True
+        CONF.connection_type = 'fake'
+        CONF.compute_driver = 'fake.FakeDriver'
+        CONF.stub_network = True
         # Copy the clean database over
-        shutil.copyfile(os.path.join(FLAGS.state_path, FLAGS.sqlite_clean_db),
-                        os.path.join(FLAGS.state_path, FLAGS.sqlite_db))
+        shutil.copyfile(os.path.join(CONF.state_path, CONF.sqlite_clean_db),
+                        os.path.join(CONF.state_path, CONF.sqlite_db))
 
         self.mock_rpc = utils.mock_rpc
 
