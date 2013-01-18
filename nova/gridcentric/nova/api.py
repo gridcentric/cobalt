@@ -128,6 +128,7 @@ class API(base.Base):
            'root_gb': instance_ref['root_gb'],
            'ephemeral_gb': instance_ref['ephemeral_gb'],
            'display_name': new_name,
+           'hostname': utils.sanitize_hostname(new_name),
            'display_description': instance_ref['display_description'],
            'user_data': new_user_data or '',
            'key_name': instance_ref.get('key_name', ''),
