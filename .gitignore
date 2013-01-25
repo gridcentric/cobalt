@@ -16,3 +16,4 @@ test-*.xml
 *.un~
 .project
 .pydevproject
+.idea
