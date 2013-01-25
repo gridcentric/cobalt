@@ -29,6 +29,7 @@ import nova
 from nova import exception
 from nova import flags
 
+from nova.image import glance
 from nova.virt import images
 from nova.compute import utils as compute_utils
 from nova.openstack.common import cfg
@@ -316,7 +317,7 @@ class LibvirtConnection(VmsConnection):
             if not os.path.exists(image_base_path):
                 LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
                 mkdir_as(image_base_path, self.openstack_uid)
-            image_service = nova.image.get_default_image_service()
+            image_service = glance.get_default_image_service()
             for image_ref in image_refs:
                 image = image_service.show(context, image_ref)
                 target = os.path.join(image_base_path, image['name'])
@@ -455,7 +456,7 @@ class LibvirtConnection(VmsConnection):
         return str(image_id)
 
     def _upload_files(self, context, instance_ref, blessed_files):
-        image_service = nova.image.get_default_image_service()
+        image_service = glance.get_default_image_service()
         blessed_image_refs = []
         for blessed_file in blessed_files:
 
@@ -485,7 +486,7 @@ class LibvirtConnection(VmsConnection):
 
     @_log_call
     def _delete_images(self, context, image_refs):
-        image_service = nova.image.get_default_image_service()
+        image_service = glance.get_default_image_service()
         for image_ref in image_refs:
             try:
                 image_service.delete(context, image_ref)
