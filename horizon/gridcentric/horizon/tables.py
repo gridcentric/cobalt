@@ -36,22 +36,6 @@ class BlessInstance(tables.BatchAction):
     def action(self, request, obj_id):
         api.server_bless(request, obj_id)
 
-class LaunchInstance(tables.BatchAction):
-    name = "launch"
-    action_present = _("Launch")
-    action_past = _("Launched")
-    data_type_singular = _("Instance")
-    data_type_plural = _("Instances")
-    classes = ("btn-launch",)
-
-    def allowed(self, request, instance=None):
-        if instance:
-            return instance.status in BLESSED_STATES and not instance_tables._is_deleting(instance)
-        return True
-
-    def action(self, request, obj_id):
-        api.server_launch(request, obj_id)
-
 class DiscardInstance(tables.BatchAction):
     name = "discard"
     action_present = _("Discard")
@@ -67,6 +51,15 @@ class DiscardInstance(tables.BatchAction):
 
     def action(self, request, obj_id):
         api.server_discard(request, obj_id)
+
+class LaunchBlessed(tables.LinkAction):
+    name = "launch_blessed"
+    verbose_name = _("Launch From")
+    url = "horizon:nova:instances:launch_blessed"
+    classes = ("ajax-modal", "btn-edit")
+
+    def allowed(self, request, instance):
+        return instance.status in BLESSED_STATES and not instance_tables._is_deleting(instance)
 
 # Neuter all the built-in row actions to support blessed.
 def wrap_allowed(fn):
@@ -84,13 +77,10 @@ for action in instance_tables.InstancesTable._meta.row_actions:
 # Enhance the built-in table type to include our actions.
 instance_tables.InstancesTable._meta.row_actions = \
    list(instance_tables.InstancesTable._meta.row_actions) + \
-   [BlessInstance, LaunchInstance, DiscardInstance]
-boot = instance_tables.InstancesTable.base_actions["launch"]
-boot.verbose_name = _("Boot Instance")
-instance_tables.InstancesTable.base_actions["boot"] = boot
+   [BlessInstance, DiscardInstance, LaunchBlessed]
 instance_tables.InstancesTable.base_actions["bless"] = BlessInstance()
 instance_tables.InstancesTable.base_actions["discard"] = DiscardInstance()
-instance_tables.InstancesTable.base_actions["launch"] = LaunchInstance()
+instance_tables.InstancesTable.base_actions['launch_blessed'] = LaunchBlessed()
 
 # Include blessed as a status choice.
 instance_tables.InstancesTable.STATUS_CHOICES = \
