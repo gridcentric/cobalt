@@ -69,21 +69,20 @@ if os.path.exists(os.path.join(possible_topdir, 'nova', '__init__.py')):
 gettext.install('nova', unicode=1)
 
 from nova import flags
-from nova import log as logging
 from nova import service
 from nova import utils
+from nova.openstack.common import log as logging
 from nova.openstack.common import cfg
 
 if __name__ == '__main__':
-    utils.default_flagfile()
-    flags.FLAGS(sys.argv)
+    flags.parse_args(sys.argv)
     gridcentric_opts = [
                cfg.StrOpt('gridcentric_manager',
                default='gridcentric.nova.extension.manager.GridCentricManager',
                help='Manager for gridcentric') ]
     flags.FLAGS.register_opts(gridcentric_opts)
 
-    logging.setup()
+    logging.setup('nova')
     server = service.Service.create(binary='nova-gridcentric')
     service.serve(server)
     service.wait()

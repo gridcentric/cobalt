@@ -18,11 +18,11 @@
 import random
 
 from nova import compute
+from nova.compute import task_states
 from nova.compute import vm_states
 from nova import exception
 from nova.db import base
 from nova import quota
-from nova import exception as novaexc
 from nova.openstack.common import log as logging
 from nova.openstack.common import rpc
 from nova.openstack.common import cfg
@@ -68,32 +68,37 @@ class API(base.Base):
         if not host:
             queue = CONF.gridcentric_topic
         else:
-            queue = self.db.queue_get_for(context, CONF.gridcentric_topic, host)
+            queue = rpc.queue_get_for(context, CONF.gridcentric_topic, host)
+
         params['instance_uuid'] = instance_uuid
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
 
-    def _check_quota(self, context, instance_uuid):
+    def _acquire_addition_reservation(self, context, instance):
         # Check the quota to see if we can launch a new instance.
-        instance = self.get(context, instance_uuid)
         instance_type = instance['instance_type']
-        metadata = instance['metadata']
 
-        req_cores = instance_type['vcpus']
-        req_ram = instance_type['memory_mb']
-
+        # check against metadata
+        metadata = self.db.instance_metadata_get(context, instance['uuid'])
+        self.compute_api._check_metadata_properties_quota(context, metadata)
+        # Grab a reservation for a single instance
         max_count, reservations = self.compute_api._check_num_instances_quota(context,
                                                                               instance_type,
                                                                               1,
                                                                               1)
+        return reservations
 
-        # check against metadata
-        metadata = self.db.instance_metadata_get(context, instance_uuid)
-        self.compute_api._check_metadata_properties_quota(context, metadata)
+    def _acquire_subtraction_reservation(self, context, instance):
+        return quota.QUOTAS.reserve(context, instances= -1, ram= -instance['memory_mb'],
+                                    cores= -instance['vcpus'])
 
-        return max_count, reservations
+    def _commit_reservation(self, context, reservations):
+        quota.QUOTAS.commit(context, reservations)
 
-    def _copy_instance(self, context, instance_uuid, new_suffix, launch=False):
+    def _rollback_reservation(self, context, reservations):
+        quota.QUOTAS.rollback(context, reservations)
+
+    def _copy_instance(self, context, instance_uuid, new_name, launch=False, new_user_data=None, security_groups=None):
         # (dscannell): Basically we want to copy all of the information from
         # instance with id=instance_uuid into a new instance. This is because we
         # are basically "cloning" the vm as far as all the properties are
@@ -122,9 +127,10 @@ class API(base.Base):
            'vcpus': instance_ref['vcpus'],
            'root_gb': instance_ref['root_gb'],
            'ephemeral_gb': instance_ref['ephemeral_gb'],
-           'display_name': "%s-%s" % (instance_ref['display_name'], new_suffix),
+           'display_name': new_name,
+           'hostname': utils.sanitize_hostname(new_name),
            'display_description': instance_ref['display_description'],
-           'user_data': instance_ref.get('user_data', ''),
+           'user_data': new_user_data or '',
            'key_name': instance_ref.get('key_name', ''),
            'key_data': instance_ref.get('key_data', ''),
            'locked': False,
@@ -140,7 +146,8 @@ class API(base.Base):
         new_instance_ref = self.db.instance_get(context, new_instance_ref.id)
 
         elevated = context.elevated()
-        security_groups = self.db.security_group_get_by_instance(context, instance_ref['id'])
+        if security_groups == None:
+            security_groups = self.db.security_group_get_by_instance(context, instance_ref['id'])
         for security_group in security_groups:
             self.db.instance_add_security_group(elevated,
                                                 new_instance_ref['uuid'],
@@ -191,7 +198,7 @@ class API(base.Base):
 
     def bless_instance(self, context, instance_uuid):
         # Setup the DB representation for the new VM.
-        instance_ref = self.get(context, instance_uuid)
+        instance = self.get(context, instance_uuid)
 
         is_blessed = self._is_instance_blessed(context, instance_uuid)
         is_launched = self._is_instance_launched(context, instance_uuid)
@@ -203,25 +210,33 @@ class API(base.Base):
             # The instance is a launched one. We cannot bless launched instances.
             raise exception.NovaException(_(("Instance %s has been launched. " +
                                      "Cannot bless a launched instance.") % instance_uuid))
-        elif instance_ref['vm_state'] != vm_states.ACTIVE:
+        elif instance['vm_state'] != vm_states.ACTIVE:
             # The instance is not active. We cannot bless a non-active instance.
             raise exception.NovaException(_(("Instance %s is not active. " +
                                       "Cannot bless a non-active instance.") % instance_uuid))
 
-        clonenum = self._next_clone_num(context, instance_uuid)
-        new_instance_ref = self._copy_instance(context, instance_uuid, str(clonenum), launch=False)
+        reservations = self._acquire_addition_reservation(context, instance)
+        try:
+            clonenum = self._next_clone_num(context, instance_uuid)
+            new_instance = self._copy_instance(context, instance_uuid,
+                                               "%s-%s" % (instance['display_name'], str(clonenum)), launch=False)
 
-        LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
-        self._cast_gridcentric_message('bless_instance', context, new_instance_ref['uuid'],
-                                       host=instance_ref['host'])
+            LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
+            self._cast_gridcentric_message('bless_instance', context, new_instance['uuid'],
+                                       host=instance['host'])
+            self._commit_reservation(context, reservations)
+        except:
+            self._rollback_reservation(context, reservations)
+            raise
 
-        # We reload the instance because the manager may have change its state (most likely it 
+        # We reload the instance because the manager may have change its state (most likely it
         # did).
-        return self.get(context, new_instance_ref['uuid'])
+        return self.get(context, new_instance['uuid'])
 
     def discard_instance(self, context, instance_uuid):
         LOG.debug(_("Casting gridcentric message for discard_instance") % locals())
 
+        instance = self.get(context, instance_uuid)
         if not self._is_instance_blessed(context, instance_uuid):
             # The instance is not blessed. We can't discard it.
             raise exception.NovaException(_(("Instance %s is not blessed. " +
@@ -232,34 +247,66 @@ class API(base.Base):
                                      "Cannot discard an instance with remaining launched ones.") %
                                      instance_uuid))
 
-        self._cast_gridcentric_message('discard_instance', context, instance_uuid)
+        old, updated = self.db.instance_update_and_get_original(context, instance_uuid,
+                                                                {'task_state':task_states.DELETING})
+        reservations = None
+        if old['task_state'] != task_states.DELETING:
+            # To avoid double counting if discard is called twice, we check if the instance
+            # was already being discarded. If it was not, then we need to handle the quotas,
+            # otherwise we can skip it.
+            reservations = self._acquire_subtraction_reservation(context, instance)
+        try:
+            self._cast_gridcentric_message('discard_instance', context, instance_uuid)
+            self._commit_reservation(context, reservations)
+        except:
+            self._rollback_reservation(context, reservations)
+            raise
 
     def launch_instance(self, context, instance_uuid, params={}):
         pid = context.project_id
         uid = context.user_id
 
-        # TODO(dscannell): Need to figure out how these quota reservations work and what
-        # we need to do with them.
-        num_instances, reservations = self._check_quota(context, instance_uuid)
         instance = self.get(context, instance_uuid)
-
         if not(self._is_instance_blessed(context, instance_uuid)):
             # The instance is not blessed. We can't launch new instances from it.
             raise exception.NovaException(
                   _(("Instance %s is not blessed. " +
                      "Please bless the instance before launching from it.") % instance_uuid))
 
-        # Create a new launched instance.
-        new_instance_ref = self._copy_instance(context, instance_uuid, "clone", launch=True)
+        # Set up security groups to be added - we are passed in names, but need ID's
+        security_group_names = params.pop('security_groups', None)
+        if security_group_names != None:
+            security_groups = [self.db.security_group_get_by_name(context,
+                context.project_id, sg) for sg in security_group_names]
+        else:
+            security_groups = None
 
-        LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
-                    " instance %(instance_uuid)s") % locals())
-        rpc.cast(context,
-                     CONF.scheduler_topic,
-                     {"method": "launch_instance",
-                      "args": {"topic": CONF.gridcentric_topic,
-                               "instance_uuid": new_instance_ref['uuid'],
-                               "params": params}})
+        reservations = self._acquire_addition_reservation(context, instance)
+        try:
+            # Create a new launched instance.
+            new_instance_ref = self._copy_instance(context, instance_uuid,
+                params.get('name', "%s-%s" % (instance['display_name'], "clone")),
+                launch=True, new_user_data=params.pop('user_data', None),
+                security_groups=security_groups)
+
+
+            LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
+                        " instance %(instance_uuid)s") % locals())
+
+            # FIXME: The Folsom scheduler removed support for calling
+            # arbitrary functions via the scheduler. Damn. So now we
+            # have to make scheduling decisions internally. Until this
+            # is sorted, we will simply cast the message and let a random
+            # host pick it up. Note that this is simply a stopgap measure.
+            rpc.cast(context,
+                         CONF.gridcentric_topic,
+                         {"method": "launch_instance",
+                          "args": {"instance_uuid": new_instance_ref['uuid'],
+                                   "params": params}})
+            self._commit_reservation(context, reservations)
+        except:
+            self._rollback_reservation(context, reservations)
+            raise
 
         return self.get(context, new_instance_ref['uuid'])
 
@@ -289,23 +336,23 @@ class API(base.Base):
         # Grab the DB representation for the VM.
         instance_ref = self.get(context, instance_uuid)
 
-        if instance_ref['vm_state'] == vm_states.MIGRATING:
+        if instance_ref['task_state'] == task_states.MIGRATING:
             raise exception.NovaException(
                               _("Unable to migrate instance %s because it is already migrating.") %
-                              instance_id)
+                              instance_uuid)
         elif instance_ref['vm_state'] != vm_states.ACTIVE:
             raise exception.NovaException(_("Unable to migrate instance %s because it is not active") %
-                                  instance_id)
+                                  instance_uuid)
         dest = self._find_migration_target(context, instance_ref['host'], dest)
 
-        self.db.instance_update(context, instance_ref['id'], {'vm_state':vm_states.MIGRATING})
+        self.db.instance_update(context, instance_ref['uuid'], {'task_state':task_states.MIGRATING})
         LOG.debug(_("Casting gridcentric message for migrate_instance") % locals())
         self._cast_gridcentric_message('migrate_instance', context,
                                        instance_ref['uuid'], host=instance_ref['host'],
                                        params={"dest" : dest})
 
     def list_launched_instances(self, context, instance_uuid):
-         # Assert that the instance with the uuid actually exists.
+        # Assert that the instance with the uuid actually exists.
         self.get(context, instance_uuid)
         filter = {
                   'metadata':{'launched_from':'%s' % instance_uuid},
@@ -323,6 +370,11 @@ class API(base.Base):
                   }
         blessed_instances = self.compute_api.get_all(context, filter)
         return blessed_instances
+
+    def check_delete(self, context, instance_uuid):
+        """ Raises an error if the instance uuid is blessed. """
+        if self._is_instance_blessed(context, instance_uuid):
+            raise exception.NovaException("Cannot delete a blessed instance. Please discard it instead.")
 
     def _find_boot_host(self, context, metadata):
 
@@ -370,7 +422,7 @@ class API(base.Base):
                                {'host': target_host,
                                 'scheduled_at': now})
 
-            rpc.cast(context, self.db.queue_get_for(context, CONF.compute_topic, target_host),
+            rpc.cast(context, rpc.queue_get_for(context, CONF.compute_topic, target_host),
                      {"method": "run_instance",
                       "args": {"instance_uuid": instance_uuid,
                        "availability_zone": availability_zone,
@@ -382,6 +434,6 @@ class API(base.Base):
             return self.get(context, instance_uuid)
 
         # Stub out the call to the scheduler and then delegate the rest of the work to the
-        # compute api. 
+        # compute api.
         compute_api._schedule_run_instance = host_schedule
         return compute_api.create(context, *args, **kwargs)
