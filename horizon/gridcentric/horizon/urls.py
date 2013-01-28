@@ -13,16 +13,5 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from django.conf.urls.defaults import *
-
-from horizon.dashboards.nova.instances_and_volumes.instances import urls as instance_urls
-from .views import GridcentricIndexView, bless, launch, discard
-
-
-urlpatterns = patterns('gridcentric.horizon.views',
-    url(r'^$', GridcentricIndexView.as_view(), name='index'),
-    url(r'^instances/', include(instance_urls, namespace='instances')),
-    url(instance_urls.INSTANCES % 'bless', bless, name="bless"),
-    url(instance_urls.INSTANCES % 'launch', launch, name="launch"),
-    url(instance_urls.INSTANCES % 'discard', discard, name="discard"),
-)
+# We piggy-back on all URLs provided by the instance module.
+from horizon.dashboards.nova.instances.urls import urlpatterns

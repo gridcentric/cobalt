@@ -17,8 +17,8 @@ import json
 import webob
 from webob import exc
 
-from nova import log as logging
 from nova import exception as novaexc
+from nova.openstack.common import log as logging
 
 from nova.api.openstack import extensions
 
@@ -36,7 +36,7 @@ def convert_exception(action):
     def fn(self, *args, **kwargs):
         try:
             return action(self, *args, **kwargs)
-        except novaexc.Error as error:
+        except novaexc.NovaException as error:
             raise exc.HTTPBadRequest(explanation=unicode(error))
     # note(dscannell): Openstack sometimes does matching on the function name so we need to
     # ensure that the decorated function returns with the same function name as the action.
@@ -112,6 +112,15 @@ class GridcentricServerControllerExtension(wsgi.Controller):
     def _list_blessed_instances(self, req, id, body):
         context = req.environ["nova.context"]
         return self._build_instance_list(req, self.gridcentric_api.list_blessed_instances(context, id))
+
+    @wsgi.extends
+    @convert_exception
+    def delete(self, req, resp_obj, **kwargs):
+         """ We want to raise an error to the user if they attempt to delete a blessed instance. """
+         context = req.environ["nova.context"]
+         instance_uuid = kwargs.get("id", None)
+         if instance_uuid != None:
+             self.gridcentric_api.check_delete(context, instance_uuid)
 
     def _build_instance_list(self, req, instances):
         def _build_view(req, instance, is_detail=True):

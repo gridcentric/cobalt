@@ -16,11 +16,19 @@
 import uuid
 
 from nova import db
+from nova import quota
+from nova import policy
 from nova.openstack.common import rpc
 from nova.compute import instance_types
 from nova.compute import vm_states
+from nova.compute import power_state
+from nova.network import model as network_model
+from nova.virt.fake import FakeInstance
 
 class TestInducedException(Exception):
+
+    def __init__(self, *args, **kwargs):
+        super(TestInducedException, self).__init__(*args, **kwargs)
     pass
 
 class MockRpc(object):
@@ -34,8 +42,8 @@ class MockRpc(object):
         self.call_log = []
         self.cast_log = []
 
-    def call(self, context, queue, method, **kwargs):
-        self.call_log.append((queue, method, kwargs))
+    def call(self, context, queue, method,timeout, **kwargs):
+        self.call_log.append((queue, method, timeout, kwargs))
 
     def cast(self, context, queue, method, **kwargs):
         self.cast_log.append((queue, method, kwargs))
@@ -43,6 +51,11 @@ class MockRpc(object):
 mock_rpc = MockRpc()
 rpc.call = mock_rpc.call
 rpc.cast = mock_rpc.cast
+
+def mock_policy():
+    def _mock_enforce(*args, **kwargs):
+        pass
+    policy.enforce = _mock_enforce
 
 class MockVmsConn(object):
     """
@@ -73,12 +86,18 @@ class MockVmsConn(object):
               migration_url=None, use_image_service=False):
         return self.pop_return_value("bless")
 
+    def post_bless(self, context, new_instance_ref, blessed_files):
+        return self.pop_return_value("post_bless")
+
+    def bless_cleanup(self, blessed_files):
+        return self.pop_return_value("bless_cleanup")
+
     def discard(self, context, instance_name, use_image_service=False, image_refs=[]):
         return self.pop_return_value("discard")
 
-    def launch(self, context, instance_name, mem_target,
-               new_instance_ref, network_info, migration_url=None,
-               use_image_service=False, image_refs=[], params={}):
+    def launch(self, context, instance_name, new_instance_ref,
+               network_info, skip_image_service=False, target=0,
+               migration_url=None, image_refs=[], params={}):
         return self.pop_return_value("launch")
 
     def replug(self, instance_name, mac_addresses):
@@ -94,7 +113,14 @@ class MockVmsConn(object):
 def create_uuid():
     return str(uuid.uuid4())
 
-def create_instance(context, instance=None):
+def create_security_group(context, values):
+    values = values.copy()
+    values['user_id'] = context.user_id
+    values['project_id'] = context.project_id
+    return db.security_group_create(context, values)
+
+def create_instance(context, instance=None, driver=None):
+
     """Create a test instance"""
 
     if instance == None:
@@ -110,12 +136,28 @@ def create_instance(context, instance=None):
     instance.setdefault('mac_address', "ca:ca:ca:01")
     instance.setdefault('ami_launch_index', 0)
     instance.setdefault('vm_state', vm_states.ACTIVE)
-    instance.setdefault('root_gb', 0)
-    instance.setdefault('ephemeral_gb', 0)
+    instance.setdefault('root_gb', 10)
+    instance.setdefault('ephemeral_gb', 10)
+    instance.setdefault('memory_mb', 512)
+    instance.setdefault('vcpus', 1)
+
+        # We should record in the quotas information about this instance.
+    reservations = quota.QUOTAS.reserve(context, instances=1,
+                         ram=instance['memory_mb'],
+                         cores=instance['vcpus'])
 
     context.elevated()
-    instance_ref = db.instance_create(context, instance)['uuid']
-    return instance_ref
+    instance_ref = db.instance_create(context, instance)
+
+    if driver:
+        # Add this instance to the driver
+        driver.instances[instance_ref.name] = FakeInstance(instance_ref.name,
+                                                           instance_ref.get('power_state',
+                                                                             power_state.RUNNING))
+
+    quota.QUOTAS.commit(context, reservations)
+
+    return instance_ref['uuid']
 
 def create_pre_blessed_instance(context, instance=None, source_uuid=None):
     """
@@ -159,3 +201,13 @@ def create_pre_launched_instance(context, instance=None, source_uuid=None):
 
     return create_instance(context, instance)
 
+def fake_networkinfo(*args, **kwargs):
+    return network_model.NetworkInfo()
+
+def create_gridcentric_service(context):
+    service = {'name': 'gridcentric-test-service',
+               'topic': 'gridcentric',
+               'host': create_uuid()
+               }
+    db.service_create(context, service)
+    return service

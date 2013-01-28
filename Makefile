@@ -42,7 +42,7 @@ all : test package pylint
 .PHONY : all
 
 # Package the extensions.
-package : deb tgz pip
+package : deb tgz pip rpm
 .PHONY : package
 
 # Build the python egg files.
@@ -85,6 +85,8 @@ build-nova-compute-gridcentric : test-nova
 	    $(PYTHON) setup.py install --prefix=$(CURDIR)/dist/nova-compute-gridcentric/usr
 	@$(INSTALL_DIR) dist/nova-compute-gridcentric/etc/init
 	@$(INSTALL_DATA) nova/etc/nova-gc.conf dist/nova-compute-gridcentric/etc/init
+	@$(INSTALL_DIR) dist/nova-compute-gridcentric/etc/init.d
+	@$(INSTALL_BIN) nova/etc/nova-gc dist/nova-compute-gridcentric/etc/init.d
 .PHONY: build-nova-compute-gridcentric
 
 build-horizon-gridcentric : test-horizon.xml
@@ -108,6 +110,7 @@ deb-% : build-%
 	@rm -rf debbuild && $(INSTALL_DIR) debbuild
 	@rsync -ruav packagers/deb/$*/ debbuild
 	@rsync -ruav dist/$*/ debbuild
+	@rm -rf debbuild/etc/init.d
 	@sed -i "s/\(^Version:\).*/\1 $(VERSION).$(RELEASE)-$(OPENSTACK_RELEASE)py$(PYTHON_VERSION)/" debbuild/DEBIAN/control
 	@dpkg -b debbuild/ .
 	@LIBDIR=`ls -1d debbuild/usr/lib*/python*`; mv $$LIBDIR/site-packages $$LIBDIR/dist-packages
@@ -138,6 +141,25 @@ pip : pip-novaclient-gridcentric
 pip-novaclient-gridcentric :
 .PHONY: pip-novaclient-gridcentric
 
+rpm-nova : rpm-nova-gridcentric
+rpm-nova : rpm-nova-api-gridcentric
+rpm-nova : rpm-nova-compute-gridcentric
+.PHONY : rpm-nova
+
+rpm-novaclient : rpm-novaclient-gridcentric
+.PHONY : rpm-novaclient
+
+rpm : rpm-nova rpm-novaclient
+.PHONY : rpm
+
+rpm-%: build-%
+	@rm -rf dist/$*/etc/init
+	@rpmbuild -bb --buildroot $(PWD)/rpmbuild/BUILDROOT \
+	  --define="%_topdir $(PWD)/rpmbuild" --define="%version $(VERSION).$(RELEASE)" \
+	  --define="%release $(NOVA_RELEASE)py$(PYTHON_VERSION)" packagers/rpm/$*.spec
+	@cp rpmbuild/RPMS/noarch/*.rpm .
+.PHONY : rpm
+
 # Runs pylint on the code base.
 pylint-%.txt :
 	cd $* && pylint --rcfile=pylintrc gridcentric 2>&1 > $@ || true
@@ -147,7 +169,7 @@ pylint : pylint-nova.txt pylint-novaclient.txt pylint-horizon.txt
 # Executes the units tests and generated an Junit XML report.
 test-%.xml : test-%
 test-% : ensure-vms-version
-	cd $* && PYTHONPATH=$(NOVA_PATH):$(VMS_PATH)/src/python nosetests \
+	cd $* && PYTHONPATH=$(PYTHONPATH):$(NOVA_PATH):$(VMS_PATH)/src/python nosetests \
 	    --with-xunit --xunit-file=$(CURDIR)/$@.xml gridcentric || true
 test : test-nova test-horizon
 .PHONY : test
@@ -168,6 +190,7 @@ clean :
 	rm -f pylint-*.txt
 	rm -rf *.deb debbuild
 	rm -rf *.tgz *.tar.gz
+	rm -rf *.rpm rpmbuild
 	rm -rf nova/build novaclient/build horizon/build
 	rm -rf nova/dist novaclient/dist horizon/dist
 	rm -rf novaclient/MANIFEST novaclient/requires.txt novaclient/*.egg-info
