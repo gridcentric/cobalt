@@ -80,7 +80,7 @@ instance_tables.InstancesTable._meta.row_actions = \
    [BlessInstance, DiscardInstance, LaunchBlessed]
 instance_tables.InstancesTable.base_actions["bless"] = BlessInstance()
 instance_tables.InstancesTable.base_actions["discard"] = DiscardInstance()
-instance_tables.InstancesTable.base_actions['launch_blessed'] = LaunchBlessed()
+instance_tables.InstancesTable.base_actions["launch_blessed"] = LaunchBlessed()
 
 # Include blessed as a status choice.
 instance_tables.InstancesTable.STATUS_CHOICES = \
