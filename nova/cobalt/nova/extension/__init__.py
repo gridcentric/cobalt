@@ -12,15 +12,3 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-
-import os
-from distutils.core import setup
-
-setup(name='cobalt-horizon',
-      version=os.getenv('VERSION', '1.0'),
-      description='Gridcentric plugin for OpenStack Dashboard',
-      author='Gridcentric Inc.',
-      author_email='support@gridcentric.com',
-      url='http://www.gridcentric.com/',
-      packages=['cobalt',
-                'cobalt.horizon'])

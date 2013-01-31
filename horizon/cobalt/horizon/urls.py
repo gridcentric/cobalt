@@ -13,14 +13,15 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import os
-from distutils.core import setup
+# We piggy-back on all URLs provided by the instance module.
+from horizon.dashboards.nova.instances.urls import urlpatterns, INSTANCES
+from .views import bless_instance_view, launch_blessed_view, GCMigrateView
+from django.conf.urls.defaults import url, patterns
 
-setup(name='cobalt-horizon',
-      version=os.getenv('VERSION', '1.0'),
-      description='Gridcentric plugin for OpenStack Dashboard',
-      author='Gridcentric Inc.',
-      author_email='support@gridcentric.com',
-      url='http://www.gridcentric.com/',
-      packages=['cobalt',
-                'cobalt.horizon'])
+urlpatterns += patterns('horizon.dashboards.nova.instances.views',
+    url(INSTANCES % 'bless_instance', bless_instance_view,
+       name='bless_instance'),
+    url(INSTANCES % 'launch_blessed', launch_blessed_view,
+       name='launch_blessed'),
+    url(INSTANCES % 'gc_migrate', GCMigrateView.as_view(),
+       name='gc_migrate'))

@@ -15,4 +15,4 @@ Installing from source:
     # Install the extension
     $ sudo python setup.py install
     
-    # Modify the django_settings.py file and included ``gridcentric.horizon`` in the INSTALLED_APPS
+    # Modify the django_settings.py file and included ``cobalt.horizon`` in the INSTALLED_APPS

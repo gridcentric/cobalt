@@ -9,18 +9,10 @@ Installation Instructions
 There are two main components that need to be installed:
 
 * API-Extension: This is the actual API extension that exposes the new REST end points
-* Gridcentric Service: A new OpenStack service that performs the gridcentric specific operations.
+* Cobalt service: A new OpenStack service that performs the Gridcentric-specific operations.
 
 This extension needs to be installed where-ever the nova-api and nova-compute services are running.
 Note also that Gridcentric's vms package need to be installed on all of the compute nodes.
-
-Installing from deb package:
-
-    # Build the deb package
-    $ make deb
-    
-    # Install the package found in the main directory. If using Ubuntu use the one labeled 'ubuntu'.
-    $ sudo dpkg -i nova-gridcentric_1.0-{ubuntu}*.deb
 
 Installing from source:
 
@@ -30,21 +22,22 @@ Installing from source:
     # Install the extension
     $ sudo python setup.py install
     
-    # Copy the extension file (gridcentric/osapi/gridcentric_extension.py) to the nova osapi
-    # extension directory (the --osapi_extensions_path nova configuration flag):
-    $ sudo mkdir -p /var/lib/nova/extensions
-    $ sudo cp gridcentric/osapi/gridcentric_extension.py /var/lib/nova/extensions/
-    
-    # (Optional) Copy the nova-gridcentric upstart script (etc/nova-gridcentric.conf) to /etc/init/
-    $ sudo cp etc/nova-gridcentric.conf /etc/init
+    # Modify your nova.conf to include the API extension.
+    # i.e.
+    # osapi_compute_extension=nova.api.openstack.compute.contrib.standard_extensions
+    # osapi_compute_extension=cobalt.nova.osapi.cobalt_extension.CobaltExtension
+
+    # (Optional) Copy the upstart script (etc/cobalt-compute.conf) to /etc/init/
+    $ sudo cp etc/cobalt-compute.conf /etc/init
     
     # Restart the nova-api service
     $ sudo restart nova-api
     
-    # Start the nova-gridcentric service. Check the /var/log/nova/nova-gc.log file to ensure the
-    # service is running. Note this is only needed on the machines running the nova-compute service.
-    $ sudo start nova-gridcentric
-    $ tail /var/log/nova/nova-gc.log
+    # Start the cobalt-compute service. Check the /var/log/nova/compute-compute.log
+    # file to ensure the service is running. Note this is only needed on the machines
+    # running the nova-compute service.
+    $ sudo start cobalt-compute
+    $ tail /var/log/nova/cobalt-compute.log
 
 
 Usage
@@ -82,17 +75,12 @@ Project Contents
 ================
 
     bin
-        nova-gc
-            Contains the nova-gc script that is used to start the GridCentric manager.
+        cobalt-compute
+            Contains the script that is used to start the Cobalt manager.
 
     etc
-        nova-gridcentric.conf
-            An upstart script for the nova-gridcentric service.
+        cobalt-compute.conf
+            An upstart script for the cobalt-compute service.
 
-    gridcentric
-        Contains the source for the gridcentric manager that does the actual
-        work to enable the GridCentric functionality.
-
-    novaclient
-        Contains an extension hook for novaclient that enables it to interact
-        with the Gridcentric endpoints.
+    cobalt
+        Contains the source for the manager and extensions.

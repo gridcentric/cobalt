@@ -1,4 +1,4 @@
-# Copyright 2011 GridCentric Inc.
+# Copyright 2011 Gridcentric Inc.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -19,30 +19,34 @@ from distutils.core import setup
 
 PACKAGE = os.getenv('PACKAGE', 'all')
 
-if PACKAGE == 'all' or PACKAGE == 'nova-gridcentric':
-    setup(name='nova-gridcentric',
+if PACKAGE == 'all' or PACKAGE == 'cobalt-nova':
+    setup(name='cobalt-nova',
           version=os.getenv('VERSION', '1.0'),
-          description='GridCentric extension for OpenStack Compute.',
-          author='GridCentric',
+          description='Cobalt extension for OpenStack Compute.',
+          author='Gridcentric Inc.',
           author_email='support@gridcentric.com',
           url='http://www.gridcentric.com/',
-          packages=['gridcentric.nova'])
+          packages=['cobalt',
+                    'cobalt.nova',
+                    'cobalt.nova.client',
+                    'cobalt.nova.extension',
+                    'cobalt.nova.osapi'])
 
-if PACKAGE == 'all' or PACKAGE == 'nova-compute-gridcentric':
-    setup(name='nova-compute-gridcentric',
+if PACKAGE == 'all' or PACKAGE == 'cobalt-compute':
+    setup(name='cobalt-compute',
           version=os.getenv('VERSION', '1.0'),
-          description='GridCentric extension for OpenStack Compute.',
-          author='GridCentric',
+          description='Cobalt extension for OpenStack Compute.',
+          author='Gridcentric Inc.',
           author_email='support@gridcentric.com',
           url='http://www.gridcentric.com/',
-          packages=['gridcentric.nova.extension'],
-          scripts=['bin/nova-gc'])
+          install_requires=['cobalt-nova'],
+          scripts=['bin/cobalt-compute'])
 
-if PACKAGE == 'all' or PACKAGE == 'nova-api-gridcentric':
-    setup(name='nova-api-gridcentric',
+if PACKAGE == 'all' or PACKAGE == 'cobalt-api':
+    setup(name='cobalt-api',
           version=os.getenv('VERSION', '1.0'),
-          description='GridCentric API extension.',
-          author='GridCentric',
+          description='Cobalt API extension.',
+          author='Gridcentric Inc.',
           author_email='support@gridcentric.com',
-          url='http://www.gridcentric.com/',
-          packages=['gridcentric.nova.osapi'])
+          install_requires=['cobalt-nova'],
+          url='http://www.gridcentric.com/')

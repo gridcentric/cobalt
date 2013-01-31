@@ -1,4 +1,4 @@
-# Copyright 2011 Gridcentric Inc.
+# Copyright 2011 GridCentric Inc.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -13,14 +13,19 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import os
-from distutils.core import setup
 
-setup(name='cobalt-horizon',
-      version=os.getenv('VERSION', '1.0'),
-      description='Gridcentric plugin for OpenStack Dashboard',
-      author='Gridcentric Inc.',
-      author_email='support@gridcentric.com',
-      url='http://www.gridcentric.com/',
-      packages=['cobalt',
-                'cobalt.horizon'])
+
+import unittest
+import cobalt.nova.extension.vmsapi as vms_api
+
+
+class CobaltVmsApiTestCase(unittest.TestCase):
+
+    def setUp(self):
+        self.vmsapi = vms_api.get_vmsapi()
+        self.vmsapi.select_hypervisor('dummy')
+
+    def test_config(self):
+        # Simply verify that we can push a value into the config Management
+        config = self.vmsapi.config()
+        config.MANAGEMENT['test-value'] = "testvalue"
