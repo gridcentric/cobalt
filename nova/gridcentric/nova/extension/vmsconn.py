@@ -19,10 +19,6 @@ Interfaces that configure vms and perform hypervisor specific operations.
 
 import os
 import pwd
-import stat
-import time
-import glob
-import threading
 import tempfile
 
 import nova
@@ -47,15 +43,8 @@ vmsconn_opts = [
                help='The openstack user')]
 FLAGS.register_opts(vmsconn_opts)
 
-from eventlet import tpool
-
-import vms.commands as commands
-import vms.logger as logger
-import vms.virt as virt
-import vms.config as config
 import vms.utilities as utilities
-import vms.control as control
-import vms.vmsrun as vmsrun
+from . import vmsapi as vms_api
 
 def mkdir_as(path, uid):
     utilities.check_command(['sudo', '-u', '#%d' % uid, 'mkdir', '-p', path])
@@ -71,21 +60,16 @@ class AttribDictionary(dict):
 
 def get_vms_connection(connection_type):
     # Configure the logger regardless of the type of connection that will be used.
-    logger.setup_for_library()
+    vmsapi = vms_api.get_vmsapi()
+    vmsapi.configure_logger()
     if connection_type == 'xenapi':
-        return XenApiConnection()
+        return XenApiConnection(vmsapi)
     elif connection_type == 'libvirt':
-        return LibvirtConnection()
+        return LibvirtConnection(vmsapi)
     elif connection_type == 'fake':
-        return DummyConnection()
+        return DummyConnection(vmsapi)
     else:
         raise exception.Error(_('Unsupported connection type "%s"' % connection_type))
-
-def select_hypervisor(hypervisor):
-    LOG.debug(_("Configuring vms for hypervisor %s"), hypervisor)
-    virt.init()
-    virt.select(hypervisor)
-    LOG.debug(_("Virt initialized as auto=%s"), virt.AUTO)
 
 def _log_call(fn):
     def wrapped_fn(self, *args, **kwargs):
@@ -101,7 +85,12 @@ def _log_call(fn):
     wrapped_fn.__doc__ = fn.__doc__
     return wrapped_fn
 
+
 class VmsConnection:
+
+    def __init__(self, vmsapi):
+        self.vmsapi = vmsapi
+
     def configure(self):
         """
         Configures vms for this type of connection.
@@ -115,11 +104,9 @@ class VmsConnection:
         instance the name new_instance_name.
         """
         new_instance_name = new_instance_ref['name']
-        (newname, network, blessed_files) = tpool.execute(commands.bless,
-                               instance_name,
-                               new_instance_name,
-                               mem_url=migration_url,
-                               migration=(migration_url and True))
+        (newname, network, blessed_files) = self.vmsapi.bless(instance_name, new_instance_name,
+                                                              mem_url=migration_url, migration=migration_url and True)
+
         self._chmod_blessed_files(blessed_files)
 
         return (newname, network, blessed_files)
@@ -152,7 +139,7 @@ class VmsConnection:
         """
         Discard all of the vms artifacts associated with a blessed instance
         """
-        result = tpool.execute(commands.discard, instance_name, mem_url=migration_url)
+        result =  self.vmsapi.discard(instance_name, mem_url=migration_url)
         if FLAGS.gridcentric_use_image_service:
             self._delete_images(context, image_refs)
 
@@ -181,24 +168,16 @@ class VmsConnection:
         """
         Launch a blessed instance
         """
-        newname, path = self.pre_launch(context, new_instance_ref, network_info,
+        new_name, path = self.pre_launch(context, new_instance_ref, network_info,
                                         migration=(migration_url and True),
                                         skip_image_service=skip_image_service,
                                         image_refs=image_refs)
 
-        vmsargs = vmsrun.Arguments()
-        for key, value in params.get('guest', {}).iteritems():
-            vmsargs.add_param(key, value)
 
         # Launch the new VM.
-        result = tpool.execute(commands.launch,
-                               instance_name,
-                               newname,
-                               target,
-                               path=path,
-                               mem_url=migration_url,
-                               migration=(migration_url and True),
-                               vmsargs=vmsargs)
+        result = self.vmsapi.launch(instance_name, new_name, target, path,
+                                    mem_url=migration_url, migration=(migration_url and True),
+                                    guest_params=params.get('guest',{}))
 
         # Take care of post-launch.
         self.post_launch(context,
@@ -235,22 +214,26 @@ class VmsConnection:
 
 class DummyConnection(VmsConnection):
     def configure(self):
-        select_hypervisor('dummy')
+        self.vmsapi.select_hypervisor('dummy')
 
 class XenApiConnection(VmsConnection):
     """
     VMS connection for XenAPI
     """
 
+    def __init__(self, vmsapi):
+        super(XenApiConnection, self).__init__(vmsapi)
+
     def configure(self):
         # (dscannell) We need to import this to ensure that the xenapi
         # flags can be read in.
         from nova.virt import xenapi_conn
 
-        config.MANAGEMENT['connection_url'] = FLAGS.xenapi_connection_url
-        config.MANAGEMENT['connection_username'] = FLAGS.xenapi_connection_username
-        config.MANAGEMENT['connection_password'] = FLAGS.xenapi_connection_password
-        select_hypervisor('xcp')
+        vms_config = self.vmsapi.config()
+        vms_config.MANAGEMENT['connection_url'] = FLAGS.xenapi_connection_url
+        vms_config.MANAGEMENT['connection_username'] = FLAGS.xenapi_connection_username
+        vms_config.MANAGEMENT['connection_password'] = FLAGS.xenapi_connection_password
+        self.vmsapi.select_hypervisor('xcp')
 
 class LibvirtConnection(VmsConnection):
     """
@@ -265,8 +248,9 @@ class LibvirtConnection(VmsConnection):
         self.determine_openstack_user()
 
         self.libvirt_conn = LibvirtDriver(False)
-        config.MANAGEMENT['connection_url'] = self.libvirt_conn.uri
-        select_hypervisor('libvirt')
+        vms_config = self.vmsapi.config()
+        vms_config.MANAGEMENT['connection_url'] = self.libvirt_conn.uri
+        self.vmsapi.select_hypervisor('libvirt')
 
     @_log_call
     def determine_openstack_user(self):
@@ -429,12 +413,7 @@ class LibvirtConnection(VmsConnection):
         # because the domain has already been destroyed and wiped away.  In
         # fact, we don't even know it's old PID and a new domain might have
         # appeared at the same PID in the meantime.
-        for ctrl in control.probe():
-            try:
-                if ctrl.get("network") in migration_url:
-                    ctrl.kill(timeout=1.0)
-            except control.ControlException:
-                pass
+        self.vmsapi.kill_memservers(migration_url)
 
     def _chmod_blessed_files(self, blessed_files):
         for blessed_file in blessed_files:
