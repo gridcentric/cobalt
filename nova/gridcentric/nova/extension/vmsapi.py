@@ -20,7 +20,7 @@ Performs the direct interactions with the vms library.
 from eventlet import tpool
 
 from nova import exception
-from nova import log as logging
+from nova.openstack.common import log as logging
 
 import vms
 import vms.commands as commands
