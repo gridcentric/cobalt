@@ -14,6 +14,8 @@
 #    under the License.
 
 
+from django.utils.translation import ugettext_lazy as _
+
 from horizon import tables
 from horizon import api
 from horizon.dashboards.nova.instances import tables as instance_tables
@@ -73,6 +75,9 @@ def wrap_allowed(fn):
 for action in instance_tables.InstancesTable._meta.row_actions:
     if not(action.name in ("edit",)):
         action.allowed = wrap_allowed(action.allowed)
+
+# Change the label of the Horizon "Launch" button to "Boot"
+instance_tables.InstancesTable.base_actions['launch'].verbose_name = _("Boot Instance")
 
 # Enhance the built-in table type to include our actions.
 instance_tables.InstancesTable._meta.row_actions = \
