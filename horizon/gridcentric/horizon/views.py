@@ -1,4 +1,4 @@
-# Copyright 2011 GridCentric Inc.
+# Copyright 2013 GridCentric Inc.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -13,11 +13,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-# We piggy-back on all URLs provided by the instance module.
-from horizon.dashboards.nova.instances.urls import urlpatterns, INSTANCES
-from .views import LaunchBlessedView
-from django.conf.urls.defaults import url, patterns
+from .workflows import LaunchBlessed
+from horizon import workflows
 
-urlpatterns += patterns('horizon.dashboards.nova.instances.views',
-   url(INSTANCES % 'launch_blessed', LaunchBlessedView.as_view(),
-       name='launch_blessed'))
+class LaunchBlessedView(workflows.WorkflowView):
+    workflow_class = LaunchBlessed
+
+    def get_initial(self):
+        initial = super(LaunchBlessedView, self).get_initial()
+        initial['blessed_id'] = self.kwargs['instance_id']
+        return initial

@@ -168,19 +168,11 @@ pylint : pylint-nova.txt pylint-novaclient.txt pylint-horizon.txt
 
 # Executes the units tests and generated an Junit XML report.
 test-%.xml : test-%
-test-% : ensure-vms-version
-	cd $* && PYTHONPATH=$(PYTHONPATH):$(NOVA_PATH):$(VMS_PATH)/src/python nosetests \
+test-% :
+	cd $* && PYTHONPATH=$(PYTHONPATH):$(NOVA_PATH):$(VMS_PATH) nosetests \
 	    --with-xunit --xunit-file=$(CURDIR)/$@.xml gridcentric || true
 test : test-nova test-horizon
 .PHONY : test
-
-# Ensures that the VMS version file has been created if a VMS_PATH is supplied
-ensure-vms-version :
-ifneq ($(strip $(VMS_PATH)),)
-	cd $(VMS_PATH) && $(MAKE) config
-	cd $(VMS_PATH)/src/python && $(MAKE) version
-endif
-.PHONY : ensure-vms-version
 
 clean : 
 	rm -f vms.db

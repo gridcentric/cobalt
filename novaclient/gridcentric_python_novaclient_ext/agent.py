@@ -97,6 +97,15 @@ deb $1 gridcentric multiverse
 EOF
     $SUDO mv $tmpfile /etc/apt/sources.list.d/gridcentric.list
 }
+
+kernel_warning() {
+    set +x
+    echo "WARNING: Unable to install kernel headers. Some VMS Performance"
+    echo "\t optimizations may be disabled. The agent core functionality"
+    echo "\t will remain intact."
+    set -x
+}
+
 install_deb_packages() {
     # Update the metadata.
     # NOTE: We may limit it to the new sources, however below we do include
@@ -110,9 +119,10 @@ install_deb_packages() {
         VERSION=
     fi
 
+    # Try to install kernel headers if not already available
+    $SUDO apt-get install  -y --force-yes linux-headers-$(uname -r) || kernel_warning
     # Install the agent packages.
-    $SUDO apt-get install -o Dpkg::Options::='--force-confnew' -y --force-yes vms-agent$VERSION ||
-        ($SUDO apt-get install -y --force-yes linux-headers-$(uname -r) && $SUDO apt-get -f install)
+    $SUDO apt-get install -o Dpkg::Options::='--force-confnew' -y --force-yes vms-agent$VERSION
 }
 
 install_rpm_repo() {
@@ -142,6 +152,7 @@ EOF
     $SUDO mv $tmpfile /etc/yum.repos.d/gridcentric.repo
 }
 install_rpm_packages() {
+    yum -y install kernel-devel-$(uname -r) || kernel_warning
     if [ "%(version)s" != "latest" ]; then
         # Install the specific version.
         $SUDO yum -y install vms-agent-%(version)s
@@ -212,7 +223,7 @@ class SecureShell(object):
                              close_fds=True)
 
         # Execute the command.
-        p.communicate("stty -echo || true;\n" + script)
+        p.communicate("stty -echo 2>/dev/null || true;\n" + script)
         return p.returncode
 
 def wait_for(message, condition, duration=600, interval=1):
