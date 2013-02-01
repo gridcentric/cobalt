@@ -13,11 +13,19 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-# We piggy-back on all URLs provided by the instance module.
-from horizon.dashboards.nova.instances.urls import urlpatterns, INSTANCES
-from .views import LaunchBlessedView
-from django.conf.urls.defaults import url, patterns
 
-urlpatterns += patterns('horizon.dashboards.nova.instances.views',
-   url(INSTANCES % 'launch_blessed', LaunchBlessedView.as_view(),
-       name='launch_blessed'))
+
+import unittest
+import gridcentric.nova.extension.vmsapi as vms_api
+
+
+class GridCentricApiTestCase(unittest.TestCase):
+
+    def setUp(self):
+        self.vmsapi = vms_api.get_vmsapi()
+        self.vmsapi.select_hypervisor('dummy')
+
+    def test_config(self):
+        # Simply verify that we can push a value into the config Management
+        config = self.vmsapi.config()
+        config.MANAGEMENT['test-value'] = "testvalue"
