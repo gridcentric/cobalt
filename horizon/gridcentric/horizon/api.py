@@ -49,3 +49,16 @@ api.server_launch = server_launch
 def server_discard(request, instance_id):
     novaclient(request).gridcentric.discard(instance_id)
 api.server_discard = server_discard
+
+def gc_migrate(request, instance_id, dest_id=None):
+    novaclient(request).gridcentric.migrate(instance_id, dest_id)
+api.gc_migrate = gc_migrate
+
+def list_hosts(request):
+    return novaclient(request).hosts.list_all()
+api.list_hosts = list_hosts
+
+def list_gc_hosts(request):
+    all_hosts = list_hosts(request)
+    return [host for host in all_hosts if host.service == 'gridcentric']
+api.list_gc_hosts = list_gc_hosts
