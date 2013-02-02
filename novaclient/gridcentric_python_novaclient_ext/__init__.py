@@ -28,6 +28,8 @@ from novaclient.v1_1 import shell
 
 from . import agent
 
+CAPABILITIES = ('user-data', 'launch-name', 'security-groups')
+
 def __pre_parse_args__():
     pass
 
@@ -317,6 +319,8 @@ class GcServerManager(servers.ServerManager):
     resource_class = GcServer
 
     def __init__(self, client, *args, **kwargs):
+        self.CAPABILITIES = CAPABILITIES
+
         servers.ServerManager.__init__(self, client, *args, **kwargs)
 
         # Make sure this instance is available as gridcentric.
