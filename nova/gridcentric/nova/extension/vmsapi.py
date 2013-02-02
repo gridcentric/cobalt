@@ -75,7 +75,7 @@ class VmsApi(object):
             vms_args = vmsrun.Arguments()
             for key, value in guest_params.iteritems():
                 vms_args.add_param(key, value)
-
+        return vms_args
 
     def launch(self, instance_name, new_name, target, path, mem_url=None, migration=False, guest_params=None, **kwargs):
 
