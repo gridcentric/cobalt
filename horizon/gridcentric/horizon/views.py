@@ -13,7 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from .workflows import LaunchBlessed
+from .workflows import LaunchBlessed, GCMigrate
 from horizon import workflows
 
 class LaunchBlessedView(workflows.WorkflowView):
@@ -22,4 +22,12 @@ class LaunchBlessedView(workflows.WorkflowView):
     def get_initial(self):
         initial = super(LaunchBlessedView, self).get_initial()
         initial['blessed_id'] = self.kwargs['instance_id']
+        return initial
+
+class GCMigrateView(workflows.WorkflowView):
+    workflow_class = GCMigrate
+
+    def get_initial(self):
+        initial = super(GCMigrateView, self).get_initial()
+        initial['instance_id'] = self.kwargs['instance_id']
         return initial
