@@ -63,6 +63,15 @@ class LaunchBlessed(tables.LinkAction):
     def allowed(self, request, instance):
         return instance.status in BLESSED_STATES and not instance_tables._is_deleting(instance)
 
+class GCMigrate(tables.LinkAction):
+    name = "gc_migrate"
+    verbose_name = _("Migrate")
+    url = "horizon:nova:instances:gc_migrate"
+    classes = ("ajax-modal", "btn-edit")
+
+    def allowed(self, request, instance):
+        return str(request.user.is_superuser) and instance.status in ('ACTIVE',) and not instance_tables._is_deleting(instance)
+
 # Neuter all the built-in row actions to support blessed.
 def wrap_allowed(fn):
     def not_on_blessed(self, request, instance=None):
@@ -82,10 +91,11 @@ instance_tables.InstancesTable.base_actions['launch'].verbose_name = _("Boot Ins
 # Enhance the built-in table type to include our actions.
 instance_tables.InstancesTable._meta.row_actions = \
    list(instance_tables.InstancesTable._meta.row_actions) + \
-   [BlessInstance, DiscardInstance, LaunchBlessed]
+   [BlessInstance, DiscardInstance, LaunchBlessed, GCMigrate]
 instance_tables.InstancesTable.base_actions["bless"] = BlessInstance()
 instance_tables.InstancesTable.base_actions["discard"] = DiscardInstance()
 instance_tables.InstancesTable.base_actions["launch_blessed"] = LaunchBlessed()
+instance_tables.InstancesTable.base_actions["gc_migrate"] = GCMigrate()
 
 # Include blessed as a status choice.
 instance_tables.InstancesTable.STATUS_CHOICES = \
