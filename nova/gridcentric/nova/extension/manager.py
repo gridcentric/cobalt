@@ -160,7 +160,18 @@ class GridCentricManager(manager.SchedulerDependentManager):
     def _init_vms(self):
         """ Initializes the hypervisor options depending on the openstack connection type. """
         if self.vms_conn == None:
-            connection_type = FLAGS.connection_type
+            try:
+                connection_type = FLAGS.connection_type
+            except AttributeError:
+                drivers = {
+                    'fake.FakeDriver': 'fake',
+                    'libvirt.LibvirtDriver': 'libvirt',
+                    'xenapi.XenAPIDriver': 'xenapi',
+                }
+                try:
+                    connection_type = drivers[FLAGS.compute_driver]
+                except AttributeError:
+                    raise exception.NovaException('compute_driver not recognized')
             self.vms_conn = vmsconn.get_vms_connection(connection_type)
             self.vms_conn.configure()
 
