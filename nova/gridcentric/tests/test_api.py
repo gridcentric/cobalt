@@ -47,6 +47,7 @@ class GridCentricApiTestCase(unittest.TestCase):
         utils.mock_policy()
         self.gridcentric_api = gc_api.API()
         self.context = nova_context.RequestContext('fake', 'fake', True)
+        utils.create_gridcentric_service(self.context)
 
     def test_bless_instance(self):
         instance_uuid = utils.create_instance(self.context)

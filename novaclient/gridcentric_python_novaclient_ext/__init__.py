@@ -28,7 +28,7 @@ from novaclient.v1_1 import shell
 
 from . import agent
 
-CAPABILITIES = ('user-data', 'launch-name', 'security-groups')
+CAPABILITIES = ('user-data', 'launch-name', 'security-groups', 'availability-zone')
 
 def __pre_parse_args__():
     pass
@@ -86,6 +86,7 @@ def _find_server(cs, server):
 @utils.arg('--user_data', metavar='<user-data>', default=None,
            help='User data file to pass to be exposed by the metadata server')
 @utils.arg('--security-groups', metavar='<security groups>', default=None, help='comma separated list of security group names.')
+@utils.arg('--availability-zone', metavar='<availability zone>', default=None, help='The availability zone for instance placement.')
 @utils.arg('--params', action='append', default=[], metavar='<key=value>', help='Guest parameters to send to vms-agent')
 def do_launch(cs, args):
     """Launch a new instance."""
@@ -106,12 +107,18 @@ def do_launch(cs, args):
     else:
         security_groups = None
 
+    if args.availability_zone:
+        availability_zone = args.availability_zone
+    else:
+        availability_zone = None
+
     launch_servers = cs.gridcentric.launch(server,
                                            target=args.target,
                                            name=args.name,
                                            user_data=user_data,
                                            guest_params=guest_params,
-                                           security_groups=security_groups)
+                                           security_groups=security_groups,
+                                           availability_zone=availability_zone)
 
     for server in launch_servers:
         _print_server(cs, server)
@@ -327,10 +334,12 @@ class GcServerManager(servers.ServerManager):
         if not(hasattr(client, 'gridcentric')):
             setattr(client, 'gridcentric', self)
 
-    def launch(self, server, target="0", name=None, user_data=None, guest_params={}, security_groups=None):
+    def launch(self, server, target="0", name=None, user_data=None,
+               guest_params={}, security_groups=None, availability_zone=None):
         params = {'target': target,
                   'guest': guest_params,
-                  'security_groups': security_groups}
+                  'security_groups': security_groups,
+                  'availability_zone': availability_zone}
 
         if name != None:
             params['name'] = name
