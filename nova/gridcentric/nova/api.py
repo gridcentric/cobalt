@@ -186,13 +186,26 @@ class API(base.Base):
         metadata = self._instance_metadata(context, instance_uuid)
         return "launched_from" in metadata
 
-    def _list_gridcentric_hosts(self, context):
+    def _list_gridcentric_hosts(self, context, availability_zone=None):
         """ Returns a list of all the hosts known to openstack running the gridcentric service. """
         admin_context = context.elevated()
         services = self.db.service_get_all_by_topic(admin_context, FLAGS.gridcentric_topic)
+
+        if availability_zone is not None and ':' in availability_zone:
+            parts = availability_zone.split(':')
+            if len(parts) > 2:
+                raise exception.NovaException(_('Invalid availability zone'))
+            az = parts[0]
+            host = parts[1]
+            if (az, host) in [(srv['availability_zone'], srv['host']) for srv in services]:
+                return [host]
+            else:
+                return []
+
         hosts = []
         for srv in services:
-            if srv['host'] not in hosts:
+            if srv['host'] not in hosts and (availability_zone is None
+                             or availability_zone == srv['availability_zone']):
                 hosts.append(srv['host'])
         return hosts
 
@@ -290,19 +303,22 @@ class API(base.Base):
                 security_groups=security_groups)
 
 
-            LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
+            LOG.debug(_("Choosing host for %(pid)s/%(uid)s's"
                         " instance %(instance_uuid)s") % locals())
 
-            # FIXME: The Folsom scheduler removed support for calling
-            # arbitrary functions via the scheduler. Damn. So now we
-            # have to make scheduling decisions internally. Until this
-            # is sorted, we will simply cast the message and let a random
-            # host pick it up. Note that this is simply a stopgap measure.
-            rpc.cast(context,
-                         FLAGS.gridcentric_topic,
-                         {"method": "launch_instance",
-                          "args": {"instance_uuid": new_instance_ref['uuid'],
-                                   "params": params}})
+            availability_zone = params.pop('availability_zone', None)
+            if availability_zone is None:
+                availability_zone = new_instance_ref['availability_zone']
+            else:
+                new_instance_ref['availability_zone'] = availability_zone
+            hosts = self._list_gridcentric_hosts(context, availability_zone)
+            if hosts:
+                host = hosts[random.randint(0, len(hosts) - 1)]
+                self._cast_gridcentric_message('launch_instance', context,
+                           new_instance_ref['uuid'], host,
+                           { "params" : params })
+            else:
+                raise exception.NovaException(_('No hosts found'))
             self._commit_reservation(context, reservations)
         except:
             self._rollback_reservation(context, reservations)
