@@ -16,6 +16,7 @@
 import json
 import webob
 from webob import exc
+import functools
 
 from nova import log as logging
 from nova import exception as novaexc
@@ -31,6 +32,8 @@ from gridcentric.nova.api import API
 
 LOG = logging.getLogger("nova.api.extensions.gridcentric")
 
+authorizer = extensions.extension_authorizer('compute', 'gridcentric')
+
 def convert_exception(action):
 
     def fn(self, *args, **kwargs):
@@ -42,6 +45,14 @@ def convert_exception(action):
     # ensure that the decorated function returns with the same function name as the action.
     fn.__name__ = action.__name__
     return fn
+
+def authorize(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        context = kwargs['req'].environ["nova.context"]
+        authorizer(context)
+        return f(*args, **kwargs)
+    return wrapper
 
 class GridcentricServerControllerExtension(wsgi.Controller):
     """
@@ -66,6 +77,7 @@ class GridcentricServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_bless')
     @convert_exception
+    @authorize
     def _bless_instance(self, req, id, body):
         context = req.environ["nova.context"]
         result = self.gridcentric_api.bless_instance(context, id)
@@ -73,6 +85,7 @@ class GridcentricServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_discard')
     @convert_exception
+    @authorize
     def _discard_instance(self, req, id, body):
         context = req.environ["nova.context"]
         result = self.gridcentric_api.discard_instance(context, id)
@@ -80,6 +93,7 @@ class GridcentricServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_launch')
     @convert_exception
+    @authorize
     def _launch_instance(self, req, id, body):
         context = req.environ["nova.context"]
         try:
@@ -92,6 +106,7 @@ class GridcentricServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_migrate')
     @convert_exception
+    @authorize
     def _migrate_instance(self, req, id, body):
         context = req.environ["nova.context"]
         try:
@@ -103,12 +118,14 @@ class GridcentricServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_list_launched')
     @convert_exception
+    @authorize
     def _list_launched_instances(self, req, id, body):
         context = req.environ["nova.context"]
         return self._build_instance_list(req, self.gridcentric_api.list_launched_instances(context, id))
 
     @wsgi.action('gc_list_blessed')
     @convert_exception
+    @authorize
     def _list_blessed_instances(self, req, id, body):
         context = req.environ["nova.context"]
         return self._build_instance_list(req, self.gridcentric_api.list_blessed_instances(context, id))
