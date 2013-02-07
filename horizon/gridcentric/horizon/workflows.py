@@ -36,6 +36,9 @@ class LaunchBlessedAction(workflows.Action):
                                        help_text=_("Launch instance in these "
                                                    "security groups."))
 
+    num_instances = forms.IntegerField(min_value=1, initial=1,
+                                       label=_("Number of instances"))
+
     class Meta:
         name = _("Launch from Blessed Instance")
         help_text = _("Enter the information for the new instance.")
@@ -53,7 +56,7 @@ class LaunchBlessedAction(workflows.Action):
 class LaunchBlessedStep(workflows.Step):
     action_class = LaunchBlessedAction
     depends_on = ("blessed_id",)
-    contributes = ('name', 'user_data', 'security_groups')
+    contributes = ('name', 'user_data', 'security_groups', 'num_instances')
 
     def contribute(self, data, context):
         if data:
@@ -61,6 +64,7 @@ class LaunchBlessedStep(workflows.Step):
             context['name'] = post['name']
             context['user_data'] = post['user_data']
             context['security_groups'] = post.getlist("security_groups")
+            context['num_instances'] = int(post['num_instances'])
         return context
 
 class LaunchBlessed(workflows.Workflow):
@@ -81,7 +85,8 @@ class LaunchBlessed(workflows.Workflow):
                               context['blessed_id'],
                               context['name'],
                               context['user_data'],
-                              context['security_groups'])
+                              context['security_groups'],
+                              context['num_instances'])
             return True
         except:
             exceptions.handle(request)
