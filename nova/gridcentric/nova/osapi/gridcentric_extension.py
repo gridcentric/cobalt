@@ -198,7 +198,7 @@ class Gridcentric_extension(object):
 
     name = "Gridcentric"
     alias = "GC"
-    namespace = "http://www.gridcentric.com"
+    namespace = "http://docs.gridcentric.com/openstack/ext/api/v1"
     updated = '2012-07-17T13:52:50-07:00' ##TIMESTAMP##
 
     def __init__(self, ext_mgr):
