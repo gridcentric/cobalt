@@ -56,7 +56,7 @@ class DiscardInstance(tables.BatchAction):
 
 class LaunchBlessed(tables.LinkAction):
     name = "launch_blessed"
-    verbose_name = _("Launch From")
+    verbose_name = _("Launch")
     url = "horizon:nova:instances:launch_blessed"
     classes = ("ajax-modal", "btn-edit")
 
