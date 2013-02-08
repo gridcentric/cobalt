@@ -20,6 +20,7 @@ API extensions.
 
 import os
 import base64
+import re
 
 from novaclient import utils
 from novaclient import base
@@ -28,7 +29,9 @@ from novaclient.v1_1 import shell
 
 from . import agent
 
-CAPABILITIES = ('user-data', 'launch-name', 'security-groups', 'num-instances')
+VERSION_CAPABILITIES = {
+    1: set(['user-data', 'launch-name', 'security-groups', 'num-instances']),
+}
 
 def __pre_parse_args__():
     pass
@@ -323,13 +326,45 @@ class GcServerManager(servers.ServerManager):
     resource_class = GcServer
 
     def __init__(self, client, *args, **kwargs):
-        self.CAPABILITIES = CAPABILITIES
-
         servers.ServerManager.__init__(self, client, *args, **kwargs)
 
         # Make sure this instance is available as gridcentric.
         if not(hasattr(client, 'gridcentric')):
             setattr(client, 'gridcentric', self)
+
+        self.client = client
+
+    # self.client is set above so that setup_capabilities can access
+    # client.list_extensions. This cannot all be done above because
+    # client.list_extensions isn't set until later. So, it's called
+    # the first time satisfies is called.
+
+    def setup_capabilities(self):
+        pattern = re.compile(r'^http://docs\.gridcentric\.com/' \
+                             r'openstack/ext/api/v(\d+)$')
+        version = None
+        for ext in self.client.list_extensions.show_all():
+            match = pattern.match(ext.namespace)
+            if match:
+                version = int(match.group(1))
+                break
+        if version is None:
+            version = 0
+
+        capabilities = []
+
+        for v, caps in sorted(VERSION_CAPABILITIES.items()):
+            if v > version:
+                break
+            capabilities += caps
+
+        self.capabilities = capabilities
+
+    def satisfies(self, requirements):
+        if not hasattr(self, 'capabilities'):
+            self.setup_capabilities()
+
+        return requirements <= self.capabilities
 
     def launch(self, server, target="0", name=None, user_data=None,
                guest_params={}, security_groups=None, num_instances=1):
