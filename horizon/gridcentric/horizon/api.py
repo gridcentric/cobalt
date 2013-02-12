@@ -42,8 +42,11 @@ def server_bless(request, instance_id):
     novaclient(request).gridcentric.bless(instance_id)
 api.server_bless = server_bless
 
-def server_launch(request, instance_id, name, user_data, security_groups):
-    novaclient(request).gridcentric.launch(instance_id, name=name, user_data=user_data, security_groups=security_groups)
+def server_launch(request, instance_id, name, user_data, security_groups,
+                                                                num_instances):
+    novaclient(request).gridcentric.launch(instance_id, name=name,
+           user_data=user_data, security_groups=security_groups,
+           num_instances=num_instances)
 api.server_launch = server_launch
 
 def server_discard(request, instance_id):
