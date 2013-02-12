@@ -28,7 +28,7 @@ from novaclient.v1_1 import shell
 
 from . import agent
 
-CAPABILITIES = ('user-data', 'launch-name', 'security-groups')
+CAPABILITIES = ('user-data', 'launch-name', 'security-groups', 'num-instances')
 
 def __pre_parse_args__():
     pass
@@ -86,6 +86,7 @@ def _find_server(cs, server):
 @utils.arg('--user_data', metavar='<user-data>', default=None,
            help='User data file to pass to be exposed by the metadata server')
 @utils.arg('--security-groups', metavar='<security groups>', default=None, help='comma separated list of security group names.')
+@utils.arg('--num-instances', metavar='<number>', default='1', help='Launch multiple instances at a time')
 @utils.arg('--params', action='append', default=[], metavar='<key=value>', help='Guest parameters to send to vms-agent')
 def do_launch(cs, args):
     """Launch a new instance."""
@@ -111,7 +112,8 @@ def do_launch(cs, args):
                                            name=args.name,
                                            user_data=user_data,
                                            guest_params=guest_params,
-                                           security_groups=security_groups)
+                                           security_groups=security_groups,
+                                           num_instances=int(args.num_instances))
 
     for server in launch_servers:
         _print_server(cs, server)
@@ -294,8 +296,10 @@ class GcServer(servers.Server):
     A server object extended to provide gridcentric capabilities
     """
 
-    def launch(self, target="0", name=None, user_data=None, guest_params={}, security_groups=None):
-        return self.manager.launch(self, target, name, user_data, guest_params, security_groups)
+    def launch(self, target="0", name=None, user_data=None, guest_params={},
+               security_groups=None, num_instances=1):
+        return self.manager.launch(self, target, name, user_data, guest_params,
+                                   security_groups, num_instances)
 
     def bless(self):
         return self.manager.bless(self)
@@ -327,10 +331,12 @@ class GcServerManager(servers.ServerManager):
         if not(hasattr(client, 'gridcentric')):
             setattr(client, 'gridcentric', self)
 
-    def launch(self, server, target="0", name=None, user_data=None, guest_params={}, security_groups=None):
+    def launch(self, server, target="0", name=None, user_data=None,
+               guest_params={}, security_groups=None, num_instances=1):
         params = {'target': target,
                   'guest': guest_params,
-                  'security_groups': security_groups}
+                  'security_groups': security_groups,
+                  'num_instances': num_instances}
 
         if name != None:
             params['name'] = name

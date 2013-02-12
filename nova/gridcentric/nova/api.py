@@ -264,22 +264,40 @@ class API(base.Base):
         else:
             security_groups = None
 
-        # Create a new launched instance.
-        new_instance_ref = self._copy_instance(context, instance_uuid,
-            params.get('name', "%s-%s" % (instance['display_name'], "clone")),
-            launch=True, new_user_data=params.pop('user_data', None),
-            security_groups=security_groups)
+        num_instances = params.pop('num_instances', 1)
+        try:
+            i_list = range(num_instances)
+            if len(i_list) == 0:
+                raise exception.Error(_('num_instances must be at least 1'))
+        except TypeError:
+            raise exception.Error(_('num_instances must be an integer'))
 
-        LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
-                    " instance %(instance_uuid)s") % locals())
-        rpc.cast(context,
-                     FLAGS.scheduler_topic,
-                     {"method": "launch_instance",
-                      "args": {"topic": FLAGS.gridcentric_topic,
-                               "instance_uuid": new_instance_ref['uuid'],
-                               "params": params}})
+        first_uuid = None
 
-        return self.get(context, new_instance_ref['uuid'])
+        # We are handling num_instances in this (odd) way because this is how
+        # standard nova handles it.
+
+        for i in xrange(num_instances):
+            instance_params = params.copy()
+            # Create a new launched instance.
+            new_instance_ref = self._copy_instance(context, instance_uuid,
+                instance_params.get('name', "%s-%s" % (instance['display_name'], "clone")),
+                launch=True, new_user_data=instance_params.pop('user_data', None),
+                security_groups=security_groups)
+
+            if first_uuid is None:
+                first_uuid = new_instance_ref['uuid']
+
+            LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
+                        " instance %(instance_uuid)s") % locals())
+            rpc.cast(context,
+                         FLAGS.scheduler_topic,
+                         {"method": "launch_instance",
+                          "args": {"topic": FLAGS.gridcentric_topic,
+                                   "instance_uuid": new_instance_ref['uuid'],
+                                   "params": instance_params}})
+
+        return self.get(context, first_uuid)
 
     def _find_migration_target(self, context, instance_host, dest):
         gridcentric_hosts = self._list_gridcentric_hosts(context)
