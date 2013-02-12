@@ -351,12 +351,12 @@ class GcServerManager(servers.ServerManager):
         if version is None:
             version = 0
 
-        capabilities = []
+        capabilities = set()
 
         for v, caps in sorted(VERSION_CAPABILITIES.items()):
             if v > version:
                 break
-            capabilities += caps
+            capabilities.update(caps)
 
         self.capabilities = capabilities
 
