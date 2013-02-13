@@ -84,15 +84,15 @@ class API(base.Base):
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
 
-    def _check_quota(self, context, instance_uuid):
+    def _check_quota(self, context, instance_uuid, num_requested=1):
         # Check the quota to see if we can launch a new instance.
         instance = self.get(context, instance_uuid)
         instance_type = instance['instance_type']
         metadata = instance['metadata']
 
         # check the quota to if we can launch a single instance.
-        num_instances = quota.allowed_instances(context, 1, instance['instance_type'])
-        if num_instances < 1:
+        num_instances = quota.allowed_instances(context, num_requested, instance['instance_type'])
+        if num_instances < num_requested:
             pid = context.project_id
             LOG.warn(_("Quota exceeded for %(pid)s,"
                     " tried to launch an instance"))
@@ -102,7 +102,7 @@ class API(base.Base):
             else:
                 message = _("Instance quota exceeded. You can only run %s "
                             "more instances of this type.") % num_instances
-            raise novaexc.QuotaError(code="InstanceLimitExceeded")
+            raise novaexc.QuotaError(message, code="InstanceLimitExceeded")
 
         # check against metadata
         metadata = self.db.instance_metadata_get(context, instance['id'])
@@ -257,7 +257,16 @@ class API(base.Base):
         pid = context.project_id
         uid = context.user_id
 
-        self._check_quota(context, instance_uuid)
+        num_instances = params.pop('num_instances', 1)
+
+        try:
+            i_list = range(num_instances)
+            if len(i_list) == 0:
+                raise exception.Error(_('num_instances must be at least 1'))
+        except TypeError:
+            raise exception.Error(_('num_instances must be an integer'))
+
+        self._check_quota(context, instance_uuid, num_instances)
         instance = self.get(context, instance_uuid)
 
         if not(self._is_instance_blessed(context, instance_uuid)):
@@ -273,14 +282,6 @@ class API(base.Base):
                 context.project_id, sg) for sg in security_group_names]
         else:
             security_groups = None
-
-        num_instances = params.pop('num_instances', 1)
-        try:
-            i_list = range(num_instances)
-            if len(i_list) == 0:
-                raise exception.Error(_('num_instances must be at least 1'))
-        except TypeError:
-            raise exception.Error(_('num_instances must be an integer'))
 
         first_uuid = None
 
