@@ -54,6 +54,18 @@ def authorize(f):
         return f(*args, **kwargs)
     return wrapper
 
+class GridcentricInfoController(object):
+
+    def __init__(self):
+        self.gridcentric_api = API()
+
+    @convert_exception
+    @authorize
+    def index(self, req):
+        context = req.environ['nova.context']
+        return webob.Response(status_int=200,
+            body=json.dumps(self.gridcentric_api.get_info()))
+
 class GridcentricServerControllerExtension(wsgi.Controller):
     """
     The OpenStack Extension definition for the Gridcentric capabilities. Currently this includes:
@@ -205,11 +217,11 @@ class Gridcentric_extension(object):
         ext_mgr.register(self)
 
     def get_resources(self):
-        resources = []
-        resource = extensions.ResourceExtension('gcservers',
-                                               GridcentricTargetBootController())
-        resources.append(resource)
-        return resources
+        return [
+            extensions.ResourceExtension('gcinfo', GridcentricInfoController()),
+            extensions.ResourceExtension('gcservers',
+                                             GridcentricTargetBootController()),
+        ]
 
     def get_controller_extensions(self):
         extension_list = []

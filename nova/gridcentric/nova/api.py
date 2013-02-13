@@ -29,6 +29,12 @@ from nova import rpc
 from nova.openstack.common import cfg
 from nova import utils
 
+# New API capabilities should be added here
+
+CAPABILITIES = ['user-data',
+                'launch-name',
+                'security-groups',
+                'num-instances']
 
 LOG = logging.getLogger('nova.gridcentric.api')
 FLAGS = flags.FLAGS
@@ -45,6 +51,10 @@ class API(base.Base):
     def __init__(self, **kwargs):
         super(API, self).__init__(**kwargs)
         self.compute_api = compute.API()
+        self.CAPABILITIES = CAPABILITIES
+
+    def get_info(self):
+        return {'capabilities': self.CAPABILITIES}
 
     def get(self, context, instance_uuid):
         """Get a single instance with the given instance_uuid."""
