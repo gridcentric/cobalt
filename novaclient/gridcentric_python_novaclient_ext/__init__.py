@@ -29,9 +29,14 @@ from novaclient.v1_1 import shell
 
 from . import agent
 
-VERSION_CAPABILITIES = {
-    1: set(['user-data', 'launch-name', 'security-groups', 'num-instances']),
-}
+# Add new client capabilities here. Each key is a capability name and its value
+# is the list of API capabilities upon which it depends.
+
+CAPABILITIES = {'user-data': ['user-data'],
+                'launch-name': ['launch-name'],
+                'security-groups': ['security-groups'],
+                'num-instances': ['num-instances'],
+                }
 
 def __pre_parse_args__():
     pass
@@ -332,39 +337,24 @@ class GcServerManager(servers.ServerManager):
         if not(hasattr(client, 'gridcentric')):
             setattr(client, 'gridcentric', self)
 
-        self.client = client
-
-    # self.client is set above so that setup_capabilities can access
-    # client.list_extensions. This cannot all be done above because
-    # client.list_extensions isn't set until later. So, it's called
-    # the first time satisfies is called.
+    # Capabilities must be computed lazily because self.api.client isn't
+    # available in __init__
 
     def setup_capabilities(self):
-        pattern = re.compile(r'^http://docs\.gridcentric\.com/' \
-                             r'openstack/ext/api/v(\d+)$')
-        version = None
-        for ext in self.client.list_extensions.show_all():
-            match = pattern.match(ext.namespace)
-            if match:
-                version = int(match.group(1))
-                break
-        if version is None:
-            version = 0
-
-        capabilities = set()
-
-        for v, caps in sorted(VERSION_CAPABILITIES.items()):
-            if v > version:
-                break
-            capabilities.update(caps)
-
-        self.capabilities = capabilities
+        api_caps = self.get_info()['capabilities']
+        self.capabilities = [cap for cap in CAPABILITIES.keys() if \
+                all([api_req in api_caps for api_req in CAPABILITIES[cap]])]
 
     def satisfies(self, requirements):
         if not hasattr(self, 'capabilities'):
             self.setup_capabilities()
 
-        return requirements <= self.capabilities
+        return set(requirements) <= set(self.capabilities)
+
+    def get_info(self):
+        url = '/gcinfo'
+        res = self.api.client.get(url)[1]
+        return res
 
     def launch(self, server, target="0", name=None, user_data=None,
                guest_params={}, security_groups=None, num_instances=1):
