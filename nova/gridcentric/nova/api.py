@@ -29,6 +29,13 @@ from nova.openstack.common import rpc
 from nova.openstack.common import cfg
 from nova import utils
 
+# New API capabilities should be added here
+
+CAPABILITIES = ['user-data',
+                'launch-name',
+                'security-groups',
+                'availability-zone',
+                'num-instances']
 
 LOG = logging.getLogger('nova.gridcentric.api')
 FLAGS = flags.FLAGS
@@ -45,6 +52,10 @@ class API(base.Base):
     def __init__(self, **kwargs):
         super(API, self).__init__(**kwargs)
         self.compute_api = compute.API()
+        self.CAPABILITIES = CAPABILITIES
+
+    def get_info(self):
+        return {'capabilities': self.CAPABILITIES}
 
     def get(self, context, instance_uuid):
         """Get a single instance with the given instance_uuid."""
@@ -74,7 +85,7 @@ class API(base.Base):
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
 
-    def _acquire_addition_reservation(self, context, instance):
+    def _acquire_addition_reservation(self, context, instance, num_requested=1):
         # Check the quota to see if we can launch a new instance.
         instance_type = instance['instance_type']
 
@@ -84,8 +95,8 @@ class API(base.Base):
         # Grab a reservation for a single instance
         max_count, reservations = self.compute_api._check_num_instances_quota(context,
                                                                               instance_type,
-                                                                              1,
-                                                                              1)
+                                                                              num_requested,
+                                                                              num_requested)
         return reservations
 
     def _acquire_subtraction_reservation(self, context, instance):
@@ -294,37 +305,53 @@ class API(base.Base):
         else:
             security_groups = None
 
-        reservations = self._acquire_addition_reservation(context, instance)
+        num_instances = params.pop('num_instances', 1)
+
         try:
-            # Create a new launched instance.
-            new_instance_ref = self._copy_instance(context, instance_uuid,
-                params.get('name', "%s-%s" % (instance['display_name'], "clone")),
-                launch=True, new_user_data=params.pop('user_data', None),
-                security_groups=security_groups)
+            i_list = range(num_instances)
+            if len(i_list) == 0:
+                raise exception.Error(_('num_instances must be at least 1'))
+        except TypeError:
+            raise exception.Error(_('num_instances must be an integer'))
+        reservations = self._acquire_addition_reservation(context, instance, num_instances)
 
+        try:
+            first_uuid = None
+            # We are handling num_instances in this (odd) way because this is how
+            # standard nova handles it.
+            for i in xrange(num_instances):
+                instance_params = params.copy()
+                # Create a new launched instance.
+                new_instance_ref = self._copy_instance(context, instance_uuid,
+                    instance_params.get('name', "%s-%s" % (instance['display_name'], "clone")),
+                    launch=True, new_user_data=instance_params.pop('user_data', None),
+                    security_groups=security_groups)
 
-            LOG.debug(_("Choosing host for %(pid)s/%(uid)s's"
-                        " instance %(instance_uuid)s") % locals())
+                if first_uuid is None:
+                    first_uuid = new_instance_ref['uuid']
 
-            availability_zone = params.pop('availability_zone', None)
-            if availability_zone is None:
-                availability_zone = new_instance_ref['availability_zone']
-            else:
-                new_instance_ref['availability_zone'] = availability_zone
-            hosts = self._list_gridcentric_hosts(context, availability_zone)
-            if hosts:
-                host = hosts[random.randint(0, len(hosts) - 1)]
-                self._cast_gridcentric_message('launch_instance', context,
-                           new_instance_ref['uuid'], host,
-                           { "params" : params })
-            else:
-                raise exception.NovaException(_('No hosts found'))
+                LOG.debug(_("Choosing host for %(pid)s/%(uid)s's"
+                            " instance %(instance_uuid)s") % locals())
+
+                availability_zone = params.pop('availability_zone', None)
+                if availability_zone is None:
+                    availability_zone = new_instance_ref['availability_zone']
+                else:
+                    new_instance_ref['availability_zone'] = availability_zone
+                hosts = self._list_gridcentric_hosts(context, availability_zone)
+                if hosts:
+                    host = hosts[random.randint(0, len(hosts) - 1)]
+                    self._cast_gridcentric_message('launch_instance', context,
+                               new_instance_ref['uuid'], host,
+                               { "params" : params })
+                else:
+                    raise exception.NovaException(_('No hosts found'))
             self._commit_reservation(context, reservations)
         except:
             self._rollback_reservation(context, reservations)
             raise
 
-        return self.get(context, new_instance_ref['uuid'])
+        return self.get(context, first_uuid)
 
     def _find_migration_target(self, context, instance_host, dest):
         gridcentric_hosts = self._list_gridcentric_hosts(context)
