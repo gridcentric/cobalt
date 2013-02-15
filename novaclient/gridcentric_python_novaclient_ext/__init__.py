@@ -20,6 +20,7 @@ API extensions.
 
 import os
 import base64
+import re
 
 from novaclient import utils
 from novaclient import base
@@ -28,7 +29,15 @@ from novaclient.v1_1 import shell
 
 from . import agent
 
-CAPABILITIES = ('user-data', 'launch-name', 'security-groups', 'availability-zone')
+# Add new client capabilities here. Each key is a capability name and its value
+# is the list of API capabilities upon which it depends.
+
+CAPABILITIES = {'user-data': ['user-data'],
+                'launch-name': ['launch-name'],
+                'security-groups': ['security-groups'],
+                'num-instances': ['num-instances'],
+                'availability-zone': ['availability-zone']
+                }
 
 def __pre_parse_args__():
     pass
@@ -87,6 +96,7 @@ def _find_server(cs, server):
            help='User data file to pass to be exposed by the metadata server')
 @utils.arg('--security-groups', metavar='<security groups>', default=None, help='comma separated list of security group names.')
 @utils.arg('--availability-zone', metavar='<availability zone>', default=None, help='The availability zone for instance placement.')
+@utils.arg('--num-instances', metavar='<number>', default='1', help='Launch multiple instances at a time')
 @utils.arg('--params', action='append', default=[], metavar='<key=value>', help='Guest parameters to send to vms-agent')
 def do_launch(cs, args):
     """Launch a new instance."""
@@ -118,7 +128,8 @@ def do_launch(cs, args):
                                            user_data=user_data,
                                            guest_params=guest_params,
                                            security_groups=security_groups,
-                                           availability_zone=availability_zone)
+                                           availability_zone=availability_zone,
+                                           num_instances=int(args.num_instances))
 
     for server in launch_servers:
         _print_server(cs, server)
@@ -301,8 +312,10 @@ class GcServer(servers.Server):
     A server object extended to provide gridcentric capabilities
     """
 
-    def launch(self, target="0", name=None, user_data=None, guest_params={}, security_groups=None):
-        return self.manager.launch(self, target, name, user_data, guest_params, security_groups)
+    def launch(self, target="0", name=None, user_data=None, guest_params={},
+               security_groups=None, num_instances=1):
+        return self.manager.launch(self, target, name, user_data, guest_params,
+                                   security_groups, num_instances)
 
     def bless(self):
         return self.manager.bless(self)
@@ -326,20 +339,39 @@ class GcServerManager(servers.ServerManager):
     resource_class = GcServer
 
     def __init__(self, client, *args, **kwargs):
-        self.CAPABILITIES = CAPABILITIES
-
         servers.ServerManager.__init__(self, client, *args, **kwargs)
 
         # Make sure this instance is available as gridcentric.
         if not(hasattr(client, 'gridcentric')):
             setattr(client, 'gridcentric', self)
 
+    # Capabilities must be computed lazily because self.api.client isn't
+    # available in __init__
+
+    def setup_capabilities(self):
+        api_caps = self.get_info()['capabilities']
+        self.capabilities = [cap for cap in CAPABILITIES.keys() if \
+                all([api_req in api_caps for api_req in CAPABILITIES[cap]])]
+
+    def satisfies(self, requirements):
+        if not hasattr(self, 'capabilities'):
+            self.setup_capabilities()
+
+        return set(requirements) <= set(self.capabilities)
+
+    def get_info(self):
+        url = '/gcinfo'
+        res = self.api.client.get(url)[1]
+        return res
+
     def launch(self, server, target="0", name=None, user_data=None,
-               guest_params={}, security_groups=None, availability_zone=None):
+               guest_params={}, security_groups=None, availability_zone=None,
+               num_instances=1):
         params = {'target': target,
                   'guest': guest_params,
                   'security_groups': security_groups,
-                  'availability_zone': availability_zone}
+                  'availability_zone': availability_zone,
+                  'num_instances': num_instances}
 
         if name != None:
             params['name'] = name
