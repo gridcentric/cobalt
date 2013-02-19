@@ -92,7 +92,8 @@ class GridcentricServerControllerExtension(wsgi.Controller):
     @authorize
     def _bless_instance(self, req, id, body):
         context = req.environ["nova.context"]
-        result = self.gridcentric_api.bless_instance(context, id)
+        params = body.get('gc_bless', {})
+        result = self.gridcentric_api.bless_instance(context, id, params=params)
         return self._build_instance_list(req, [result])
 
     @wsgi.action('gc_discard')

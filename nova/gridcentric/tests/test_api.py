@@ -66,6 +66,12 @@ class GridCentricApiTestCase(unittest.TestCase):
             "The instance should have the blessed_from metadata set to true after being blessed. " \
           + "(value=%s)" % (metadata['blessed_from']))
 
+    def test_bless_instance_with_name(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context,
+                                           instance_uuid, {'name': 'test'})
+        self.assertEqual(blessed_instance['display_name'], 'test')
+
     def test_bless_instance_twice(self):
 
         instance_uuid = utils.create_instance(self.context)
