@@ -186,6 +186,23 @@ class GridCentricManagerTestCase(unittest.TestCase):
         self.assertEquals(None, launched_instance['task_state'])
         self.assertEquals(self.gridcentric.host, launched_instance['host'])
 
+    def test_launch_instance_images(self):
+        self.vmsconn.set_return_val("launch", None)
+        blessed_uuid = utils.create_blessed_instance(self.context,
+            instance={'metadata':{'images':'image1'}})
+
+        instance = db.instance_get_by_uuid(self.context, blessed_uuid)
+        metadata = db.instance_metadata_get(self.context, instance['id'])
+        self.assertEquals('image1', metadata.get('images', ''))
+
+
+        launched_uuid = utils.create_pre_launched_instance(self.context, source_uuid=blessed_uuid)
+
+        self.gridcentric.launch_instance(self.context, instance_uuid=launched_uuid)
+
+        # Ensure that image1 was passed to vmsconn.launch
+        self.assertEquals(['image1'], self.vmsconn.params_passed[0]['kwargs']['image_refs'])
+
     def test_launch_instance_exception(self):
 
         self.vmsconn.set_return_val("launch", utils.TestInducedException())

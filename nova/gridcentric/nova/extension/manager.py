@@ -690,10 +690,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 LOG.warn(_('%s -> defaulting to no target'), str(e))
                 target = "0"
 
-        # Extract out the image ids from the source instance's metadata.
-        metadata = self._instance_metadata(context, instance_uuid)
-        image_refs = self._extract_image_refs(metadata)
-
         if migration_url:
             # Update the instance state to be migrating. This will be set to
             # active again once it is completed in do_launch() as per all
@@ -706,6 +702,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # Create a new launched instance.
             source_instance_ref = self._get_source_instance(context, instance_uuid)
             vm_state = vm_states.BUILDING
+
+        # Extract out the image ids from the source instance's metadata.
+        metadata = self._instance_metadata(context, source_instance_ref['uuid'])
+        image_refs = self._extract_image_refs(metadata)
 
         if migration_network_info != None:
             network_info = migration_network_info
