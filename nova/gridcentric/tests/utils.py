@@ -61,6 +61,7 @@ class MockVmsConn(object):
     """
     def __init__(self):
         self.return_vals = {}
+        self.params_passed = []
 
     def set_return_val(self, method, value):
         values = self.return_vals.get(method, [])
@@ -79,32 +80,36 @@ class MockVmsConn(object):
     def configure(self):
         pass
 
-    def bless(self, context, instance_name, new_instance_ref,
-              migration_url=None, use_image_service=False):
+    def bless(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("bless")
 
-    def post_bless(self, context, new_instance_ref, blessed_files):
+    def post_bless(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("post_bless")
 
-    def bless_cleanup(self, blessed_files):
+    def bless_cleanup(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("bless_cleanup")
 
-    def discard(self, context, instance_name, use_image_service=False, image_refs=[]):
+    def discard(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("discard")
 
-    def launch(self, context, instance_name, new_instance_ref,
-               network_info, skip_image_service=False, target=0,
-               migration_url=None, image_refs=[], params={}):
+    def launch(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("launch")
 
-    def replug(self, instance_name, mac_addresses):
+    def replug(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("replug")
 
-    def pre_migration(self, context, instance_ref, network_info, migration_url):
+    def pre_migration(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("pre_migration")
 
-    def post_migration(self, context, instance_ref, network_info, migration_url,
-                       use_image_service=False, image_refs=[]):
+    def post_migration(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("post_migration")
 
 def create_uuid():
@@ -180,7 +185,8 @@ def create_blessed_instance(context, instance=None, source_uuid=None):
     instance['vm_state'] = 'blessed'
     metadata = instance.get('metadata', {})
     metadata['blessed_from'] = source_uuid
-    metadata['images'] = ''
+    if 'images' not in metadata:
+        metadata['images'] = ''
     instance['metadata'] = metadata
 
     return create_instance(context, instance)
