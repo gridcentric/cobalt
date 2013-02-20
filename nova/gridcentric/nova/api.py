@@ -34,7 +34,8 @@ from nova import utils
 CAPABILITIES = ['user-data',
                 'launch-name',
                 'security-groups',
-                'num-instances']
+                'num-instances',
+                'bless-name']
 
 LOG = logging.getLogger('nova.gridcentric.api')
 FLAGS = flags.FLAGS
@@ -208,7 +209,7 @@ class API(base.Base):
                 hosts.append(srv['host'])
         return hosts
 
-    def bless_instance(self, context, instance_uuid):
+    def bless_instance(self, context, instance_uuid, params={}):
         # Setup the DB representation for the new VM.
         instance_ref = self.get(context, instance_uuid)
 
@@ -228,7 +229,10 @@ class API(base.Base):
                                       "Cannot bless a non-active instance.") % instance_uuid))
 
         clonenum = self._next_clone_num(context, instance_uuid)
-        new_instance_ref = self._copy_instance(context, instance_uuid, "%s-%s" % (instance_ref['display_name'], str(clonenum)), launch=False)
+        name = params.get('name')
+        if name is None:
+            name = "%s-%s" % (instance_ref['display_name'], str(clonenum))
+        new_instance_ref = self._copy_instance(context, instance_uuid, name, launch=False)
 
         LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
         self._cast_gridcentric_message('bless_instance', context, new_instance_ref['uuid'],
