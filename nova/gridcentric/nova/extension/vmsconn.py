@@ -162,7 +162,7 @@ class VmsConnection:
     @_log_call
     def launch(self, context, instance_name, new_instance_ref,
                network_info, skip_image_service=False, target=0,
-               migration_url=None, image_refs=[], params={}):
+               migration_url=None, image_refs=[], params={}, vms_policy=''):
         """
         Launch a blessed instance
         """
@@ -173,9 +173,11 @@ class VmsConnection:
 
 
         # Launch the new VM.
+        vms_options = {'memory.policy':vms_policy}
         result = self.vmsapi.launch(instance_name, new_name, target, path,
                                     mem_url=migration_url, migration=(migration_url and True),
-                                    guest_params=params.get('guest',{}))
+                                    guest_params=params.get('guest',{}),
+                                    vms_options=vms_options)
 
         # Take care of post-launch.
         self.post_launch(context,

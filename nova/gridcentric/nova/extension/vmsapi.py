@@ -69,17 +69,13 @@ class VmsApi(object):
             mem_url=mem_url,
             migration=migration)
 
-    def create_vmsargs(self, guest_params):
-        vms_args = None
-        if guest_params != None:
-            vms_args = vmsrun.Arguments()
-            for key, value in guest_params.iteritems():
-                vms_args.add_param(key, value)
-        return vms_args
+    def create_vmsargs(self, guest_params, vms_options):
+        return vmsrun.Arguments(params=guest_params, options=vms_options)
 
-    def launch(self, instance_name, new_name, target, path, mem_url=None, migration=False, guest_params=None, **kwargs):
+    def launch(self, instance_name, new_name, target, path, mem_url=None, migration=False,
+               guest_params=None, vms_options=None, **kwargs):
 
-        vms_args = self.create_vmsargs(guest_params)
+        vms_args = self.create_vmsargs(guest_params, vms_options)
         return tpool.execute(commands.launch,
             instance_name,
             new_name,
@@ -110,8 +106,9 @@ class VmsApi26(VmsApi):
 
         return config.CONFIG
 
-    def launch(self, instance_name, new_name, target, path, mem_url=None, migration=False, guest_params=None, **kwargs):
-        vms_args = self.create_vmsargs(guest_params)
+    def launch(self, instance_name, new_name, target, path, mem_url=None, migration=False,
+               guest_params=None, vms_options=None, **kwargs):
+        vms_args = self.create_vmsargs(guest_params, vms_options)
         if target != 0:
             # The target parameter is no longer supported by VMS. Log a warning if the user is attempting
             # to specify it.
