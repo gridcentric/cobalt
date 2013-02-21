@@ -98,8 +98,6 @@ instance_tables.InstancesTable.base_actions["launch_blessed"] = LaunchBlessed()
 instance_tables.InstancesTable.base_actions["gc_migrate"] = GCMigrate()
 
 # Include blessed as a status choice.
-instance_tables.InstancesTable.STATUS_CHOICES = \
-   list(instance_tables.InstancesTable.STATUS_CHOICES) + \
-   [("BLESSED", True)]
+instance_tables.InstancesTable.STATUS_CHOICES += (("BLESSED", True),)
 instance_tables.InstancesTable._columns["status"].status_choices = \
     instance_tables.InstancesTable.STATUS_CHOICES
