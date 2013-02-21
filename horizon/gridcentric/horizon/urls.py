@@ -15,11 +15,11 @@
 
 # We piggy-back on all URLs provided by the instance module.
 from horizon.dashboards.nova.instances.urls import urlpatterns, INSTANCES
-from .views import LaunchBlessedView, GCMigrateView
+from .views import launch_blessed_view, GCMigrateView
 from django.conf.urls.defaults import url, patterns
 
 urlpatterns += patterns('horizon.dashboards.nova.instances.views',
-    url(INSTANCES % 'launch_blessed', LaunchBlessedView.as_view(),
+    url(INSTANCES % 'launch_blessed', launch_blessed_view,
        name='launch_blessed'),
     url(INSTANCES % 'gc_migrate', GCMigrateView.as_view(),
        name='gc_migrate'))
