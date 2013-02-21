@@ -668,6 +668,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         return network_info
 
+    def _generate_vms_policy_name(self, context, instance):
+        instance_type = self.db.instance_type_get_by_flavor_id(context, instance['instance_type_id'])
+        return '%s.%s.%s' %(instance['project_id'], instance_type['name'], instance.name)
 
     @_lock_call
     def launch_instance(self, context, instance_uuid=None, instance_ref=None,
@@ -746,6 +749,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                               'block_migration': False,
                               'disk': None}})
 
+            vms_policy = self._generate_vms_policy_name(context, instance_ref)
             self.vms_conn.launch(context,
                                  source_instance_ref['name'],
                                  instance_ref,
@@ -753,7 +757,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                  target=target,
                                  migration_url=migration_url,
                                  image_refs=image_refs,
-                                 params=params)
+                                 params=params,
+                                 vms_policy=vms_policy)
 
             if not(migration_url):
                 self._notify(instance_ref, "launch.end", network_info=network_info)

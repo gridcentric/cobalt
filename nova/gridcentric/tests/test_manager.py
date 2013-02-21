@@ -186,6 +186,10 @@ class GridCentricManagerTestCase(unittest.TestCase):
         self.assertEquals(None, launched_instance['task_state'])
         self.assertEquals(self.gridcentric.host, launched_instance['host'])
 
+        # Ensure the proper vms policy is passed into vmsconn
+        self.assertEquals('fake.m1.small.%s' %(launched_instance.name),
+            self.vmsconn.params_passed[0]['kwargs']['vms_policy'])
+
     def test_launch_instance_images(self):
         self.vmsconn.set_return_val("launch", None)
         blessed_uuid = utils.create_blessed_instance(self.context,
