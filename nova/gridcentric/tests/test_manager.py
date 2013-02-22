@@ -187,7 +187,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
         self.assertEquals(self.gridcentric.host, launched_instance['host'])
 
         # Ensure the proper vms policy is passed into vmsconn
-        self.assertEquals('fake.m1.small.%s' %(launched_instance.name),
+        self.assertEquals(';flavor=m1.small;;name=%s;;tenant=fake;' %(launched_instance.name),
             self.vmsconn.params_passed[0]['kwargs']['vms_policy'])
 
     def test_launch_instance_images(self):
