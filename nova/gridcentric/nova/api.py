@@ -219,10 +219,6 @@ class API(base.Base):
             # The instance is already blessed. We can't rebless it.
             raise exception.Error(_(("Instance %s is already blessed. " +
                                      "Cannot rebless an instance.") % instance_uuid))
-        elif is_launched:
-            # The instance is a launched one. We cannot bless launched instances.
-            raise exception.Error(_(("Instance %s has been launched. " +
-                                     "Cannot bless a launched instance.") % instance_uuid))
         elif instance_ref['vm_state'] != vm_states.ACTIVE:
             # The instance is not active. We cannot bless a non-active instance.
             raise exception.Error(_(("Instance %s is not active. " +
