@@ -36,7 +36,8 @@ CAPABILITIES = {'user-data': ['user-data'],
                 'launch-name': ['launch-name'],
                 'security-groups': ['security-groups'],
                 'num-instances': ['num-instances'],
-                'availability-zone': ['availability-zone']
+                'availability-zone': ['availability-zone'],
+                'bless-name': ['bless-name']
                 }
 
 def __pre_parse_args__():
@@ -135,10 +136,11 @@ def do_launch(cs, args):
         _print_server(cs, server)
 
 @utils.arg('server', metavar='<instance>', help="ID or name of the instance to bless")
+@utils.arg('--name', metavar='<name>', default=None, help="The name of the new blessed instance")
 def do_bless(cs, args):
     """Bless an instance."""
     server = _find_server(cs, args.server)
-    blessed_servers = cs.gridcentric.bless(server)
+    blessed_servers = cs.gridcentric.bless(server, args.name)
     for server in blessed_servers:
         _print_server(cs, server)
 
@@ -317,8 +319,8 @@ class GcServer(servers.Server):
         return self.manager.launch(self, target, name, user_data, guest_params,
                                    security_groups, num_instances)
 
-    def bless(self):
-        return self.manager.bless(self)
+    def bless(self, name=None):
+        return self.manager.bless(self, name)
 
     def discard(self):
         self.manager.discard(self)
@@ -389,8 +391,9 @@ class GcServerManager(servers.ServerManager):
         header, info = self._action("gc_launch", base.getid(server), params)
         return [self.get(server['id']) for server in info]
 
-    def bless(self, server):
-        header, info = self._action("gc_bless", base.getid(server))
+    def bless(self, server, name=None):
+        params = {'name': name}
+        header, info = self._action("gc_bless", base.getid(server), params)
         return [self.get(server['id']) for server in info]
 
     def discard(self, server):

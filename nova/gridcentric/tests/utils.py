@@ -204,6 +204,16 @@ def create_pre_launched_instance(context, instance=None, source_uuid=None):
 
     return create_instance(context, instance)
 
+def create_launched_instance(context, instance=None, source_uuid=None):
+
+    if instance == None:
+        instance = {}
+
+    instance['vm_state'] = vm_states.ACTIVE
+    instance['host'] = "TEST_HOST"
+
+    return create_pre_launched_instance(context, instance=instance, source_uuid=source_uuid)
+
 def fake_networkinfo(*args, **kwargs):
     return network_model.NetworkInfo()
 
@@ -214,3 +224,4 @@ def create_gridcentric_service(context):
                }
     db.service_create(context, service)
     return service
+
