@@ -670,7 +670,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
     def _generate_vms_policy_name(self, context, instance):
         instance_type = self.db.instance_type_get_by_flavor_id(context, instance['instance_type_id'])
-        return '%s.%s.%s' %(instance['project_id'], instance_type['name'], instance.name)
+        policy_attrs = (('flavor', instance_type['name']),
+                        ('name', instance.name),
+                        ('tenant', instance['project_id']),)
+        return "".join([";%s=%s;" %(key, value) for (key, value) in policy_attrs])
 
     @_lock_call
     def launch_instance(self, context, instance_uuid=None, instance_ref=None,
