@@ -30,7 +30,7 @@ def setup():
     if os.path.exists(testdb):
         os.unlink(testdb)
 
-    from nova.openstack.common import cfg
+    from oslo.config import cfg
     from nova.db import migration
 
     test_opts = [
@@ -45,7 +45,7 @@ def setup():
     CONF.state_path = state_path
     CONF.sql_connection = 'sqlite:///%s' % testdb
 
-    print CONF.sql_connection
+    print CONF.sqlite_clean_db
     migration.db_sync()
 
     cleandb = os.path.join(CONF.state_path, CONF.sqlite_clean_db)

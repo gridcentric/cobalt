@@ -18,13 +18,13 @@ import os
 import shutil
 
 from nova import db
-from nova.openstack.common import cfg
 from nova import context as nova_context
 from nova import exception
 
 from nova.compute import vm_states, task_states
-from nova.db.sqlalchemy import session as session
 from nova.db.sqlalchemy import api as sqlalchemy_db
+
+from oslo.config import cfg
 
 import gridcentric.nova.api as gc_api
 import gridcentric.tests.utils as utils
@@ -147,13 +147,11 @@ class GridCentricApiTestCase(unittest.TestCase):
             # Need to assert something about the quota consumption
             for quota_key in ['instances', 'ram', 'cores']:
                 pre_usage = _pre_usages.pop(quota_key)
-                print pre_usage
                 self.assertEquals(pre_usage.get('in_use',0) + expected_increased[quota_key],
                               post_usages[quota_key].get('in_use',0))
                 self.assertEquals(pre_usage.get('reserved',0), post_usages[quota_key].get('reserved',0))
 
             for key, quota_usage in _pre_usages.iteritems():
-                print key, quota_usage, post_usages[key]
                 self.assertEquals(quota_usage.get('reserved', 0), post_usages[key].get('reserved', 0))
                 self.assertEquals(quota_usage.get('in_use', 0), post_usages[key].get('in_use', 0))
 
@@ -318,7 +316,6 @@ class GridCentricApiTestCase(unittest.TestCase):
         blessed_instance_uuid = blessed_instance['uuid']
         launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_instance_uuid, params={})
         name = launched_instance['display_name']
-        print 'instance name: {}'.format(name)
         self.assertEqual(name, 'None-0-clone')
         self.assertEqual(launched_instance['hostname'], 'none-0-clone')
 

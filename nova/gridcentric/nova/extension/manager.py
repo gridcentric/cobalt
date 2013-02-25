@@ -33,9 +33,9 @@ from eventlet.green import threading as gthreading
 
 from nova import context as nova_context
 from nova import exception
-from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova.openstack.common import timeutils
+from oslo.config import cfg
 LOG = logging.getLogger('nova.gridcentric.manager')
 CONF = cfg.CONF
 

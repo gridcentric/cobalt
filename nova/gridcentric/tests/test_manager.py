@@ -20,12 +20,13 @@ import shutil
 from datetime import datetime
 
 from nova import db
-from nova.openstack.common import cfg
 from nova import context as nova_context
 from nova import exception
 
 from nova.compute import vm_states
 from nova.compute import task_states
+
+from oslo.config import cfg
 
 import gridcentric.nova.extension.manager as gc_manager
 import gridcentric.tests.utils as utils
@@ -48,6 +49,9 @@ class GridCentricManagerTestCase(unittest.TestCase):
         self.gridcentric = gc_manager.GridCentricManager(vmsconn=self.vmsconn)
         self.gridcentric._instance_network_info = utils.fake_networkinfo
         self.context = nova_context.RequestContext('fake', 'fake', True)
+
+        # Mock out all of the policy enforcement (the tests don't have a defined policy)
+        utils.mock_policy()
 
     def test_target_memory_string_conversion_case_insensitive(self):
 
@@ -262,7 +266,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
             # This ensures that the instance has been marked as deleted in the database. Now assert
             # that the rest of its attributes have been marked.
             self.context.read_deleted = 'yes'
-            instances = db.instance_get_all_by_project(self.context, self.context.project_id)
+            instances = db.instance_get_all(self.context)
 
             self.assertEquals(1, len(instances))
             discarded_instance = instances[0]
