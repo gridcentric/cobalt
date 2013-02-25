@@ -35,7 +35,8 @@ CAPABILITIES = ['user-data',
                 'launch-name',
                 'security-groups',
                 'availability-zone',
-                'num-instances']
+                'num-instances'
+                'bless-name']
 
 LOG = logging.getLogger('nova.gridcentric.api')
 FLAGS = flags.FLAGS
@@ -220,7 +221,7 @@ class API(base.Base):
                 hosts.append(srv['host'])
         return hosts
 
-    def bless_instance(self, context, instance_uuid):
+    def bless_instance(self, context, instance_uuid, params={}):
         # Setup the DB representation for the new VM.
         instance = self.get(context, instance_uuid)
 
@@ -230,10 +231,6 @@ class API(base.Base):
             # The instance is already blessed. We can't rebless it.
             raise exception.NovaException(_(("Instance %s is already blessed. " +
                                      "Cannot rebless an instance.") % instance_uuid))
-        elif is_launched:
-            # The instance is a launched one. We cannot bless launched instances.
-            raise exception.NovaException(_(("Instance %s has been launched. " +
-                                     "Cannot bless a launched instance.") % instance_uuid))
         elif instance['vm_state'] != vm_states.ACTIVE:
             # The instance is not active. We cannot bless a non-active instance.
             raise exception.NovaException(_(("Instance %s is not active. " +
@@ -242,8 +239,10 @@ class API(base.Base):
         reservations = self._acquire_addition_reservation(context, instance)
         try:
             clonenum = self._next_clone_num(context, instance_uuid)
-            new_instance = self._copy_instance(context, instance_uuid,
-                                               "%s-%s" % (instance['display_name'], str(clonenum)), launch=False)
+            name = params.get('name')
+            if name is None:
+                name = "%s-%s" % (instance['display_name'], str(clonenum))
+            new_instance = self._copy_instance(context, instance_uuid, name, launch=False)
 
             LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
             self._cast_gridcentric_message('bless_instance', context, new_instance['uuid'],

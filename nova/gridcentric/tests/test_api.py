@@ -71,6 +71,12 @@ class GridCentricApiTestCase(unittest.TestCase):
             "The instance should have the blessed_from metadata set to true after being blessed. " \
           + "(value=%s)" % (metadata['blessed_from']))
 
+    def test_bless_instance_with_name(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context,
+                                           instance_uuid, {'name': 'test'})
+        self.assertEqual(blessed_instance['display_name'], 'test')
+
     def test_bless_instance_twice(self):
 
         instance_uuid = utils.create_instance(self.context)
@@ -108,22 +114,8 @@ class GridCentricApiTestCase(unittest.TestCase):
 
     def test_bless_a_launched_instance(self):
 
-        instance_uuid = utils.create_instance(self.context)
-        blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_uuid)
-        blessed_uuid = blessed_instance['uuid']
-
-        launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_uuid)
-        launched_uuid = launched_instance['uuid']
-
-        no_exception = False
-        try:
-            self.gridcentric_api.bless_instance(self.context, launched_uuid)
-            no_exception = True
-        except:
-            pass # success
-
-        if no_exception:
-            self.fail("Should not be able to bless a launched instance.")
+        launched_uuid = utils.create_launched_instance(self.context)
+        self.gridcentric_api.bless_instance(self.context, launched_uuid)
 
     def test_bless_a_non_active_instance(self):
 

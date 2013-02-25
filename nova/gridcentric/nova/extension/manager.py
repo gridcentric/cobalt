@@ -652,6 +652,13 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         return network_info
 
+    def _generate_vms_policy_name(self, context, instance):
+        instance_type = self.db.instance_type_get_by_flavor_id(context, instance['instance_type_id'])
+        policy_attrs = (('flavor', instance_type['name']),
+                        ('name', instance['name']),
+                        ('tenant', instance['project_id']),)
+        return "".join([";%s=%s;" %(key, value) for (key, value) in policy_attrs])
+
     @_lock_call
     def launch_instance(self, context, instance_uuid=None, instance_ref=None,
                         params=None, migration_url=None, migration_network_info=None):
@@ -732,6 +739,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                               'disk': None}},
                     timeout=FLAGS.gridcentric_compute_timeout)
 
+            vms_policy = self._generate_vms_policy_name(context, instance_ref)
             self.vms_conn.launch(context,
                                  source_instance_ref['name'],
                                  instance_ref,
@@ -739,7 +747,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                  target=target,
                                  migration_url=migration_url,
                                  image_refs=image_refs,
-                                 params=params)
+                                 params=params,
+                                 vms_policy=vms_policy)
 
             if not(migration_url):
                 self._notify(context, instance_ref, "launch.end", network_info=network_info)
