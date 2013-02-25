@@ -663,8 +663,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                             requested_networks=requested_networks)
                 LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"),
                       instance_ref.name, network_info)
-            except Exception, e:
-                _log_error("network allocation", e)
+            except:
+                _log_error("network allocation")
 
         return network_info
 
