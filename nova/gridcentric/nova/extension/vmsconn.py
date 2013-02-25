@@ -27,8 +27,8 @@ from nova import exception
 from nova.image import glance
 from nova.virt import images
 from nova.compute import utils as compute_utils
-from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
+from oslo.config import cfg
 LOG = logging.getLogger('nova.gridcentric.vmsconn')
 CONF = cfg.CONF
 
@@ -138,7 +138,7 @@ class VmsConnection:
         """
         Discard all of the vms artifacts associated with a blessed instance
         """
-        result = self.vmsapi.discard(instance_name, mem_url=migration_url)
+        result =  self.vmsapi.discard(instance_name, mem_url=migration_url)
         if CONF.gridcentric_use_image_service:
             self._delete_images(context, image_refs)
 
@@ -163,7 +163,7 @@ class VmsConnection:
     @_log_call
     def launch(self, context, instance_name, new_instance_ref,
                network_info, skip_image_service=False, target=0,
-               migration_url=None, image_refs=[], params={}):
+               migration_url=None, image_refs=[], params={}, vms_policy=''):
         """
         Launch a blessed instance
         """
@@ -174,9 +174,11 @@ class VmsConnection:
 
 
         # Launch the new VM.
+        vms_options = {'memory.policy':vms_policy}
         result = self.vmsapi.launch(instance_name, new_name, target, path,
                                     mem_url=migration_url, migration=(migration_url and True),
-                                    guest_params=params.get('guest',{}))
+                                    guest_params=params.get('guest',{}),
+                                    vms_options=vms_options)
 
         # Take care of post-launch.
         self.post_launch(context,
@@ -256,6 +258,7 @@ class LibvirtConnection(VmsConnection):
         """
         Determines the openstack user's uid and gid
         """
+
         openstack_user = CONF.openstack_user
         if openstack_user == '':
             # The user has not set an explicit openstack_user. We will attempt to auto-discover
@@ -279,6 +282,7 @@ class LibvirtConnection(VmsConnection):
             LOG.severe("Failed to find the openstack user %s on this system. " \
                        "Please configure the openstack_user flag correctly." % (openstack_user))
             raise e
+
 
     @_log_call
     def pre_launch(self, context,

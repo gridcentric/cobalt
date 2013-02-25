@@ -25,9 +25,8 @@ from nova.db import base
 from nova import quota
 from nova.openstack.common import log as logging
 from nova.openstack.common import rpc
-from nova.openstack.common import cfg
 from nova import utils
-
+from oslo.config import cfg
 
 LOG = logging.getLogger('nova.gridcentric.api')
 CONF = cfg.CONF
