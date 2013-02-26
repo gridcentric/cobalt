@@ -72,6 +72,13 @@ class GridCentricApiTestCase(unittest.TestCase):
                                            instance_uuid, {'name': 'test'})
         self.assertEqual(blessed_instance['display_name'], 'test')
 
+    def test_bless_instance_with_none_params(self):
+        instance_uuid = utils.create_instance(self.context,
+                                              {'display_name': 'foo'})
+        blessed_instance = self.gridcentric_api.bless_instance(self.context,
+                                           instance_uuid, None)
+        self.assertEqual('foo-0', blessed_instance['display_name'])
+
     def test_bless_instance_twice(self):
 
         instance_uuid = utils.create_instance(self.context)
