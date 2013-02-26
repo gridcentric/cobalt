@@ -221,7 +221,10 @@ class API(base.Base):
                 hosts.append(srv['host'])
         return hosts
 
-    def bless_instance(self, context, instance_uuid, params={}):
+    def bless_instance(self, context, instance_uuid, params=None):
+        if params is None:
+            params = {}
+
         # Setup the DB representation for the new VM.
         instance = self.get(context, instance_uuid)
 

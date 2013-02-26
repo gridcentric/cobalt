@@ -505,7 +505,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                   "version": "2.2",
                   "args": {'instance': instance_ref,
                            'block_migration': False,
-                           'disk': None}})
+                           'disk': None}},
+                 timeout=FLAGS.gridcentric_compute_timeout)
 
         # Bless this instance for migration.
         migration_url = self.bless_instance(context,
@@ -530,7 +531,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                     {"method": "launch_instance",
                      "args": {'instance_ref': instance_ref,
                               'migration_url': migration_url,
-                              'migration_network_info': network_info}})
+                              'migration_network_info': network_info}},
+                    timeout=1800.0)
             changed_hosts = True
 
         except:
@@ -647,8 +649,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                             requested_networks=requested_networks)
                 LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"),
                       instance_ref.name, network_info)
-            except Exception, e:
-                _log_error("network allocation", e)
+            except:
+                _log_error("network allocation")
 
         return network_info
 
