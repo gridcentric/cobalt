@@ -521,7 +521,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                  {"method": "pre_live_migration",
                   "args": {'instance_id': instance_ref.id,
                            'block_migration': False,
-                           'disk': None}})
+                           'disk': None}},
+                 timeout=FLAGS.gridcentric_compute_timeout)
 
         # Bless this instance for migration.
         migration_url = self.bless_instance(context,
@@ -546,7 +547,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                    {"method": "launch_instance",
                      "args": {'instance_ref': instance_ref,
                               'migration_url': migration_url,
-                              'migration_network_info': network_info}})
+                              'migration_network_info': network_info}},
+                    timeout=1800.0)
             changed_hosts = True
 
         except:
@@ -750,7 +752,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                     {"method": "pre_live_migration",
                      "args": {'instance_id': instance_ref['id'],
                               'block_migration': False,
-                              'disk': None}})
+                              'disk': None}},
+                    timeout=FLAGS.gridcentric_compute_timeout)
 
             vms_policy = self._generate_vms_policy_name(context, instance_ref)
             self.vms_conn.launch(context,
