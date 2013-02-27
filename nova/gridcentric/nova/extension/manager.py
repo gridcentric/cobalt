@@ -500,6 +500,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self._instance_metadata_update(context, instance_uuid, metadata)
 
         # Prepare the destination for live migration.
+        # NOTE(dscannell): The instance's host needs to change for the pre_live_migration
+        # call in order for the iptable rules for the DHCP server to be correctly setup
+        # to allow the destination host to respond to the instance. Its set back to the
+        # source after this call. Also note, that this does not update the database so
+        # no other processes should be affected.
+        instance_ref['host'] = dest
         rpc.call(context, compute_dest_queue,
                  {"method": "pre_live_migration",
                   "version": "2.2",
@@ -507,6 +513,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                            'block_migration': False,
                            'disk': None}},
                  timeout=FLAGS.gridcentric_compute_timeout)
+        instance_ref['host'] = self.host
 
         # Bless this instance for migration.
         migration_url = self.bless_instance(context,
