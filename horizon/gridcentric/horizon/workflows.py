@@ -17,6 +17,66 @@ from horizon import workflows, forms
 from . import api
 from horizon import exceptions
 
+def bless_instance_workflow(request):
+    client = api.novaclient(request)
+
+    feature_params = []
+
+    class Action(workflows.Action):
+        if client.gridcentric.satisfies(['bless-name']):
+            feature_params.append('name')
+            name = forms.CharField(max_length="20", label=_("Name"))
+
+        class Meta:
+            name = _("Bless Instance")
+            if 'name' in feature_params:
+                help_text = _("Enter the information for the new blessed "
+                              "instance.")
+            else:
+                help_text = _("No options available. Click \"Bless\" below to "
+                              "bless the instance.")
+
+    class Step(workflows.Step):
+        action_class = Action
+        depends_on = ("instance_id",)
+        contributes = tuple(feature_params)
+
+        def contribute(self, data, context):
+            if data:
+                post = self.workflow.request.POST
+                for param in feature_params:
+                    context[param] = post[param]
+            return context
+
+    class Workflow(workflows.Workflow):
+        slug = "bless_instance"
+        name = _("Bless Instance")
+        finalize_button_name = _("Bless")
+        success_message = _('Blessed {name}.')
+        failure_message = _('Unable to bless {name}.')
+        success_url = "horizon:nova:instances:index"
+        default_steps = (Step,)
+
+        def format_status_message(self, message):
+            if 'name' in self.context:
+                name = '"{}"'.format(self.context['name'])
+            else:
+                name = 'instance'
+            return message.format(name=name)
+
+        def handle(self, request, context):
+            try:
+                kwargs = {}
+                for param in feature_params:
+                    kwargs[param] = context[param]
+                api.server_bless(request, context['instance_id'], **kwargs)
+                return True
+            except:
+                exceptions.handle(request)
+                return False
+
+    return Workflow
+
 def launch_blessed_workflow(request):
     client = api.novaclient(request)
 

@@ -22,21 +22,14 @@ from horizon.dashboards.nova.instances import tables as instance_tables
 
 BLESSED_STATES = ("BLESSED",)
 
-class BlessInstance(tables.BatchAction):
-    name = "bless"
-    action_present = _("Bless")
-    action_past = _("Blessed")
-    data_type_singular = _("Instance")
-    data_type_plural = _("Instances")
-    classes = ("btn-bless",)
+class BlessInstance(tables.LinkAction):
+    name = "bless_instance"
+    verbose_name = _("Bless")
+    url = "horizon:nova:instances:bless_instance"
+    classes = ("ajax-modal", "btn-edit")
 
-    def allowed(self, request, instance=None):
-        if instance:
-            return instance.status in instance_tables.ACTIVE_STATES and not instance_tables._is_deleting(instance)
-        return True
-
-    def action(self, request, obj_id):
-        api.server_bless(request, obj_id)
+    def allowed(self, request, instance):
+        return instance.status in instance_tables.ACTIVE_STATES and not instance_tables._is_deleting(instance)
 
 class DiscardInstance(tables.BatchAction):
     name = "discard"
@@ -92,7 +85,7 @@ instance_tables.InstancesTable.base_actions['launch'].verbose_name = _("Boot Ins
 instance_tables.InstancesTable._meta.row_actions = \
    list(instance_tables.InstancesTable._meta.row_actions) + \
    [BlessInstance, DiscardInstance, LaunchBlessed, GCMigrate]
-instance_tables.InstancesTable.base_actions["bless"] = BlessInstance()
+instance_tables.InstancesTable.base_actions["bless_instance"] = BlessInstance()
 instance_tables.InstancesTable.base_actions["discard"] = DiscardInstance()
 instance_tables.InstancesTable.base_actions["launch_blessed"] = LaunchBlessed()
 instance_tables.InstancesTable.base_actions["gc_migrate"] = GCMigrate()
