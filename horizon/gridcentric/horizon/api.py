@@ -38,8 +38,8 @@ def novaclient(request):
     c.client.management_url = api.url_for(request, 'compute')
     return c
 
-def server_bless(request, instance_id):
-    novaclient(request).gridcentric.bless(instance_id)
+def server_bless(request, instance_id, **kwargs):
+    novaclient(request).gridcentric.bless(instance_id, **kwargs)
 api.server_bless = server_bless
 
 def server_launch(request, instance_id, **kwargs):

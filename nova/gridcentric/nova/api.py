@@ -36,7 +36,7 @@ CAPABILITIES = ['user-data',
                 'launch-name',
                 'security-groups',
                 'availability-zone',
-                'num-instances'
+                'num-instances',
                 'bless-name']
 
 LOG = logging.getLogger('nova.gridcentric.api')
