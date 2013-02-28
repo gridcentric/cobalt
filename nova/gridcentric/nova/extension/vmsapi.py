@@ -126,7 +126,7 @@ def get_vmsapi(version=None):
     elif major >= 2:
         vmsapi = VmsApi()
     else:
-        raise exception.Error(_("Unsupported version of vms %s") %(version))
+        raise exception.NovaException(_("Unsupported version of vms %s") %(version))
 
     return vmsapi
 
