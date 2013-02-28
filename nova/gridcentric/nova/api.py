@@ -27,6 +27,7 @@ from nova import quota
 from nova.openstack.common import log as logging
 from nova.openstack.common import rpc
 from nova.openstack.common import cfg
+from nova.openstack.common import timeutils
 from nova import utils
 
 # New API capabilities should be added here
@@ -312,9 +313,9 @@ class API(base.Base):
         try:
             i_list = range(num_instances)
             if len(i_list) == 0:
-                raise exception.Error(_('num_instances must be at least 1'))
+                raise exception.NovaException(_('num_instances must be at least 1'))
         except TypeError:
-            raise exception.Error(_('num_instances must be an integer'))
+            raise exception.NovaException(_('num_instances must be an integer'))
         reservations = self._acquire_addition_reservation(context, instance, num_instances)
 
         try:
@@ -462,7 +463,7 @@ class API(base.Base):
                     filter_properties):
 
             instance_uuid = base_options.get('uuid')
-            now = utils.utcnow()
+            now = timeutils.utcnow()
             self.db.instance_update(context, instance_uuid,
                                {'host': target_host,
                                 'scheduled_at': now})

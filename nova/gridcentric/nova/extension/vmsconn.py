@@ -69,7 +69,7 @@ def get_vms_connection(connection_type):
     elif connection_type == 'fake':
         return DummyConnection(vmsapi)
     else:
-        raise exception.Error(_('Unsupported connection type "%s"' % connection_type))
+        raise exception.NovaException(_('Unsupported connection type "%s"' % connection_type))
 
 def _log_call(fn):
     def wrapped_fn(self, *args, **kwargs):
