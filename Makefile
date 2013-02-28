@@ -111,10 +111,14 @@ deb-% : build-%
 	@rsync -ruav packagers/deb/$*/ debbuild
 	@rsync -ruav dist/$*/ debbuild
 	@rm -rf debbuild/etc/init.d
-	@sed -i "s/\(^Version:\).*/\1 $(VERSION).$(RELEASE)-$(OPENSTACK_RELEASE)py$(PYTHON_VERSION)/" debbuild/DEBIAN/control
+	@sed -i "s/VERSION/$(VERSION).$(RELEASE)-$(OPENSTACK_RELEASE)py$(PYTHON_VERSION)/g" debbuild/DEBIAN/control
 	@dpkg -b debbuild/ .
+	@rm -rf debbuild && $(INSTALL_DIR) debbuild
+	@rsync -ruav packagers/deb/$*/ debbuild
+	@rsync -ruav dist/$*/ debbuild
+	@rm -rf debbuild/etc/init.d
 	@LIBDIR=`ls -1d debbuild/usr/lib*/python*`; mv $$LIBDIR/site-packages $$LIBDIR/dist-packages
-	@sed -i "s/\(^Version:\).*/\1 $(VERSION).$(RELEASE)-ubuntu$(OPENSTACK_RELEASE)py$(PYTHON_VERSION)/" debbuild/DEBIAN/control
+	@sed -i "s/VERSION/$(VERSION).$(RELEASE)-ubuntu$(OPENSTACK_RELEASE)py$(PYTHON_VERSION)/g" debbuild/DEBIAN/control
 	@dpkg -b debbuild/ .
 
 tgz-nova : tgz-nova-gridcentric
