@@ -29,6 +29,7 @@ from nova.compute import task_states
 
 import gridcentric.nova.extension.manager as gc_manager
 import gridcentric.tests.utils as utils
+import gridcentric.nova.extension.vmsconn as vmsconn
 
 FLAGS = flags.FLAGS
 
@@ -48,6 +49,20 @@ class GridCentricManagerTestCase(unittest.TestCase):
         self.gridcentric = gc_manager.GridCentricManager(vmsconn=self.vmsconn)
         self.gridcentric._instance_network_info = utils.fake_networkinfo
         self.context = nova_context.RequestContext('fake', 'fake', True)
+
+    def test_connection_type(self):
+        tests = [('fake', None),
+                 (None, 'nova.virt.fake.FakeDriver'),
+                 ('fake', 'nova.virt.fake.FakeDriver'),
+                 ('libvirt', 'nova.virt.fake.FakeDriver')]
+                # compute_driver should be prioritized over connection_type
+        for conn_type, driver in tests:
+            self.gridcentric.vms_conn = None
+            FLAGS.connection_type = conn_type
+            FLAGS.compute_driver = driver
+            self.gridcentric._init_vms()
+            self.assertIs(type(self.gridcentric.vms_conn),
+                             type(vmsconn.get_vms_connection('fake')))
 
     def test_target_memory_string_conversion_case_insensitive(self):
 
