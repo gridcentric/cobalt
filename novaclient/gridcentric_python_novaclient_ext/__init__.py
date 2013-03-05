@@ -304,13 +304,18 @@ def do_gc_boot(cs, args):
      default=None,
      metavar='<agent_version>',
      help="Install a specific agent version.")
+@utils.arg('--ip',
+     default=None,
+     metavar='<ip>',
+     help="Instance IP address to use (defaults to first ssh-able).")
 def do_gc_install_agent(cs, args):
     """Install the agent onto an instance."""
     server = _find_server(cs, args.server)
     server.install_agent(args.user,
                          args.key_path,
                          location=args.agent_location,
-                         version=args.agent_version)
+                         version=args.agent_version,
+                         ip=args.ip)
 
 class GcServer(servers.Server):
     """
@@ -337,8 +342,10 @@ class GcServer(servers.Server):
     def list_blessed(self):
         return self.manager.list_blessed(self)
 
-    def install_agent(self, user, key_path, location=None, version=None):
-        self.manager.install_agent(self, user, key_path, location=location, version=version)
+    def install_agent(self, user, key_path, location=None,
+                        version=None, ip=None):
+        self.manager.install_agent(self, user, key_path, location=location,
+                                    version=version, ip=ip)
 
 class GcServerManager(servers.ServerManager):
     resource_class = GcServer
@@ -446,5 +453,7 @@ class GcServerManager(servers.ServerManager):
         return self._boot(resource_url, response_key, *boot_args,
                 **boot_kwargs)
 
-    def install_agent(self, server, user, key_path, location=None, version=None):
-        agent.install(server, user, key_path, location=location, version=version)
+    def install_agent(self, server, user, key_path, location=None,
+                        version=None, ip=None):
+        agent.install(server, user, key_path, location=location,
+                        version=version, ip=ip)
