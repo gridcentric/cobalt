@@ -189,14 +189,23 @@ def get_addrs(server):
     ips = []
     for network in server.networks.values():
         ips.extend(network)
+    if len(ips) == 0:
+        raise Exception("Server %s has no IP addresses." % str(server.id))
     return ips
 
 class SecureShell(object):
 
-    def __init__(self, server, user, key_path):
-        self.host     = get_addrs(server)[0]
+    def __init__(self, server, user, key_path, preferred_ip=None):
         self.user     = user
         self.key_path = key_path
+        if preferred_ip is not None:
+            if preferred_ip in get_addrs(server):
+                self.host = preferred_ip
+            else:
+                raise Exception("Preferred IP address %s for server %s"
+                                " invalid." % (preferred_ip, str(server.id)))
+        else:
+            self.host = get_addrs(server)[0]
 
     def ssh_args(self):
         return [
@@ -247,18 +256,34 @@ def wait_while_status(server, status):
         return False
     wait_for('%s on ID %s to finish' % (status, str(server.id)), condition)
 
-def wait_for_ssh(server, user, key_path):
-    ssh = SecureShell(server, user, key_path)
-    wait_for('ssh ID %s to respond' % str(server.id),
-             lambda: ssh.call(TEST_SCRIPT) == 0)
+def wait_for_ssh(server, user, key_path, ip=None):
+    if ip is not None:
+        ips = [ip]
+    else:
+        ips = get_addrs(server)
+    # Try twice, as we may miss the first time with a slow booting guest. Cap
+    # total wait at ten minutes (600 seconds), the default used elsewhere in
+    # this module. Default tcp connect timeout is 24 seconds.
+    for duration in [24, max(24, (600/len(ips)) - 24)]:
+        for ip in ips:
+            ssh = SecureShell(server, user, key_path, ip)
+            try:
+                wait_for('ssh ID %s:%s to respond' % (str(server.id), ip),
+                         lambda: ssh.call(TEST_SCRIPT) == 0,
+                         duration=duration)
+                return ip
+            except Exception:
+                continue
+    raise Exception("Server %s had no IP address respond to ssh (%s)." %\
+                    (str(server.id), str(ips)))
 
-def do_install(server, user, key_path, location, version):
-    ssh = SecureShell(server, user, key_path)
+def do_install(server, ip, user, key_path, location, version):
+    ssh = SecureShell(server, user, key_path, ip)
     args = { "location" : location, "version" : version }
     if ssh.call(INSTALL_SCRIPT % args) != 0:
         raise Exception("Error during installation.")
 
-def install(server, user, key_path, location=None, version=None):
+def install(server, user, key_path, location=None, version=None, ip=None):
     if location == None:
         location = DEFAULT_LOCATION
     if version == None:
@@ -266,5 +291,5 @@ def install(server, user, key_path, location=None, version=None):
     wait_while_status(server, 'BUILD')
     if server.status != 'ACTIVE':
         raise Exception("Server is not active.")
-    wait_for_ssh(server, user, key_path)
-    do_install(server, user, key_path, location, version)
+    ip = wait_for_ssh(server, user, key_path, ip=ip)
+    do_install(server, ip, user, key_path, location, version)
