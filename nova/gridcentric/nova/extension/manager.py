@@ -142,12 +142,13 @@ def _log_error(operation):
 class GridCentricManager(manager.SchedulerDependentManager):
 
     def __init__(self, *args, **kwargs):
-        self.vms_conn = kwargs.pop('vmsconn', None)
 
-        self._init_vms()
         self.network_api = network.API()
         self.gridcentric_api = API()
         self.compute_manager = compute_manager.ComputeManager()
+
+        self.vms_conn = kwargs.pop('vmsconn', None)
+        self._init_vms()
 
         # Use an eventlet green thread condition lock instead of the regular threading module. This
         # is required for eventlet threads because they essentially run on a single system thread.
@@ -165,14 +166,13 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 'LibvirtDriver': 'libvirt',
                 'XenAPIDriver': 'xenapi',
             }
-            if hasattr(FLAGS, 'compute_driver') and \
-                                               FLAGS.compute_driver is not None:
-                connection_type = drivers[FLAGS.compute_driver.split('.')[-1]]
-            elif hasattr(FLAGS, 'connection_type') and \
-                                              FLAGS.connection_type is not None:
-                connection_type = FLAGS.connection_type
-            else:
-                raise exception.NovaException('connection_type not determined')
+
+            compute_driver = self.compute_manager.driver
+            compute_driver = compute_driver.__class__.__name__
+            connection_type = drivers.get(compute_driver, None)
+            if connection_type == None:
+                raise exception.NovaException('Unsupported compute driver %s being used.' %(compute_driver))
+
             self.vms_conn = vmsconn.get_vms_connection(connection_type)
             self.vms_conn.configure()
 
