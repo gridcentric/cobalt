@@ -442,3 +442,30 @@ class GridCentricApiTestCase(unittest.TestCase):
                                                     blessed_instance_uuid,
                                                     params={})
         self.assertEqual(inst['security_groups'][0].id, sg.id)
+
+    def test_launch_with_key(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context,
+                                                               instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        db.key_pair_create(self.context, {'name': 'foo', 'public_key': 'bar',
+                                          'user_id': self.context.user_id,
+                                          'fingerprint': ''})
+        inst = self.gridcentric_api.launch_instance(self.context,
+                                                    blessed_instance_uuid,
+                                                    params={'key_name': 'foo'})
+        self.assertEqual(inst['key_name'], 'foo')
+        self.assertEqual(inst['key_data'], 'bar')
+
+    def test_launch_with_nonexistent_key(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context,
+                                                               instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        try:
+            inst = self.gridcentric_api.launch_instance(self.context,
+                                             blessed_instance_uuid,
+                                             params={'key_name': 'nonexistent'})
+            self.fail('Expected KeypairNotFound')
+        except exception.KeypairNotFound:
+            pass

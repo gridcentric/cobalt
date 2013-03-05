@@ -37,7 +37,8 @@ CAPABILITIES = ['user-data',
                 'security-groups',
                 'availability-zone',
                 'num-instances',
-                'bless-name']
+                'bless-name',
+                'launch-key']
 
 LOG = logging.getLogger('nova.gridcentric.api')
 FLAGS = flags.FLAGS
@@ -111,7 +112,8 @@ class API(base.Base):
     def _rollback_reservation(self, context, reservations):
         quota.QUOTAS.rollback(context, reservations)
 
-    def _copy_instance(self, context, instance_uuid, new_name, launch=False, new_user_data=None, security_groups=None):
+    def _copy_instance(self, context, instance_uuid, new_name, launch=False,
+                       new_user_data=None, security_groups=None, key_name=None):
         # (dscannell): Basically we want to copy all of the information from
         # instance with id=instance_uuid into a new instance. This is because we
         # are basically "cloning" the vm as far as all the properties are
@@ -126,6 +128,13 @@ class API(base.Base):
             metadata = {'launched_from':'%s' % (instance_ref['uuid'])}
         else:
             metadata = {'blessed_from':'%s' % (instance_ref['uuid'])}
+
+        if key_name is None:
+            key_name = instance_ref.get('key_name', '')
+            key_data = instance_ref.get('key_data', '')
+        else:
+            key_pair = self.db.key_pair_get(context, context.user_id, key_name)
+            key_data = key_pair['public_key']
 
         instance = {
            'reservation_id': utils.generate_uid('r'),
@@ -144,8 +153,8 @@ class API(base.Base):
            'hostname': utils.sanitize_hostname(new_name),
            'display_description': instance_ref['display_description'],
            'user_data': new_user_data or '',
-           'key_name': instance_ref.get('key_name', ''),
-           'key_data': instance_ref.get('key_data', ''),
+           'key_name': key_name,
+           'key_data': key_data,
            'locked': False,
            'metadata': metadata,
            'availability_zone': instance_ref['availability_zone'],
@@ -328,7 +337,7 @@ class API(base.Base):
                 new_instance_ref = self._copy_instance(context, instance_uuid,
                     instance_params.get('name', "%s-%s" % (instance['display_name'], "clone")),
                     launch=True, new_user_data=instance_params.pop('user_data', None),
-                    security_groups=security_groups)
+                    security_groups=security_groups, key_name=instance_params.pop('key_name', None))
 
                 if first_uuid is None:
                     first_uuid = new_instance_ref['uuid']
