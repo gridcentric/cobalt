@@ -37,7 +37,8 @@ CAPABILITIES = {'user-data': ['user-data'],
                 'security-groups': ['security-groups'],
                 'num-instances': ['num-instances'],
                 'availability-zone': ['availability-zone'],
-                'bless-name': ['bless-name']
+                'bless-name': ['bless-name'],
+                'launch-key': ['launch-key'],
                 }
 
 def __pre_parse_args__():
@@ -98,6 +99,7 @@ def _find_server(cs, server):
 @utils.arg('--security-groups', metavar='<security groups>', default=None, help='comma separated list of security group names.')
 @utils.arg('--availability-zone', metavar='<availability zone>', default=None, help='The availability zone for instance placement.')
 @utils.arg('--num-instances', metavar='<number>', default='1', help='Launch multiple instances at a time')
+@utils.arg('--key-name', metavar='<key name>', default=None, help='Key name of keypair that should be created earlier with the command keypair-add')
 @utils.arg('--params', action='append', default=[], metavar='<key=value>', help='Guest parameters to send to vms-agent')
 def do_launch(cs, args):
     """Launch a new instance."""
@@ -130,7 +132,8 @@ def do_launch(cs, args):
                                            guest_params=guest_params,
                                            security_groups=security_groups,
                                            availability_zone=availability_zone,
-                                           num_instances=int(args.num_instances))
+                                           num_instances=int(args.num_instances),
+                                           key_name=args.key_name)
 
     for server in launch_servers:
         _print_server(cs, server)
@@ -315,9 +318,9 @@ class GcServer(servers.Server):
     """
 
     def launch(self, target="0", name=None, user_data=None, guest_params={},
-               security_groups=None, num_instances=1):
+               security_groups=None, num_instances=1, key_name=None):
         return self.manager.launch(self, target, name, user_data, guest_params,
-                                   security_groups, num_instances)
+                                   security_groups, num_instances, key_name)
 
     def bless(self, name=None):
         return self.manager.bless(self, name)
@@ -368,12 +371,13 @@ class GcServerManager(servers.ServerManager):
 
     def launch(self, server, target="0", name=None, user_data=None,
                guest_params={}, security_groups=None, availability_zone=None,
-               num_instances=1):
+               num_instances=1, key_name=None):
         params = {'target': target,
                   'guest': guest_params,
                   'security_groups': security_groups,
                   'availability_zone': availability_zone,
-                  'num_instances': num_instances}
+                  'num_instances': num_instances,
+                  'key_name': key_name}
 
         if name != None:
             params['name'] = name
