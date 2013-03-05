@@ -38,6 +38,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
     def setUp(self):
 
         FLAGS.connection_type = 'fake'
+
         FLAGS.compute_driver = 'nova.virt.fake.FakeDriver'
         # Copy the clean database over
         shutil.copyfile(os.path.join(FLAGS.state_path, FLAGS.sqlite_clean_db),
@@ -54,7 +55,8 @@ class GridCentricManagerTestCase(unittest.TestCase):
         tests = [('fake', None),
                  (None, 'nova.virt.fake.FakeDriver'),
                  ('fake', 'nova.virt.fake.FakeDriver'),
-                 ('libvirt', 'nova.virt.fake.FakeDriver')]
+                 ('libvirt', 'nova.virt.fake.FakeDriver'),
+                 ('fake', 'nova.virt.connection.get_connection')]
                 # compute_driver should be prioritized over connection_type
         for conn_type, driver in tests:
             self.gridcentric.vms_conn = None
