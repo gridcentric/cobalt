@@ -113,7 +113,8 @@ class API(base.Base):
         quota.QUOTAS.rollback(context, reservations)
 
     def _copy_instance(self, context, instance_uuid, new_name, launch=False,
-                       new_user_data=None, security_groups=None, key_name=None):
+                       new_user_data=None, security_groups=None, key_name=None,
+                       launch_index=0):
         # (dscannell): Basically we want to copy all of the information from
         # instance with id=instance_uuid into a new instance. This is because we
         # are basically "cloning" the vm as far as all the properties are
@@ -160,6 +161,7 @@ class API(base.Base):
            'availability_zone': instance_ref['availability_zone'],
            'os_type': instance_ref['os_type'],
            'host': None,
+           'launch_index': launch_index,
         }
         new_instance_ref = self.db.instance_create(context, instance)
 
@@ -335,9 +337,13 @@ class API(base.Base):
                 instance_params = params.copy()
                 # Create a new launched instance.
                 new_instance_ref = self._copy_instance(context, instance_uuid,
-                    instance_params.get('name', "%s-%s" % (instance['display_name'], "clone")),
-                    launch=True, new_user_data=instance_params.pop('user_data', None),
-                    security_groups=security_groups, key_name=instance_params.pop('key_name', None))
+                    instance_params.get('name', "%s-%s" %\
+                                        (instance['display_name'], "clone")),
+                    launch=True,
+                    new_user_data=instance_params.pop('user_data', None),
+                    security_groups=security_groups,
+                    key_name=instance_params.pop('key_name', None),
+                    launch_index=i)
 
                 if first_uuid is None:
                     first_uuid = new_instance_ref['uuid']
