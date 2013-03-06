@@ -17,8 +17,11 @@ import uuid
 
 from nova import db
 from nova import rpc
+from nova import policy
 from nova.compute import instance_types
 from nova.compute import vm_states
+
+from gridcentric.nova import api
 
 class TestInducedException(Exception):
     pass
@@ -43,6 +46,15 @@ class MockRpc(object):
 mock_rpc = MockRpc()
 rpc.call = mock_rpc.call
 rpc.cast = mock_rpc.cast
+
+def do_nothing(*args, **kwargs):
+    pass
+
+def mock_policy():
+    policy.enforce = do_nothing
+
+def mock_quota():
+    api.API._check_quota = do_nothing
 
 class MockVmsConn(object):
     """
