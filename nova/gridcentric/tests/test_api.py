@@ -45,6 +45,10 @@ class GridCentricApiTestCase(unittest.TestCase):
 
         # Mock out all of the policy enforcement (the tests don't have a defined policy)
         utils.mock_policy()
+
+        # Mock quota checking
+        utils.mock_quota()
+
         self.gridcentric_api = gc_api.API()
         self.context = nova_context.RequestContext('fake', 'fake', True)
         utils.create_gridcentric_service(self.context)
@@ -469,3 +473,17 @@ class GridCentricApiTestCase(unittest.TestCase):
             self.fail('Expected KeypairNotFound')
         except exception.KeypairNotFound:
             pass
+
+    def test_launch_multiple(self):
+        # Note difference wrt Essex
+        for num in [1, 5]:
+            blessed_instance_uuid = utils.create_blessed_instance(self.context)
+            self.gridcentric_api.launch_instance(self.context,
+                                                 blessed_instance_uuid,
+                                                 params={'num_instances': num})
+            launched = self.gridcentric_api.list_launched_instances(
+                                            self.context, blessed_instance_uuid)
+            launched.sort(key=lambda inst: inst['launch_index'])
+            self.assertEqual(len(launched), num)
+            for i in range(num):
+                self.assertEqual(launched[i]['launch_index'], i)

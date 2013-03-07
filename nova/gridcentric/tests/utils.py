@@ -25,6 +25,8 @@ from nova.compute import power_state
 from nova.network import model as network_model
 from nova.virt.fake import FakeInstance
 
+from gridcentric.nova import api
+
 class TestInducedException(Exception):
     pass
 
@@ -49,10 +51,14 @@ mock_rpc = MockRpc()
 rpc.call = mock_rpc.call
 rpc.cast = mock_rpc.cast
 
+def do_nothing(*args, **kwargs):
+    pass
+
 def mock_policy():
-    def _mock_enforce(*args, **kwargs):
-        pass
-    policy.enforce = _mock_enforce
+    policy.enforce = do_nothing
+
+def mock_quota():
+    api.API._check_quota = do_nothing
 
 class MockVmsConn(object):
     """
