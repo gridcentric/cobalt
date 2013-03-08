@@ -21,6 +21,8 @@ import os
 import pwd
 import tempfile
 
+from glanceclient.exc import HTTPForbidden
+
 import nova
 from nova import exception
 from nova import flags
@@ -447,6 +449,7 @@ class LibvirtConnection(VmsConnection):
 
             # Send up the file data to the newly created image.
             metadata = {'is_public': False,
+                        'protected': True,
                         'status': 'active',
                         'name': image_name,
                         'properties': {
@@ -470,8 +473,9 @@ class LibvirtConnection(VmsConnection):
         image_service = glance.get_default_image_service()
         for image_ref in image_refs:
             try:
+                image_service.update(context, image_ref, {'protected': False})
                 image_service.delete(context, image_ref)
-            except exception.ImageNotFound:
+            except (exception.ImageNotFound, HTTPForbidden):
                 # Simply ignore this error because the end result
                 # is that the image is no longer there.
                 LOG.debug("The image %s was not found in the image service when removing it." % (image_ref))
