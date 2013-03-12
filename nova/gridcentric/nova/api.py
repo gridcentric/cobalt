@@ -162,6 +162,7 @@ class API(base.Base):
            'os_type': instance_ref['os_type'],
            'host': None,
            'launch_index': launch_index,
+           'root_device_name': instance_ref['root_device_name']
         }
         new_instance_ref = self.db.instance_create(context, instance)
 
@@ -176,6 +177,24 @@ class API(base.Base):
             self.db.instance_add_security_group(elevated,
                                                 new_instance_ref['uuid'],
                                                 security_group['id'])
+
+        # Create a copy of all the block device mappings
+        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context, instance_ref['uuid'])
+        for mapping in block_device_mappings:
+            values = {
+                'instance_uuid': new_instance_ref['uuid'],
+                'device_name': mapping['device_name'],
+                'delete_on_termination': mapping.get('delete_on_termination', True),
+                'virtual_name': mapping.get('virtual_name', None),
+                # The snapshot id / volume id will be re-written once the bless / launch completes.
+                # For now we just copy over the data from the source instance.
+                'snapshot_id': mapping.get('snapshot_id', None),
+                'volume_id': mapping.get('volume_id', None),
+                'volume_size': mapping.get('volume_size', None),
+                'no_device': mapping.get('no_device', None),
+                'connection_info': mapping.get('connection_info', None)
+            }
+            self.db.block_device_mapping_create(elevated, values)
 
         return new_instance_ref
 

@@ -32,6 +32,7 @@ from eventlet.green import threading as gthreading
 
 
 from nova import context as nova_context
+from nova import block_device
 from nova import exception
 from nova import flags
 from nova.openstack.common import cfg
@@ -63,6 +64,8 @@ from nova import manager
 from nova import utils
 from nova.openstack.common import rpc
 from nova import network
+from nova import volume
+
 
 # We need to import this module because other nova modules use the flags that
 # it defines (without actually importing this module). So we need to ensure
@@ -146,6 +149,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self.network_api = network.API()
         self.gridcentric_api = API()
         self.compute_manager = compute_manager.ComputeManager()
+        self.volume_api = volume.API()
 
         self.vms_conn = kwargs.pop('vmsconn', None)
         self._init_vms()
@@ -375,6 +379,59 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # for their missing notification.
             _log_error("notify %s" % operation)
 
+    def _snapshot_attached_volumes(self, context,  source_instance, instance):
+        """
+        Creates a snaptshot of all of the attached volumes.
+        """
+
+        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context, instance['uuid'])
+        root_device_name = source_instance['root_device_name']
+        snapshots = []
+
+        paused = False
+        for bdm in block_device_mappings:
+            if bdm.no_device:
+                continue
+
+            if not paused:
+                self.vms_conn.pause_instance(source_instance)
+                paused = True
+
+            volume_id = getattr(bdm, 'volume_id')
+            if volume_id:
+                # create snapshot based on volume_id
+                volume = self.volume_api.get(context, volume_id)
+
+                name = _('snapshot for %s') % instance['name']
+                snapshot = self.volume_api.create_snapshot_force(
+                    context, volume, name, volume['display_description'])
+
+                # Update the blessed device mapping to include the snapshot id.
+                # We also mark it for deletion and this will cascade to the
+                # volume booted when launching.
+                self.db.block_device_mapping_update(context.elevated(),
+                                                    bdm['id'],
+                                                    {'snapshot_id': snapshot['id'],
+                                                     'delete_on_termination': True,
+                                                     'volume_id': None})
+
+    def _discard_blessed_snapshots(self, context, instance):
+        """Removes the snapshots created for the blessed instance."""
+        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context, instance['uuid'])
+
+        for bdm in block_device_mappings:
+            if bdm.no_device:
+                continue
+
+            snapshot_id = getattr(bdm, 'snapshot_id')
+            if snapshot_id:
+                # Remove the snapshot
+                try:
+                    snapshot = self.volume_api.get_snapshot(context, snapshot_id)
+                    self.volume_api.delete_snapshot(context, snapshot)
+                except:
+                    LOG.warn(_("Failed to remove blessed snapshot %s") %(snapshot_id))
+
     @_lock_call
     def bless_instance(self, context, instance_uuid=None, instance_ref=None,
                        migration_url=None, migration_network_info=None):
@@ -393,11 +450,19 @@ class GridCentricManager(manager.SchedulerDependentManager):
             source_instance_ref = self._get_source_instance(context, instance_uuid)
             migration = False
 
+        if not(migration):
+            try:
+                self._snapshot_attached_volumes(context, source_instance_ref, instance_ref)
+            except:
+                _log_error("snapshot volumes")
+                raise
+
         try:
             # Create a new 'blessed' VM with the given name.
             # NOTE: If this is a migration, then a successful bless will mean that
             # the VM no longer exists. This requires us to *relaunch* it below in
             # the case of a rollback later on.
+            #
             name, migration_url, blessed_files = self.vms_conn.bless(context,
                                                 source_instance_ref['name'],
                                                 instance_ref,
@@ -606,6 +671,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
         metadata = self._instance_metadata(context, instance_uuid)
         image_refs = self._extract_image_refs(metadata)
 
+        # Try to discard the created snapshots
+        self._discard_blessed_snapshots(context, instance_ref)
         # Call discard in the backend.
         self.vms_conn.discard(context, instance_ref['name'], image_refs=image_refs)
 
@@ -704,6 +771,24 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # Extract out the image ids from the source instance's metadata.
         metadata = self._instance_metadata(context, source_instance_ref['uuid'])
+
+        try:
+            # NOTE(dscannell): This will construct the block_device_info object
+            # that gets passed to build/attached the volumes to the launched
+            # instance. Note that this method will also create full volumes our
+            # of any snapshot referenced by the instance's block_device_mapping.
+            block_device_info = self.compute_manager._setup_block_device_mapping(context,
+                                                                                 instance_ref)
+        except:
+            # Since this creates volumes there are host of issues that can go wrong
+            # (e.g. cinder is down, quotas have been reached, snapshot deleted, etc).
+            _log_error("setting up block device mapping")
+            if not(migration_url):
+                self._instance_update(context, instance_ref['uuid'],
+                                      vm_state=vm_states.ERROR,
+                                      task_state=None)
+            raise
+
         image_refs = self._extract_image_refs(metadata)
 
         if migration_network_info != None:
@@ -758,7 +843,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                  migration_url=migration_url,
                                  image_refs=image_refs,
                                  params=params,
-                                 vms_policy=vms_policy)
+                                 vms_policy=vms_policy,
+                                 block_device_info=block_device_info)
 
             if not(migration_url):
                 self._notify(context, instance_ref, "launch.end", network_info=network_info)

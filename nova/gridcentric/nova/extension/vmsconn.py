@@ -166,14 +166,16 @@ class VmsConnection:
     @_log_call
     def launch(self, context, instance_name, new_instance_ref,
                network_info, skip_image_service=False, target=0,
-               migration_url=None, image_refs=[], params={}, vms_policy=''):
+               migration_url=None, image_refs=[], params={}, vms_policy='',
+               block_device_info=None):
         """
         Launch a blessed instance
         """
         new_name, path = self.pre_launch(context, new_instance_ref, network_info,
                                         migration=(migration_url and True),
                                         skip_image_service=skip_image_service,
-                                        image_refs=image_refs)
+                                        image_refs=image_refs,
+                                        block_device_info=block_device_info)
 
 
         # Launch the new VM.
@@ -215,6 +217,10 @@ class VmsConnection:
     @_log_call
     def post_migration(self, context, instance_ref, network_info, migration_url):
         pass
+
+    @_log_call
+    def pause_instance(self, instance_ref):
+        self.vmsapi.pause(instance_ref['name'])
 
 class DummyConnection(VmsConnection):
     def configure(self):
