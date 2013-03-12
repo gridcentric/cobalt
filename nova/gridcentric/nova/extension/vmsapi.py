@@ -32,6 +32,8 @@ import vms.vmsrun as vmsrun
 
 LOG = logging.getLogger('nova.gridcentric.vmsapi')
 
+commands.USE_NAMES = True
+
 class VmsApi(object):
     """
     The interface into the vms commands. This will be versioned whenever the vms interface
@@ -89,6 +91,9 @@ class VmsApi(object):
                     ctrl.kill(timeout=1.0)
             except control.ControlException:
                 pass
+
+    def pause(self, instance_name):
+        return tpool.execute(commands.pause, instance_name)
 
 class VmsApi26(VmsApi):
 
