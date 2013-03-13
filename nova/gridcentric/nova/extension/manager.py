@@ -337,11 +337,21 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Return the device name.
         return devname
 
+    def _extract_list(self, metadata, key):
+        return_list = metadata.get(key, '').split(',')
+        if len(return_list) == 1 and return_list[0] == '':
+            return_list = []
+        return return_list
+
     def _extract_image_refs(self, metadata):
-        image_refs = metadata.get('images', '').split(',')
-        if len(image_refs) == 1 and image_refs[0] == '':
-            image_refs = []
-        return image_refs
+        return self._extract_list(metadata, 'images')
+
+    def _extract_lvm_info(self, metadata):
+        lvms = self._extract_list(metadata, 'logical_volumes')
+        lvm_info = {}
+        for key, value in map(lambda x: x.split(':'), lvms):
+            lvm_info[key] = value
+        return lvm_info
 
     def _get_source_instance(self, context, instance_uuid):
         """ 
@@ -477,8 +487,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # NOTE: If this is a migration, then a successful bless will mean that
             # the VM no longer exists. This requires us to *relaunch* it below in
             # the case of a rollback later on.
-            #
-            name, migration_url, blessed_files = self.vms_conn.bless(context,
+            name, migration_url, blessed_files, lvms = self.vms_conn.bless(context,
                                                 source_instance_ref['name'],
                                                 instance_ref,
                                                 migration_url=migration_url)
@@ -503,6 +512,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             metadata = self._instance_metadata(context, instance_uuid)
             LOG.debug("image_refs = %s" % image_refs)
             metadata['images'] = ','.join(image_refs)
+            metadata['logical_volumes'] = ','.join(lvms)
             if not(migration):
                 metadata['blessed'] = True
             self._instance_metadata_update(context, instance_uuid, metadata)
@@ -809,6 +819,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             raise
 
         image_refs = self._extract_image_refs(metadata)
+        lvm_info = self._extract_lvm_info(metadata)
 
         if migration_network_info != None:
             # (dscannell): Since this migration_network_info came over the wire we need
@@ -863,7 +874,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                  image_refs=image_refs,
                                  params=params,
                                  vms_policy=vms_policy,
-                                 block_device_info=block_device_info)
+                                 block_device_info=block_device_info,
+                                 lvm_info=lvm_info)
 
             if not(migration_url):
                 self._notify(context, instance_ref, "launch.end", network_info=network_info)
