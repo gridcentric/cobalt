@@ -17,9 +17,11 @@
 Interfaces that configure vms and perform hypervisor specific operations.
 """
 
+import hashlib
 import os
 import pwd
 import tempfile
+import uuid
 
 from glanceclient.exc import HTTPForbidden
 
@@ -29,6 +31,7 @@ from nova import flags
 
 from nova.image import glance
 from nova.virt import images
+from nova.virt.libvirt import utils as libvirt_utils
 from nova.compute import utils as compute_utils
 from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
@@ -106,12 +109,12 @@ class VmsConnection:
         instance the name new_instance_name.
         """
         new_instance_name = new_instance_ref['name']
-        (newname, network, blessed_files) = self.vmsapi.bless(instance_name, new_instance_name,
-                                                              mem_url=migration_url, migration=migration_url and True)
+        result = self.vmsapi.bless(instance_name, new_instance_name,
+                                   mem_url=migration_url, migration=migration_url and True)
 
-        self._chmod_blessed_files(blessed_files)
+        self._chmod_blessed_files(result.blessed_files)
 
-        return (newname, network, blessed_files)
+        return (result.newname, result.network, result.blessed_files, result.logical_volumes)
 
     def _chmod_blessed_files(self, blessed_files):
         """ Change the permission on the blessed files """
@@ -167,7 +170,7 @@ class VmsConnection:
     def launch(self, context, instance_name, new_instance_ref,
                network_info, skip_image_service=False, target=0,
                migration_url=None, image_refs=[], params={}, vms_policy='',
-               block_device_info=None):
+               block_device_info=None,lvm_info={}):
         """
         Launch a blessed instance
         """
@@ -175,8 +178,8 @@ class VmsConnection:
                                         migration=(migration_url and True),
                                         skip_image_service=skip_image_service,
                                         image_refs=image_refs,
-                                        block_device_info=block_device_info)
-
+                                        block_device_info=block_device_info,
+                                        lvm_info=lvm_info)
 
         # Launch the new VM.
         vms_options = {'memory.policy':vms_policy}
@@ -199,7 +202,8 @@ class VmsConnection:
                    block_device_info=None,
                    migration=False,
                    skip_image_service=False,
-                   image_refs=[]):
+                   image_refs=[],
+                   lvm_info={}):
         return (new_instance_ref.name, None)
 
     @_log_call
@@ -292,6 +296,73 @@ class LibvirtConnection(VmsConnection):
                        "Please configure the openstack_user flag correctly." % (openstack_user))
             raise e
 
+    def _stub_disks(self, instance, block_device_info, lvm_info):
+        # Note(dscannell): We want to stub out the disks that nova expects to
+        # to exists and our calls _create_image will lazy create them. There
+        # are essentially two disk we need to stub:
+        #       disk - the instance's root disk (optional)
+        #       disk.local - some ephemeral storage (optional).
+        #
+        # Once we know which disks to stub we figure out the backend nova is
+        # using and stub them with the correct path.
+        disk_names_to_stub = []
+        if not self.libvirt_conn._volume_in_mapping(self.libvirt_conn.default_root_device,
+                                                block_device_info):
+
+            disk_names_to_stub.append('disk')
+        if self._instance_has_ephemeral(instance, block_device_info):
+            # We will have to stub out the ephemeral disk as well.
+            disk_names_to_stub.append('disk.local')
+
+        stubbed_disks = {}
+        for disk_name in disk_names_to_stub:
+            lvm_size = None
+            for lvm_path, size in lvm_info.iteritems():
+                # The last part of the lvm path will be the disk name
+                # which is either 'disk' or 'disk.local'.
+                if lvm_path.endswith(disk_name):
+                    # This disk file corresponds to this lvm path. We should
+                    # make it the same size.
+                    lvm_size = int(size)
+
+            nova_disk = self.libvirt_conn.image_backend.image(instance['name'],
+                                                              disk_name,
+                                                              FLAGS.libvirt_images_type)
+            self._stub_disk(nova_disk, size=lvm_size)
+            stubbed_disks[disk_name] = nova_disk
+
+        return stubbed_disks
+
+    def _stub_disk(self, nova_disk, size=None):
+        disk_file = nova_disk.path
+        source_type = nova_disk.source_type
+
+        disk_dir = os.path.dirname(disk_file)
+        if source_type == 'file':
+            # We need to make sure that the file & directory exists as the openstack user
+            mkdir_as(disk_dir, self.openstack_uid)
+            touch_as(disk_file, self.openstack_uid)
+            os.chown(disk_file, self.openstack_uid, self.openstack_gid)
+
+        elif source_type == 'block':
+            # Note(dscannell) it is a requirement for nova that the volume group already
+            # exists. However we need to create the LVM
+            if size != None:
+                libvirt_utils.create_lvm_image(nova_disk.vg, nova_disk.lv,
+                    size, sparse=nova_disk.sparse)
+            else:
+                LOG.warn(_("Unable to determine the size for the lvm %s") %(disk_file))
+        else:
+            raise exception.NovaException("Unsupported disk type %s" %(source_type))
+
+        return disk_file
+
+    def _instance_has_ephemeral(self, instance, block_device_info):
+        """This mimics the check the libvirt driver does to determine
+        if ephemeral storage should be added."""
+        return instance['ephemeral_gb'] and \
+               self.libvirt_conn._volume_in_mapping(self.libvirt_conn.default_second_device,
+                                                    block_device_info)
 
     @_log_call
     def pre_launch(self, context,
@@ -300,7 +371,8 @@ class LibvirtConnection(VmsConnection):
                    block_device_info=None,
                    migration=False,
                    skip_image_service=False,
-                   image_refs=[]):
+                   image_refs=[],
+                   lvm_info={}):
 
         image_base_path = None
         if not(skip_image_service) and FLAGS.gridcentric_use_image_service:
@@ -346,18 +418,12 @@ class LibvirtConnection(VmsConnection):
         # We need to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
         working_dir = os.path.join(FLAGS.instances_path, new_instance_ref['name'])
-        disk_file = os.path.join(working_dir, "disk")
-        libvirt_file = os.path.join(working_dir, "libvirt.xml")
 
+        stubbed_disks = self._stub_disks(new_instance_ref,block_device_info,lvm_info)
+
+        libvirt_file = os.path.join(working_dir, "libvirt.xml")
         # Make sure that our working directory exists.
         mkdir_as(working_dir, self.openstack_uid)
-
-        if not(os.path.exists(disk_file)):
-            # (dscannell) We will write out a stub 'disk' file so that we don't
-            # end up copying this file when setting up everything for libvirt.
-            # Essentially, this file will be removed, and replaced by vms as an
-            # overlay on the blessed root image.
-            touch_as(disk_file, self.openstack_uid)
 
         # (dscannell) We want to disable any injection. We do this by making a
         # copy of the instance and clearing out some entries. Since OpenStack
@@ -379,12 +445,17 @@ class LibvirtConnection(VmsConnection):
         # functionality.
         xml = self.libvirt_conn.to_xml(instance_dict, network_info, False,
                                    block_device_info=block_device_info)
-        self.libvirt_conn._create_image(context, instance_dict, xml, network_info=network_info,
+        self.libvirt_conn._create_image(context, instance_dict, xml,
+                                    network_info=network_info,
                                     block_device_info=block_device_info)
 
+
         if not(migration):
-            # (dscannell) Remove the fake disk file (if created).
-            os.remove(disk_file)
+            for disk_name, disk_file in stubbed_disks.iteritems():
+                disk_path = disk_file.path
+                if os.path.exists(disk_path) and disk_file.source_type == 'file':
+                    # (dscannell) Remove the fake disk file (if created).
+                    os.remove(disk_path)
 
         # Fix up the permissions on the files that we created so that they are owned by the
         # openstack user.

@@ -119,7 +119,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
     def test_bless_instance(self):
 
         self.vmsconn.set_return_val("bless",
-                                    ("newname", "migration_url", ["file1", "file2", "file3"]))
+                                    ("newname", "migration_url", ["file1", "file2", "file3"],[]))
         self.vmsconn.set_return_val("post_bless", ["file1_ref", "file2_ref", "file3_ref"])
         self.vmsconn.set_return_val("bless_cleanup", None)
 
@@ -178,7 +178,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
 
     def test_bless_instance_migrate(self):
         self.vmsconn.set_return_val("bless",
-                                    ("newname", "migration_url", ["file1", "file2", "file3"]))
+                                    ("newname", "migration_url", ["file1", "file2", "file3"], []))
         self.vmsconn.set_return_val("post_bless", ["file1_ref", "file2_ref", "file3_ref"])
         self.vmsconn.set_return_val("bless_cleanup", None)
 
