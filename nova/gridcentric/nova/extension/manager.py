@@ -415,9 +415,24 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                                      'delete_on_termination': True,
                                                      'volume_id': None})
 
+    def _detach_volumes(self, context, instance):
+        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context,
+                                                                                 instance['uuid'])
+        for bdm in block_device_mappings:
+            try:
+                volume = self.volume_api.get(context, bdm['volume_id'])
+                connector = self.compute_manager.driver.get_volume_connector(instance)
+                self.volume_api.terminate_connection(context, volume, connector)
+                self.volume_api.detach(context, volume)
+            except exception.DiskNotFound as exc:
+                LOG.warn(_('Ignoring DiskNotFound: %s') % exc, instance=instance)
+            except exception.VolumeNotFound as exc:
+                LOG.warn(_('Ignoring VolumeNotFound: %s') % exc, instance=instance)
+
     def _discard_blessed_snapshots(self, context, instance):
         """Removes the snapshots created for the blessed instance."""
-        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context, instance['uuid'])
+        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context,
+                                                                                 instance['uuid'])
 
         for bdm in block_device_mappings:
             if bdm.no_device:
@@ -498,7 +513,11 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                       vm_state="blessed", task_state=None,
                                       launched_at=timeutils.utcnow(),
                                       disable_terminate=True)
+            else:
+                self._detach_volumes(context, instance_ref)
+
         except:
+            _log_error("post_bless")
             if migration:
                 self.vms_conn.launch(context,
                                      source_instance_ref['name'],
