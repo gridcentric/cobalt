@@ -556,6 +556,45 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Return the memory URL (will be None for a normal bless).
         return migration_url
 
+    def _instance_floating_ips(self, context, instance):
+        # Returns a list of all the floating points for the instance.
+        floating_ips =[]
+        fixed_ips = self.db.fixed_ip_get_by_instance(context, instance['uuid'])
+        if fixed_ips:
+            for fixed_ip in fixed_ips:
+                network = self.db.network_get(context, fixed_ip['network_id'])
+                if network['multi_host']:
+                    floating = self.db.floating_ip_get_by_fixed_address(context,
+                                                                        fixed_ip['address'])
+                    if floating:
+                        floating_ips += [(fixed_ip['address'], ip) for ip in floating]
+
+        return floating_ips
+
+    def _migrate_floating_ips(self, context, floating_ips, src, dest):
+        # TODO(dscannell): In grizzly this have been made into an actual
+        # network API call. We should use that call instead of doing our
+        # own thing. That will ensure we are compatible with Quantum.
+
+        src_network_queue = rpc.queue_get_for(context, FLAGS.network_topic, src)
+        dest_network_queue = rpc.queue_get_for(context, FLAGS.network_topic, dest)
+        for (fixed_address, floating_ip) in floating_ips:
+            # We want to disassociate with on the source host and then associated it
+            # on the destination host.
+            #
+            # NOTE(dscannell): we should only have to do this on a multi_network because
+            # otherwise the central networking should take care of everything.
+            rpc.call(context, src_network_queue,
+                {'method': '_disassociate_floating_ip',
+                 'args': {'address': floating_ip['address'],
+                          'interface': floating_ip['interface']}})
+            rpc.call(context, dest_network_queue,
+                {'method': '_associate_floating_ip',
+                 'args': {'floating_address': floating_ip['address'],
+                          'fixed_address': fixed_address,
+                          'interface': floating_ip['interface']}})
+
+
     @_lock_call
     def migrate_instance(self, context, instance_uuid=None, instance_ref=None, dest=None):
         """
@@ -619,6 +658,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Run our premigration hook.
         self.vms_conn.pre_migration(context, instance_ref, network_info, migration_url)
 
+        # Migrate floating ips
+        floating_ips = self._instance_floating_ips(context, instance_ref)
+        try:
+            self._migrate_floating_ips(context, floating_ips, self.host, dest)
+        except:
+            _log_error("migrating floating ips.")
+            raise
+
         try:
             # Launch on the different host. With the non-null migration_url,
             # the launch will assume that all the files are the same places are
@@ -650,6 +697,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                  instance_ref=instance_ref,
                                  migration_url=migration_url,
                                  migration_network_info=network_info)
+
+            # Try two re-assign the floating ips back to the source host.
+            try:
+                self._migrate_floating_ips(context, floating_ips, dest, self.host)
+            except:
+                _log_error("undo migration of floating ips")
             changed_hosts = False
 
         # Teardown any specific migration state on this host.
