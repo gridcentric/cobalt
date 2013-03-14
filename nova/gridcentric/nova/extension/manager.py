@@ -835,9 +835,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                       task_state=None)
                 return
 
-        # Update the task state to spawning from networking.
-        self._instance_update(context, instance_ref['uuid'],
-                              task_state=task_states.SPAWNING)
+            # Update the task state to spawning from networking.
+            self._instance_update(context, instance_ref['uuid'],
+                                  task_state=task_states.SPAWNING)
 
         try:
             # The main goal is to have the nova-compute process take ownership of setting up
