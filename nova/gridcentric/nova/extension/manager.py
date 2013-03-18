@@ -670,11 +670,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         return network_info
 
-    def _generate_vms_policy_name(self, context, instance):
+    def _generate_vms_policy_name(self, context, instance, source_instance):
         instance_type = self.db.instance_type_get_by_flavor_id(context, instance['instance_type_id'])
-        policy_attrs = (('flavor', instance_type['name']),
-                        ('name', instance.name),
-                        ('tenant', instance['project_id']),)
+        policy_attrs = (('blessed', source_instance['uuid']),
+                        ('flavor', instance_type['name']),
+                        ('tenant', instance['project_id']),
+                        ('uuid', instance['uuid']),)
         return "".join([";%s=%s;" %(key, value) for (key, value) in policy_attrs])
 
     @_lock_call
@@ -755,7 +756,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                               'disk': None}},
                     timeout=FLAGS.gridcentric_compute_timeout)
 
-            vms_policy = self._generate_vms_policy_name(context, instance_ref)
+            vms_policy = self._generate_vms_policy_name(context, instance_ref,
+                                                        source_instance_ref)
             self.vms_conn.launch(context,
                                  source_instance_ref['name'],
                                  instance_ref,
