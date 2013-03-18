@@ -174,7 +174,9 @@ class GridCentricManagerTestCase(unittest.TestCase):
     def test_launch_instance(self):
 
         self.vmsconn.set_return_val("launch", None)
-        launched_uuid = utils.create_pre_launched_instance(self.context)
+        blessed_uuid = utils.create_blessed_instance(self.context)
+        launched_uuid = utils.create_pre_launched_instance(self.context,
+                                                source_uuid=blessed_uuid)
 
         pre_launch_time = datetime.utcnow()
         self.gridcentric.launch_instance(self.context, instance_uuid=launched_uuid)
@@ -187,7 +189,8 @@ class GridCentricManagerTestCase(unittest.TestCase):
         self.assertEquals(self.gridcentric.host, launched_instance['host'])
 
         # Ensure the proper vms policy is passed into vmsconn
-        self.assertEquals(';flavor=m1.small;;name=%s;;tenant=fake;' %(launched_instance.name),
+        self.assertEquals(';blessed=%s;;flavor=m1.small;;tenant=fake;;uuid=%s;'\
+                             % (blessed_uuid, launched_uuid),
             self.vmsconn.params_passed[0]['kwargs']['vms_policy'])
 
     def test_launch_instance_images(self):
