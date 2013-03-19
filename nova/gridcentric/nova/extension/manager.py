@@ -673,7 +673,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         return network_info
 
     def _generate_vms_policy_name(self, context, instance, source_instance):
-        instance_type = self.db.instance_type_get_by_flavor_id(context, instance['instance_type_id'])
+        instance_type = self.db.instance_type_get(context, instance['instance_type_id'])
         policy_attrs = (('blessed', source_instance['uuid']),
                         ('flavor', instance_type['name']),
                         ('tenant', instance['project_id']),
