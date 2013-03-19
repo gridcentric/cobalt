@@ -189,7 +189,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
         self.assertEquals(self.gridcentric.host, launched_instance['host'])
 
         # Ensure the proper vms policy is passed into vmsconn
-        self.assertEquals(';blessed=%s;;flavor=m1.small;;tenant=fake;;uuid=%s;'\
+        self.assertEquals(';blessed=%s;;flavor=m1.tiny;;tenant=fake;;uuid=%s;'\
                              % (blessed_uuid, launched_uuid),
             self.vmsconn.params_passed[0]['kwargs']['vms_policy'])
 
@@ -283,3 +283,12 @@ class GridCentricManagerTestCase(unittest.TestCase):
 
             self.assertTrue(pre_discard_time <= discarded_instance['terminated_at'])
             self.assertEquals(vm_states.DELETED, discarded_instance['vm_state'])
+
+    def test_vms_policy_generation_custom_flavor(self):
+        flavor = utils.create_flavor()
+        instance_uuid = utils.create_instance(self.context, {'instance_type_id': flavor['id']})
+        instance = db.instance_get_by_uuid(self.context, instance_uuid)
+        vms_policy = self.gridcentric._generate_vms_policy_name(self.context, instance, instance)
+        expected_policy = ';blessed=%s;;flavor=%s;;tenant=%s;;uuid=%s;' \
+                          %(instance['uuid'], flavor['name'], self.context.project_id, instance['uuid'])
+        self.assertEquals(expected_policy, vms_policy)
