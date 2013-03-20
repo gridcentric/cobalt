@@ -367,7 +367,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         Construct the blessed instance, with the uuid instance_uuid. If migration_url is specified then
         bless will ensure a memory server is available at the given migration url.
         """
-
+        context = context.elevated()
         if migration_url:
             # Tweak only this instance directly.
             source_instance_ref = instance_ref
@@ -478,6 +478,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         Migrates an instance, dealing with special streaming cases as necessary.
         """
 
+        context = context.elevated()
         # FIXME: This live migration code does not currently support volumes,
         # nor floating IPs. Both of these would be fairly straight-forward to
         # add but probably cry out for a better factoring of this class as much
@@ -607,6 +608,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
     def discard_instance(self, context, instance_uuid=None, instance_ref=None):
         """ Discards an instance so that no further instances maybe be launched from it. """
 
+        context = context.elevated()
         self._notify(instance_ref, "discard.start")
         metadata = self._instance_metadata(context, instance_uuid)
         image_refs = self._extract_image_refs(metadata)
@@ -686,6 +688,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         the instance will be launched using the memory server at the migration_url
         """
 
+        context = context.elevated()
         if params == None:
             params = {}
 
