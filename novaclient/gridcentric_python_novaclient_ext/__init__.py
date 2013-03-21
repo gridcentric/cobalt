@@ -323,9 +323,17 @@ class GcServer(servers.Server):
     """
 
     def launch(self, target="0", name=None, user_data=None, guest_params={},
-               security_groups=None, num_instances=1, key_name=None):
-        return self.manager.launch(self, target, name, user_data, guest_params,
-                                   security_groups, num_instances, key_name)
+               security_groups=None, availability_zone=None, num_instances=1,
+               key_name=None):
+        return self.manager.launch(self,
+                                   target=target,
+                                   name=name,
+                                   user_data=user_data,
+                                   guest_params=guest_params,
+                                   security_groups=security_groups,
+                                   availability_zone=availability_zone,
+                                   num_instances=num_instances,
+                                   key_name=key_name)
 
     def bless(self, name=None):
         return self.manager.bless(self, name)
