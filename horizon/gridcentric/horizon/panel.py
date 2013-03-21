@@ -15,12 +15,6 @@
 
 from horizon.dashboards.nova import dashboard
 from horizon.dashboards.nova.instances import panel
-from horizon.dashboards.syspanel.instances.tables import SyspanelInstancesTable
-
-# Add blessed status to syspanel
-SyspanelInstancesTable.STATUS_CHOICES += (('BLESSED', True),)
-SyspanelInstancesTable._columns["status"].status_choices = \
-    SyspanelInstancesTable.STATUS_CHOICES
 
 # Ensure that the API is loaded and our tables have
 # monkey-patch the internal instance tables. Note that
@@ -29,6 +23,13 @@ SyspanelInstancesTable._columns["status"].status_choices = \
 # like to add more functionality down the line.
 from . import api
 from . import tables
+
+from horizon.dashboards.nova.instances.tables import InstancesTable
+InstancesTable.base_actions['launch'].verbose_name = _("Boot Instance")
+tables.extend_table(InstancesTable)
+
+from horizon.dashboards.syspanel.instances.tables import SyspanelInstancesTable
+tables.extend_table(SyspanelInstancesTable)
 
 class Instances(panel.Instances):
     pass

@@ -74,23 +74,22 @@ def wrap_allowed(fn):
         return fn(self, request, instance=instance)
     not_on_blessed.__name__ = fn.__name__
     return not_on_blessed
-for action in instance_tables.InstancesTable._meta.row_actions:
-    if not(action.name in ("edit",)):
-        action.allowed = wrap_allowed(action.allowed)
 
-# Change the label of the Horizon "Launch" button to "Boot"
-instance_tables.InstancesTable.base_actions['launch'].verbose_name = _("Boot Instance")
+def extend_table(table_class):
+    for action in table_class._meta.row_actions:
+        if not(action.name in ("edit",)):
+            action.allowed = wrap_allowed(action.allowed)
 
-# Enhance the built-in table type to include our actions.
-instance_tables.InstancesTable._meta.row_actions = \
-   list(instance_tables.InstancesTable._meta.row_actions) + \
-   [BlessInstance, DiscardInstance, LaunchBlessed, GCMigrate]
-instance_tables.InstancesTable.base_actions["bless_instance"] = BlessInstance()
-instance_tables.InstancesTable.base_actions["discard"] = DiscardInstance()
-instance_tables.InstancesTable.base_actions["launch_blessed"] = LaunchBlessed()
-instance_tables.InstancesTable.base_actions["gc_migrate"] = GCMigrate()
+    # Enhance the built-in table type to include our actions.
+    table_class._meta.row_actions = \
+       list(table_class._meta.row_actions) + \
+       [BlessInstance, DiscardInstance, LaunchBlessed, GCMigrate]
+    table_class.base_actions["bless_instance"] = BlessInstance()
+    table_class.base_actions["discard"] = DiscardInstance()
+    table_class.base_actions["launch_blessed"] = LaunchBlessed()
+    table_class.base_actions["gc_migrate"] = GCMigrate()
 
-# Include blessed as a status choice.
-instance_tables.InstancesTable.STATUS_CHOICES += (("BLESSED", True),)
-instance_tables.InstancesTable._columns["status"].status_choices = \
-    instance_tables.InstancesTable.STATUS_CHOICES
+    # Include blessed as a status choice.
+    table_class.STATUS_CHOICES += (("BLESSED", True),)
+    table_class._columns["status"].status_choices = \
+        table_class.STATUS_CHOICES
