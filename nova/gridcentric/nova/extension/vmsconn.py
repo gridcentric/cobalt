@@ -103,12 +103,12 @@ class VmsConnection:
         instance the name new_instance_name.
         """
         new_instance_name = new_instance_ref['name']
-        (newname, network, blessed_files) = self.vmsapi.bless(instance_name, new_instance_name,
-                                                              mem_url=migration_url, migration=migration_url and True)
+        result = self.vmsapi.bless(instance_name, new_instance_name,
+                                   mem_url=migration_url, migration=migration_url and True)
 
-        self._chmod_blessed_files(blessed_files)
+        self._chmod_blessed_files(result.blessed_files)
 
-        return (newname, network, blessed_files)
+        return (result.newname, result.network, result.blessed_files)
 
     def _chmod_blessed_files(self, blessed_files):
         """ Change the permission on the blessed files """
