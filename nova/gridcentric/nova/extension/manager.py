@@ -529,6 +529,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
         except:
             _log_error("post_bless")
             if migration:
+                # Get a reference to the block_device_info for the instance. This will be needed
+                # if an error occurs during bless and we need to relaunch the instance here.
+                # NOTE(dscannell): We need ensure that the volumes are detached before setting up
+                # the block_device_info, which will reattach the volumes. Doing a double detach
+                # does not seem to create any issues.
+                self._detach_volumes(context, instance_ref)
+                block_device_info = self.compute_manager._setup_block_device_mapping(context,
+                    instance_ref)
                 self.vms_conn.launch(context,
                                      source_instance_ref['name'],
                                      instance_ref,
@@ -537,7 +545,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                      migration_url=migration_url,
                                      skip_image_service=True,
                                      image_refs=blessed_files,
-                                     params={})
+                                     params={},
+                                     block_device_info=block_device_info)
 
             # Ensure that no data is left over here, since we were not
             # able to update the metadata service to save the locations.
