@@ -127,8 +127,20 @@ def create_security_group(context, values):
     values['project_id'] = context.project_id
     return db.security_group_create(context, values)
 
-def create_instance(context, instance=None, driver=None):
+def create_flavor(flavor=None):
+    if flavor == None:
+        flavor = {}
 
+    return instance_types.create(flavor.get('name', create_uuid()),
+                                 flavor.get('memory', 512),
+                                 flavor.get('vcpus', 1),
+                                 flavor.get('root_gb',0),
+                                 flavor.get('ephemeral_gb',0),
+                                 flavor.get('flavorid', None),
+                                 flavor.get('swap', None),
+                                 flavor.get('rxtx_factor',None))
+
+def create_instance(context, instance=None, driver=None):
     """Create a test instance"""
 
     if instance == None:
