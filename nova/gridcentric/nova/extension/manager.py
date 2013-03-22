@@ -464,7 +464,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         Construct the blessed instance, with the uuid instance_uuid. If migration_url is specified then
         bless will ensure a memory server is available at the given migration url.
         """
-
+        context = context.elevated()
         if migration_url:
             # Tweak only this instance directly.
             source_instance_ref = instance_ref
@@ -601,6 +601,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         Migrates an instance, dealing with special streaming cases as necessary.
         """
 
+        context = context.elevated()
         # FIXME: This live migration code does not currently support volumes,
         # nor floating IPs. Both of these would be fairly straight-forward to
         # add but probably cry out for a better factoring of this class as much
@@ -749,6 +750,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
     def discard_instance(self, context, instance_uuid=None, instance_ref=None):
         """ Discards an instance so that no further instances maybe be launched from it. """
 
+        context = context.elevated()
         self._notify(context, instance_ref, "discard.start")
         metadata = self._instance_metadata(context, instance_uuid)
         image_refs = self._extract_image_refs(metadata)
@@ -811,11 +813,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         return network_info
 
-    def _generate_vms_policy_name(self, context, instance):
-        instance_type = self.db.instance_type_get_by_flavor_id(context, instance['instance_type_id'])
-        policy_attrs = (('flavor', instance_type['name']),
-                        ('name', instance['name']),
-                        ('tenant', instance['project_id']),)
+    def _generate_vms_policy_name(self, context, instance, source_instance):
+        instance_type = self.db.instance_type_get(context, instance['instance_type_id'])
+        policy_attrs = (('blessed', source_instance['uuid']),
+                        ('flavor', instance_type['name']),
+                        ('tenant', instance['project_id']),
+                        ('uuid', instance['uuid']),)
         return "".join([";%s=%s;" %(key, value) for (key, value) in policy_attrs])
 
     @_lock_call
@@ -826,6 +829,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         the instance will be launched using the memory server at the migration_url
         """
 
+        context = context.elevated()
         if params == None:
             params = {}
 
@@ -917,7 +921,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                               'disk': None}},
                     timeout=FLAGS.gridcentric_compute_timeout)
 
-            vms_policy = self._generate_vms_policy_name(context, instance_ref)
+            vms_policy = self._generate_vms_policy_name(context, instance_ref,
+                                                        source_instance_ref)
             self.vms_conn.launch(context,
                                  source_instance_ref['name'],
                                  instance_ref,
