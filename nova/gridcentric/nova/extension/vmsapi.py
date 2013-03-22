@@ -32,6 +32,28 @@ import vms.vmsrun as vmsrun
 
 LOG = logging.getLogger('nova.gridcentric.vmsapi')
 
+class BlessResult(object):
+
+    def __init__(self):
+        self.newname = None
+        self.network = None
+        self.blessed_files = []
+        self.logical_volumes = []
+
+    def unpack(self, ret_val):
+        (newname, network, artifacts) = ret_val
+        self.newname = newname
+        self.network = network
+        if isinstance(artifacts, list):
+            # This is an older return type. This list maps to files.
+            self.blessed_files = artifacts
+        else:
+            # Artifacts is a dictionary type object.
+            blessed_files = artifacts.get('files', [])
+            self.blessed_files = [blessed_file['path'] for blessed_file in blessed_files]
+            logical_volumes = artifacts.get('logical_volumes', {})
+            self.logical_volumes = ['%s:%s' %(lv['name'],lv['size_bytes']) for lv in logical_volumes]
+
 class VmsApi(object):
     """
     The interface into the vms commands. This will be versioned whenever the vms interface
@@ -62,12 +84,13 @@ class VmsApi(object):
         return config
 
     def bless(self, instance_name, new_instance_name, mem_url=None, migration=False, **kwargs):
-
-        return tpool.execute(commands.bless,
-            instance_name,
-            new_instance_name,
-            mem_url=mem_url,
-            migration=migration)
+        result = BlessResult()
+        result.unpack(tpool.execute(commands.bless,
+                                    instance_name,
+                                    new_instance_name,
+                                    mem_url=mem_url,
+                                    migration=migration))
+        return result
 
     def create_vmsargs(self, guest_params, vms_options):
         return vmsrun.Arguments(params=guest_params, options=vms_options)
