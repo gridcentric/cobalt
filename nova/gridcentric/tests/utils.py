@@ -126,9 +126,13 @@ def create_instance(context, instance=None, driver=None):
     if instance == None:
         instance = {}
 
+    instance_type = instance_types.get_instance_type_by_name('m1.tiny')
+    system_metadata = instance_types.save_instance_type_info(dict(), instance_type)
+
     instance.setdefault('user_id', context.user_id)
     instance.setdefault('project_id', context.project_id)
-    instance.setdefault('instance_type_id', instance_types.get_instance_type_by_name('m1.tiny')['id'])
+    instance.setdefault('instance_type_id', instance_type['id'])
+    instance.setdefault('system_metadata', system_metadata)
     instance.setdefault('image_id', 1)
     instance.setdefault('image_ref', 1)
     instance.setdefault('reservation_id', 'r-fakeres')

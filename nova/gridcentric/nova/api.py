@@ -18,6 +18,7 @@
 import random
 
 from nova import compute
+from nova.compute import instance_types
 from nova.compute import task_states
 from nova.compute import vm_states
 from nova import exception
@@ -75,7 +76,7 @@ class API(base.Base):
 
     def _acquire_addition_reservation(self, context, instance):
         # Check the quota to see if we can launch a new instance.
-        instance_type = instance['instance_type']
+        instance_type = instance_types.extract_instance_type(instance)
 
         # check against metadata
         metadata = self.db.instance_metadata_get(context, instance['uuid'])
@@ -113,6 +114,10 @@ class API(base.Base):
         else:
             metadata = {'blessed_from':'%s' % (instance_ref['uuid'])}
 
+        system_metadata = {}
+        for data in instance_ref.get('system_metadata', []):
+            system_metadata[data['key']] = data['value']
+
         instance = {
            'reservation_id': utils.generate_uid('r'),
            'image_ref': image_ref,
@@ -137,6 +142,7 @@ class API(base.Base):
            'availability_zone': instance_ref['availability_zone'],
            'os_type': instance_ref['os_type'],
            'host': None,
+           'system_metadata': system_metadata
         }
         new_instance_ref = self.db.instance_create(context, instance)
 
