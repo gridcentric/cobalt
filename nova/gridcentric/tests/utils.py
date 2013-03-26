@@ -25,6 +25,8 @@ from nova.compute import power_state
 from nova.network import model as network_model
 from nova.virt.fake import FakeInstance
 
+from gridcentric.nova import api
+
 class TestInducedException(Exception):
 
     def __init__(self, *args, **kwargs):
@@ -52,10 +54,14 @@ mock_rpc = MockRpc()
 rpc.call = mock_rpc.call
 rpc.cast = mock_rpc.cast
 
+def do_nothing(*args, **kwargs):
+    pass
+
 def mock_policy():
-    def _mock_enforce(*args, **kwargs):
-        pass
-    policy.enforce = _mock_enforce
+    policy.enforce = do_nothing
+
+def mock_quota():
+    api.API._check_quota = do_nothing
 
 class MockVmsConn(object):
     """
@@ -64,6 +70,7 @@ class MockVmsConn(object):
     """
     def __init__(self):
         self.return_vals = {}
+        self.params_passed = []
 
     def set_return_val(self, method, value):
         values = self.return_vals.get(method, [])
@@ -82,32 +89,36 @@ class MockVmsConn(object):
     def configure(self):
         pass
 
-    def bless(self, context, instance_name, new_instance_ref,
-              migration_url=None, use_image_service=False):
+    def bless(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("bless")
 
-    def post_bless(self, context, new_instance_ref, blessed_files):
+    def post_bless(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("post_bless")
 
-    def bless_cleanup(self, blessed_files):
+    def bless_cleanup(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("bless_cleanup")
 
-    def discard(self, context, instance_name, use_image_service=False, image_refs=[]):
+    def discard(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("discard")
 
-    def launch(self, context, instance_name, new_instance_ref,
-               network_info, skip_image_service=False, target=0,
-               migration_url=None, image_refs=[], params={}):
+    def launch(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("launch")
 
-    def replug(self, instance_name, mac_addresses):
+    def replug(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("replug")
 
-    def pre_migration(self, context, instance_ref, network_info, migration_url):
+    def pre_migration(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("pre_migration")
 
-    def post_migration(self, context, instance_ref, network_info, migration_url,
-                       use_image_service=False, image_refs=[]):
+    def post_migration(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("post_migration")
 
 def create_uuid():
@@ -119,8 +130,20 @@ def create_security_group(context, values):
     values['project_id'] = context.project_id
     return db.security_group_create(context, values)
 
-def create_instance(context, instance=None, driver=None):
+def create_flavor(flavor=None):
+    if flavor == None:
+        flavor = {}
 
+    return instance_types.create(flavor.get('name', create_uuid()),
+                                 flavor.get('memory', 512),
+                                 flavor.get('vcpus', 1),
+                                 flavor.get('root_gb',0),
+                                 flavor.get('ephemeral_gb',0),
+                                 flavor.get('flavorid', None),
+                                 flavor.get('swap', None),
+                                 flavor.get('rxtx_factor',None))
+
+def create_instance(context, instance=None, driver=None):
     """Create a test instance"""
 
     if instance == None:
@@ -187,7 +210,8 @@ def create_blessed_instance(context, instance=None, source_uuid=None):
     instance['vm_state'] = 'blessed'
     metadata = instance.get('metadata', {})
     metadata['blessed_from'] = source_uuid
-    metadata['images'] = ''
+    if 'images' not in metadata:
+        metadata['images'] = ''
     instance['metadata'] = metadata
 
     return create_instance(context, instance)
@@ -205,6 +229,16 @@ def create_pre_launched_instance(context, instance=None, source_uuid=None):
 
     return create_instance(context, instance)
 
+def create_launched_instance(context, instance=None, source_uuid=None):
+
+    if instance == None:
+        instance = {}
+
+    instance['vm_state'] = vm_states.ACTIVE
+    instance['host'] = "TEST_HOST"
+
+    return create_pre_launched_instance(context, instance=instance, source_uuid=source_uuid)
+
 def fake_networkinfo(*args, **kwargs):
     return network_model.NetworkInfo()
 
@@ -215,3 +249,4 @@ def create_gridcentric_service(context):
                }
     db.service_create(context, service)
     return service
+

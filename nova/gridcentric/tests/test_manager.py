@@ -30,13 +30,13 @@ from oslo.config import cfg
 
 import gridcentric.nova.extension.manager as gc_manager
 import gridcentric.tests.utils as utils
+import gridcentric.nova.extension.vmsconn as vmsconn
 
 CONF = cfg.CONF
 
 class GridCentricManagerTestCase(unittest.TestCase):
 
     def setUp(self):
-        CONF.connection_type = 'fake'
         CONF.compute_driver = 'fake.FakeDriver'
 
         # Copy the clean database over
@@ -106,7 +106,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
     def test_bless_instance(self):
 
         self.vmsconn.set_return_val("bless",
-                                    ("newname", "migration_url", ["file1", "file2", "file3"]))
+                                    ("newname", "migration_url", ["file1", "file2", "file3"],[]))
         self.vmsconn.set_return_val("post_bless", ["file1_ref", "file2_ref", "file3_ref"])
         self.vmsconn.set_return_val("bless_cleanup", None)
 
@@ -165,7 +165,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
 
     def test_bless_instance_migrate(self):
         self.vmsconn.set_return_val("bless",
-                                    ("newname", "migration_url", ["file1", "file2", "file3"]))
+                                    ("newname", "migration_url", ["file1", "file2", "file3"], []))
         self.vmsconn.set_return_val("post_bless", ["file1_ref", "file2_ref", "file3_ref"])
         self.vmsconn.set_return_val("bless_cleanup", None)
 
@@ -186,7 +186,9 @@ class GridCentricManagerTestCase(unittest.TestCase):
     def test_launch_instance(self):
 
         self.vmsconn.set_return_val("launch", None)
-        launched_uuid = utils.create_pre_launched_instance(self.context)
+        blessed_uuid = utils.create_blessed_instance(self.context)
+        launched_uuid = utils.create_pre_launched_instance(self.context,
+                                                source_uuid=blessed_uuid)
 
         pre_launch_time = datetime.utcnow()
         self.gridcentric.launch_instance(self.context, instance_uuid=launched_uuid)
@@ -197,6 +199,28 @@ class GridCentricManagerTestCase(unittest.TestCase):
         self.assertTrue(pre_launch_time <= launched_instance['launched_at'])
         self.assertEquals(None, launched_instance['task_state'])
         self.assertEquals(self.gridcentric.host, launched_instance['host'])
+
+        # Ensure the proper vms policy is passed into vmsconn
+        self.assertEquals(';blessed=%s;;flavor=m1.tiny;;tenant=fake;;uuid=%s;'\
+                             % (blessed_uuid, launched_uuid),
+            self.vmsconn.params_passed[0]['kwargs']['vms_policy'])
+
+    def test_launch_instance_images(self):
+        self.vmsconn.set_return_val("launch", None)
+        blessed_uuid = utils.create_blessed_instance(self.context,
+            instance={'metadata':{'images':'image1'}})
+
+        instance = db.instance_get_by_uuid(self.context, blessed_uuid)
+        metadata = db.instance_metadata_get(self.context, instance['uuid'])
+        self.assertEquals('image1', metadata.get('images', ''))
+
+
+        launched_uuid = utils.create_pre_launched_instance(self.context, source_uuid=blessed_uuid)
+
+        self.gridcentric.launch_instance(self.context, instance_uuid=launched_uuid)
+
+        # Ensure that image1 was passed to vmsconn.launch
+        self.assertEquals(['image1'], self.vmsconn.params_passed[0]['kwargs']['image_refs'])
 
     def test_launch_instance_exception(self):
 
@@ -380,3 +404,12 @@ class GridCentricManagerTestCase(unittest.TestCase):
         self.assertEquals(dst_host, instance['host'])
         self.assertEquals(None, instance['task_state'])
         self.assertEquals(vm_states.ERROR, instance['vm_state'])
+
+    def test_vms_policy_generation_custom_flavor(self):
+        flavor = utils.create_flavor()
+        instance_uuid = utils.create_instance(self.context, {'instance_type_id': flavor['id']})
+        instance = db.instance_get_by_uuid(self.context, instance_uuid)
+        vms_policy = self.gridcentric._generate_vms_policy_name(self.context, instance, instance)
+        expected_policy = ';blessed=%s;;flavor=%s;;tenant=%s;;uuid=%s;' \
+                          %(instance['uuid'], flavor['name'], self.context.project_id, instance['uuid'])
+        self.assertEquals(expected_policy, vms_policy)

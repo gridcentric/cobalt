@@ -38,14 +38,27 @@ def novaclient(request):
     c.client.management_url = api.url_for(request, 'compute')
     return c
 
-def server_bless(request, instance_id):
-    novaclient(request).gridcentric.bless(instance_id)
+def server_bless(request, instance_id, **kwargs):
+    novaclient(request).gridcentric.bless(instance_id, **kwargs)
 api.server_bless = server_bless
 
-def server_launch(request, instance_id, name, user_data, security_groups):
-    novaclient(request).gridcentric.launch(instance_id, name=name, user_data=user_data, security_groups=security_groups)
+def server_launch(request, instance_id, **kwargs):
+    novaclient(request).gridcentric.launch(instance_id, **kwargs)
 api.server_launch = server_launch
 
 def server_discard(request, instance_id):
     novaclient(request).gridcentric.discard(instance_id)
 api.server_discard = server_discard
+
+def gc_migrate(request, instance_id, dest_id=None):
+    novaclient(request).gridcentric.migrate(instance_id, dest_id)
+api.gc_migrate = gc_migrate
+
+def list_hosts(request):
+    return novaclient(request).hosts.list_all()
+api.list_hosts = list_hosts
+
+def list_gc_hosts(request):
+    all_hosts = list_hosts(request)
+    return [host for host in all_hosts if host.service == 'gridcentric']
+api.list_gc_hosts = list_gc_hosts

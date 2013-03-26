@@ -28,6 +28,17 @@ from nova.openstack.common import log as logging
 from nova.openstack.common import rpc
 from nova import utils
 from oslo.config import cfg
+from nova.openstack.common import timeutils
+
+# New API capabilities should be added here
+
+CAPABILITIES = ['user-data',
+                'launch-name',
+                'security-groups',
+                'availability-zone',
+                'num-instances',
+                'bless-name',
+                'launch-key']
 
 LOG = logging.getLogger('nova.gridcentric.api')
 CONF = cfg.CONF
@@ -44,6 +55,10 @@ class API(base.Base):
     def __init__(self, **kwargs):
         super(API, self).__init__(**kwargs)
         self.compute_api = compute.API()
+        self.CAPABILITIES = CAPABILITIES
+
+    def get_info(self):
+        return {'capabilities': self.CAPABILITIES}
 
     def get(self, context, instance_uuid):
         """Get a single instance with the given instance_uuid."""
@@ -74,7 +89,7 @@ class API(base.Base):
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
 
-    def _acquire_addition_reservation(self, context, instance):
+    def _acquire_addition_reservation(self, context, instance, num_requested=1):
         # Check the quota to see if we can launch a new instance.
         instance_type = instance_types.extract_instance_type(instance)
 
@@ -84,8 +99,8 @@ class API(base.Base):
         # Grab a reservation for a single instance
         max_count, reservations = self.compute_api._check_num_instances_quota(context,
                                                                               instance_type,
-                                                                              1,
-                                                                              1)
+                                                                              num_requested,
+                                                                              num_requested)
         return reservations
 
     def _acquire_subtraction_reservation(self, context, instance):
@@ -98,7 +113,9 @@ class API(base.Base):
     def _rollback_reservation(self, context, reservations):
         quota.QUOTAS.rollback(context, reservations)
 
-    def _copy_instance(self, context, instance_uuid, new_name, launch=False, new_user_data=None, security_groups=None):
+    def _copy_instance(self, context, instance_uuid, new_name, launch=False,
+                       new_user_data=None, security_groups=None, key_name=None,
+                       launch_index=0):
         # (dscannell): Basically we want to copy all of the information from
         # instance with id=instance_uuid into a new instance. This is because we
         # are basically "cloning" the vm as far as all the properties are
@@ -118,6 +135,13 @@ class API(base.Base):
         for data in instance_ref.get('system_metadata', []):
             system_metadata[data['key']] = data['value']
 
+        if key_name is None:
+            key_name = instance_ref.get('key_name', '')
+            key_data = instance_ref.get('key_data', '')
+        else:
+            key_pair = self.db.key_pair_get(context, context.user_id, key_name)
+            key_data = key_pair['public_key']
+
         instance = {
            'reservation_id': utils.generate_uid('r'),
            'image_ref': image_ref,
@@ -135,14 +159,16 @@ class API(base.Base):
            'hostname': utils.sanitize_hostname(new_name),
            'display_description': instance_ref['display_description'],
            'user_data': new_user_data or '',
-           'key_name': instance_ref.get('key_name', ''),
-           'key_data': instance_ref.get('key_data', ''),
+           'key_name': key_name,
+           'key_data': key_data,
            'locked': False,
            'metadata': metadata,
            'availability_zone': instance_ref['availability_zone'],
            'os_type': instance_ref['os_type'],
            'host': None,
-           'system_metadata': system_metadata
+           'system_metadata': system_metadata,
+           'launch_index': launch_index,
+           'root_device_name': instance_ref['root_device_name']
         }
         new_instance_ref = self.db.instance_create(context, instance)
 
@@ -157,6 +183,24 @@ class API(base.Base):
             self.db.instance_add_security_group(elevated,
                                                 new_instance_ref['uuid'],
                                                 security_group['id'])
+
+        # Create a copy of all the block device mappings
+        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context, instance_ref['uuid'])
+        for mapping in block_device_mappings:
+            values = {
+                'instance_uuid': new_instance_ref['uuid'],
+                'device_name': mapping['device_name'],
+                'delete_on_termination': mapping.get('delete_on_termination', True),
+                'virtual_name': mapping.get('virtual_name', None),
+                # The snapshot id / volume id will be re-written once the bless / launch completes.
+                # For now we just copy over the data from the source instance.
+                'snapshot_id': mapping.get('snapshot_id', None),
+                'volume_id': mapping.get('volume_id', None),
+                'volume_size': mapping.get('volume_size', None),
+                'no_device': mapping.get('no_device', None),
+                'connection_info': mapping.get('connection_info', None)
+            }
+            self.db.block_device_mapping_create(elevated, values)
 
         return new_instance_ref
 
@@ -191,17 +235,34 @@ class API(base.Base):
         metadata = self._instance_metadata(context, instance_uuid)
         return "launched_from" in metadata
 
-    def _list_gridcentric_hosts(self, context):
+    def _list_gridcentric_hosts(self, context, availability_zone=None):
         """ Returns a list of all the hosts known to openstack running the gridcentric service. """
         admin_context = context.elevated()
+
         services = self.db.service_get_all_by_topic(admin_context, CONF.gridcentric_topic)
+
+        if availability_zone is not None and ':' in availability_zone:
+            parts = availability_zone.split(':')
+            if len(parts) > 2:
+                raise exception.NovaException(_('Invalid availability zone'))
+            az = parts[0]
+            host = parts[1]
+            if (az, host) in [(srv['availability_zone'], srv['host']) for srv in services]:
+                return [host]
+            else:
+                return []
+
         hosts = []
         for srv in services:
-            if srv['host'] not in hosts:
+            if srv['host'] not in hosts and (availability_zone is None
+                             or availability_zone == srv['availability_zone']):
                 hosts.append(srv['host'])
         return hosts
 
-    def bless_instance(self, context, instance_uuid):
+    def bless_instance(self, context, instance_uuid, params=None):
+        if params is None:
+            params = {}
+
         # Setup the DB representation for the new VM.
         instance = self.get(context, instance_uuid)
 
@@ -211,10 +272,6 @@ class API(base.Base):
             # The instance is already blessed. We can't rebless it.
             raise exception.NovaException(_(("Instance %s is already blessed. " +
                                      "Cannot rebless an instance.") % instance_uuid))
-        elif is_launched:
-            # The instance is a launched one. We cannot bless launched instances.
-            raise exception.NovaException(_(("Instance %s has been launched. " +
-                                     "Cannot bless a launched instance.") % instance_uuid))
         elif instance['vm_state'] != vm_states.ACTIVE:
             # The instance is not active. We cannot bless a non-active instance.
             raise exception.NovaException(_(("Instance %s is not active. " +
@@ -223,8 +280,10 @@ class API(base.Base):
         reservations = self._acquire_addition_reservation(context, instance)
         try:
             clonenum = self._next_clone_num(context, instance_uuid)
-            new_instance = self._copy_instance(context, instance_uuid,
-                                               "%s-%s" % (instance['display_name'], str(clonenum)), launch=False)
+            name = params.get('name')
+            if name is None:
+                name = "%s-%s" % (instance['display_name'], str(clonenum))
+            new_instance = self._copy_instance(context, instance_uuid, name, launch=False)
 
             LOG.debug(_("Casting gridcentric message for bless_instance") % locals())
             self._cast_gridcentric_message('bless_instance', context, new_instance['uuid'],
@@ -286,34 +345,58 @@ class API(base.Base):
         else:
             security_groups = None
 
-        reservations = self._acquire_addition_reservation(context, instance)
+        num_instances = params.pop('num_instances', 1)
+
         try:
-            # Create a new launched instance.
-            new_instance_ref = self._copy_instance(context, instance_uuid,
-                params.get('name', "%s-%s" % (instance['display_name'], "clone")),
-                launch=True, new_user_data=params.pop('user_data', None),
-                security_groups=security_groups)
+            i_list = range(num_instances)
+            if len(i_list) == 0:
+                raise exception.NovaException(_('num_instances must be at least 1'))
+        except TypeError:
+            raise exception.NovaException(_('num_instances must be an integer'))
+        reservations = self._acquire_addition_reservation(context, instance, num_instances)
 
+        try:
 
-            LOG.debug(_("Casting to scheduler for %(pid)s/%(uid)s's"
-                        " instance %(instance_uuid)s") % locals())
+            first_uuid = None
+            # We are handling num_instances in this (odd) way because this is how
+            # standard nova handles it.
+            for i in xrange(num_instances):
+                instance_params = params.copy()
+                # Create a new launched instance.
+                new_instance_ref = self._copy_instance(context, instance_uuid,
+                    instance_params.get('name', "%s-%s" %\
+                                        (instance['display_name'], "clone")),
+                    launch=True,
+                    new_user_data=instance_params.pop('user_data', None),
+                    security_groups=security_groups,
+                    key_name=instance_params.pop('key_name', None),
+                    launch_index=i)
 
-            # FIXME: The Folsom scheduler removed support for calling
-            # arbitrary functions via the scheduler. Damn. So now we
-            # have to make scheduling decisions internally. Until this
-            # is sorted, we will simply cast the message and let a random
-            # host pick it up. Note that this is simply a stopgap measure.
-            rpc.cast(context,
-                         CONF.gridcentric_topic,
-                         {"method": "launch_instance",
-                          "args": {"instance_uuid": new_instance_ref['uuid'],
-                                   "params": params}})
+                if first_uuid is None:
+                    first_uuid = new_instance_ref['uuid']
+
+                LOG.debug(_("Choosing host for %(pid)s/%(uid)s's"
+                            " instance %(instance_uuid)s") % locals())
+
+                availability_zone = params.pop('availability_zone', None)
+                if availability_zone is None:
+                    availability_zone = new_instance_ref['availability_zone']
+                else:
+                    new_instance_ref['availability_zone'] = availability_zone
+                hosts = self._list_gridcentric_hosts(context, availability_zone)
+                if hosts:
+                    host = hosts[random.randint(0, len(hosts) - 1)]
+                    self._cast_gridcentric_message('launch_instance', context,
+                               new_instance_ref['uuid'], host,
+                               { "params" : params })
+                else:
+                    raise exception.NovaException(_('No hosts found'))
             self._commit_reservation(context, reservations)
-        except:
+        except Exception, e:
             self._rollback_reservation(context, reservations)
-            raise
+            raise e
 
-        return self.get(context, new_instance_ref['uuid'])
+        return self.get(context, first_uuid)
 
     def _find_migration_target(self, context, instance_host, dest):
         gridcentric_hosts = self._list_gridcentric_hosts(context)
@@ -422,7 +505,7 @@ class API(base.Base):
                     filter_properties):
 
             instance_uuid = base_options.get('uuid')
-            now = utils.utcnow()
+            now = timeutils.utcnow()
             self.db.instance_update(context, instance_uuid,
                                {'host': target_host,
                                 'scheduled_at': now})

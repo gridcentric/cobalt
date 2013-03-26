@@ -13,13 +13,48 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from .workflows import LaunchBlessed
+from .workflows import bless_instance_workflow, launch_blessed_workflow, GCMigrate
 from horizon import workflows
 
-class LaunchBlessedView(workflows.WorkflowView):
-    workflow_class = LaunchBlessed
+view_cache = {}
+
+def cached_view(make_view):
+    def view(request, *args, **kwargs):
+        if make_view not in view_cache:
+            view_cache[make_view] = make_view(request)
+        return view_cache[make_view](request, *args, **kwargs)
+    return view
+
+def make_launch_blessed_view(request):
+    class View(workflows.WorkflowView):
+        workflow_class = launch_blessed_workflow(request)
+
+        def get_initial(self):
+            initial = super(View, self).get_initial()
+            initial['blessed_id'] = self.kwargs['instance_id']
+            return initial
+
+    return View.as_view()
+
+launch_blessed_view = cached_view(make_launch_blessed_view)
+
+def make_bless_instance_view(request):
+    class View(workflows.WorkflowView):
+        workflow_class = bless_instance_workflow(request)
+
+        def get_initial(self):
+            initial = super(View, self).get_initial()
+            initial['instance_id'] = self.kwargs['instance_id']
+            return initial
+
+    return View.as_view()
+
+bless_instance_view = cached_view(make_bless_instance_view)
+
+class GCMigrateView(workflows.WorkflowView):
+    workflow_class = GCMigrate
 
     def get_initial(self):
-        initial = super(LaunchBlessedView, self).get_initial()
-        initial['blessed_id'] = self.kwargs['instance_id']
+        initial = super(GCMigrateView, self).get_initial()
+        initial['instance_id'] = self.kwargs['instance_id']
         return initial

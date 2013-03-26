@@ -32,6 +32,31 @@ import vms.vmsrun as vmsrun
 
 LOG = logging.getLogger('nova.gridcentric.vmsapi')
 
+commands.USE_NAMES = True
+
+class BlessResult(object):
+
+    def __init__(self):
+        self.newname = None
+        self.network = None
+        self.blessed_files = []
+        self.logical_volumes = []
+
+    def unpack(self, ret_val):
+        (newname, network, artifacts) = ret_val
+        self.newname = newname
+        self.network = network
+        if isinstance(artifacts, list):
+            # This is an older return type. This list maps to files.
+            self.blessed_files = artifacts
+        else:
+            # Artifacts is a dictionary type object.
+            blessed_files = artifacts.get('files', [])
+            self.blessed_files = [blessed_file['path'] for blessed_file in blessed_files]
+            logical_volumes = artifacts.get('logical_volumes', {})
+            self.logical_volumes = ['%s:%s' %(lv['name'],lv['size_bytes']) for lv in logical_volumes]
+
+
 class VmsApi(object):
     """
     The interface into the vms commands. This will be versioned whenever the vms interface
@@ -55,24 +80,21 @@ class VmsApi(object):
         return config
 
     def bless(self, instance_name, new_instance_name, mem_url=None, migration=False, **kwargs):
+        result = BlessResult()
+        result.unpack(tpool.execute(commands.bless,
+                                    instance_name,
+                                    new_instance_name,
+                                    mem_url=mem_url,
+                                    migration=migration))
+        return result
 
-        return tpool.execute(commands.bless,
-            instance_name,
-            new_instance_name,
-            mem_url=mem_url,
-            migration=migration)
+    def create_vmsargs(self, guest_params, vms_options):
+        return vmsrun.Arguments(params=guest_params, options=vms_options)
 
-    def create_vmsargs(self, guest_params):
-        vms_args = None
-        if guest_params != None:
-            vms_args = vmsrun.Arguments()
-            for key, value in guest_params.iteritems():
-                vms_args.add_param(key, value)
+    def launch(self, instance_name, new_name, target, path, mem_url=None, migration=False,
+               guest_params=None, vms_options=None, **kwargs):
 
-
-    def launch(self, instance_name, new_name, target, path, mem_url=None, migration=False, guest_params=None, **kwargs):
-
-        vms_args = self.create_vmsargs(guest_params)
+        vms_args = self.create_vmsargs(guest_params, vms_options)
         return tpool.execute(commands.launch,
             instance_name,
             new_name,
@@ -94,6 +116,9 @@ class VmsApi(object):
             except control.ControlException:
                 pass
 
+    def pause(self, instance_name):
+        return tpool.execute(commands.pause, instance_name)
+
 class VmsApi26(VmsApi):
 
     def __init__(self):
@@ -103,8 +128,9 @@ class VmsApi26(VmsApi):
 
         return config.CONFIG
 
-    def launch(self, instance_name, new_name, target, path, mem_url=None, migration=False, guest_params=None, **kwargs):
-        vms_args = self.create_vmsargs(guest_params)
+    def launch(self, instance_name, new_name, target, path, mem_url=None, migration=False,
+               guest_params=None, vms_options=None, **kwargs):
+        vms_args = self.create_vmsargs(guest_params, vms_options)
         if target != 0:
             # The target parameter is no longer supported by VMS. Log a warning if the user is attempting
             # to specify it.
@@ -129,8 +155,6 @@ def get_vmsapi(version=None):
     elif major >= 2:
         vmsapi = VmsApi()
     else:
-        raise exception.Error(_("Unsupported version of vms %s") %(version))
+        raise exception.NovaException(_("Unsupported version of vms %s") %(version))
 
     return vmsapi
-
-

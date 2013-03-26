@@ -16,6 +16,7 @@
 import json
 import webob
 from webob import exc
+import functools
 
 from nova import exception as novaexc
 from nova.openstack.common import log as logging
@@ -31,6 +32,8 @@ from gridcentric.nova.api import API
 
 LOG = logging.getLogger("nova.api.extensions.gridcentric")
 
+authorizer = extensions.extension_authorizer('compute', 'gridcentric')
+
 def convert_exception(action):
 
     def fn(self, *args, **kwargs):
@@ -42,6 +45,26 @@ def convert_exception(action):
     # ensure that the decorated function returns with the same function name as the action.
     fn.__name__ = action.__name__
     return fn
+
+def authorize(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        context = kwargs['req'].environ["nova.context"]
+        authorizer(context)
+        return f(*args, **kwargs)
+    return wrapper
+
+class GridcentricInfoController(object):
+
+    def __init__(self):
+        self.gridcentric_api = API()
+
+    @convert_exception
+    @authorize
+    def index(self, req):
+        context = req.environ['nova.context']
+        return webob.Response(status_int=200,
+            body=json.dumps(self.gridcentric_api.get_info()))
 
 class GridcentricServerControllerExtension(wsgi.Controller):
     """
@@ -66,13 +89,16 @@ class GridcentricServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_bless')
     @convert_exception
+    @authorize
     def _bless_instance(self, req, id, body):
         context = req.environ["nova.context"]
-        result = self.gridcentric_api.bless_instance(context, id)
+        params = body.get('gc_bless', {})
+        result = self.gridcentric_api.bless_instance(context, id, params=params)
         return self._build_instance_list(req, [result])
 
     @wsgi.action('gc_discard')
     @convert_exception
+    @authorize
     def _discard_instance(self, req, id, body):
         context = req.environ["nova.context"]
         result = self.gridcentric_api.discard_instance(context, id)
@@ -80,6 +106,7 @@ class GridcentricServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_launch')
     @convert_exception
+    @authorize
     def _launch_instance(self, req, id, body):
         context = req.environ["nova.context"]
         try:
@@ -92,6 +119,7 @@ class GridcentricServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_migrate')
     @convert_exception
+    @authorize
     def _migrate_instance(self, req, id, body):
         context = req.environ["nova.context"]
         try:
@@ -103,12 +131,14 @@ class GridcentricServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_list_launched')
     @convert_exception
+    @authorize
     def _list_launched_instances(self, req, id, body):
         context = req.environ["nova.context"]
         return self._build_instance_list(req, self.gridcentric_api.list_launched_instances(context, id))
 
     @wsgi.action('gc_list_blessed')
     @convert_exception
+    @authorize
     def _list_blessed_instances(self, req, id, body):
         context = req.environ["nova.context"]
         return self._build_instance_list(req, self.gridcentric_api.list_blessed_instances(context, id))
@@ -190,18 +220,18 @@ class Gridcentric_extension(object):
 
     name = "Gridcentric"
     alias = "GC"
-    namespace = "http://www.gridcentric.com"
+    namespace = "http://docs.gridcentric.com/openstack/ext/api/v1"
     updated = '2012-07-17T13:52:50-07:00' ##TIMESTAMP##
 
     def __init__(self, ext_mgr):
         ext_mgr.register(self)
 
     def get_resources(self):
-        resources = []
-        resource = extensions.ResourceExtension('gcservers',
-                                               GridcentricTargetBootController())
-        resources.append(resource)
-        return resources
+        return [
+            extensions.ResourceExtension('gcinfo', GridcentricInfoController()),
+            extensions.ResourceExtension('gcservers',
+                                             GridcentricTargetBootController()),
+        ]
 
     def get_controller_extensions(self):
         extension_list = []

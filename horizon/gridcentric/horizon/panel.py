@@ -24,6 +24,13 @@ from horizon.dashboards.nova.instances import panel
 from . import api
 from . import tables
 
+from horizon.dashboards.nova.instances.tables import InstancesTable
+InstancesTable.base_actions['launch'].verbose_name = _("Boot Instance")
+tables.extend_table(InstancesTable)
+
+from horizon.dashboards.syspanel.instances.tables import SyspanelInstancesTable
+tables.extend_table(SyspanelInstancesTable)
+
 class Instances(panel.Instances):
     pass
 

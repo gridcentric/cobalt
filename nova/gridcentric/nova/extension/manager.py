@@ -32,6 +32,7 @@ from eventlet.green import threading as gthreading
 
 
 from nova import context as nova_context
+from nova import block_device
 from nova import exception
 from nova.openstack.common import log as logging
 from nova.openstack.common import timeutils
@@ -62,6 +63,8 @@ from nova import manager
 from nova import utils
 from nova.openstack.common import rpc
 from nova import network
+from nova import volume
+
 
 # We need to import this module because other nova modules use the flags that
 # it defines (without actually importing this module). So we need to ensure
@@ -141,12 +144,14 @@ def _log_error(operation):
 class GridCentricManager(manager.SchedulerDependentManager):
 
     def __init__(self, *args, **kwargs):
-        self.vms_conn = kwargs.pop('vmsconn', None)
 
-        self._init_vms()
         self.network_api = network.API()
         self.gridcentric_api = API()
         self.compute_manager = compute_manager.ComputeManager()
+        self.volume_api = volume.API()
+
+        self.vms_conn = kwargs.pop('vmsconn', None)
+        self._init_vms()
 
         # Use an eventlet green thread condition lock instead of the regular threading module. This
         # is required for eventlet threads because they essentially run on a single system thread.
@@ -159,7 +164,18 @@ class GridCentricManager(manager.SchedulerDependentManager):
     def _init_vms(self):
         """ Initializes the hypervisor options depending on the openstack connection type. """
         if self.vms_conn == None:
-            connection_type = CONF.connection_type
+            drivers = {
+                'FakeDriver': 'fake',
+                'LibvirtDriver': 'libvirt',
+                'XenAPIDriver': 'xenapi',
+            }
+
+            compute_driver = self.compute_manager.driver
+            compute_driver = compute_driver.__class__.__name__
+            connection_type = drivers.get(compute_driver, None)
+            if connection_type == None:
+                raise exception.NovaException('Unsupported compute driver %s being used.' %(compute_driver))
+
             self.vms_conn = vmsconn.get_vms_connection(connection_type)
             self.vms_conn.configure()
 
@@ -320,11 +336,21 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Return the device name.
         return devname
 
+    def _extract_list(self, metadata, key):
+        return_list = metadata.get(key, '').split(',')
+        if len(return_list) == 1 and return_list[0] == '':
+            return_list = []
+        return return_list
+
     def _extract_image_refs(self, metadata):
-        image_refs = metadata.get('images', '').split(',')
-        if len(image_refs) == 1 and image_refs[0] == '':
-            image_refs = []
-        return image_refs
+        return self._extract_list(metadata, 'images')
+
+    def _extract_lvm_info(self, metadata):
+        lvms = self._extract_list(metadata, 'logical_volumes')
+        lvm_info = {}
+        for key, value in map(lambda x: x.split(':'), lvms):
+            lvm_info[key] = value
+        return lvm_info
 
     def _get_source_instance(self, context, instance_uuid):
         """ 
@@ -362,6 +388,74 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # for their missing notification.
             _log_error("notify %s" % operation)
 
+    def _snapshot_attached_volumes(self, context,  source_instance, instance):
+        """
+        Creates a snaptshot of all of the attached volumes.
+        """
+
+        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context, instance['uuid'])
+        root_device_name = source_instance['root_device_name']
+        snapshots = []
+
+        paused = False
+        for bdm in block_device_mappings:
+            if bdm.no_device:
+                continue
+
+            if not paused:
+                self.vms_conn.pause_instance(source_instance)
+                paused = True
+
+            volume_id = getattr(bdm, 'volume_id')
+            if volume_id:
+                # create snapshot based on volume_id
+                volume = self.volume_api.get(context, volume_id)
+
+                name = _('snapshot for %s') % instance['name']
+                snapshot = self.volume_api.create_snapshot_force(
+                    context, volume, name, volume['display_description'])
+
+                # Update the blessed device mapping to include the snapshot id.
+                # We also mark it for deletion and this will cascade to the
+                # volume booted when launching.
+                self.db.block_device_mapping_update(context.elevated(),
+                                                    bdm['id'],
+                                                    {'snapshot_id': snapshot['id'],
+                                                     'delete_on_termination': True,
+                                                     'volume_id': None})
+
+    def _detach_volumes(self, context, instance):
+        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context,
+                                                                                 instance['uuid'])
+        for bdm in block_device_mappings:
+            try:
+                volume = self.volume_api.get(context, bdm['volume_id'])
+                connector = self.compute_manager.driver.get_volume_connector(instance)
+                self.volume_api.terminate_connection(context, volume, connector)
+                self.volume_api.detach(context, volume)
+            except exception.DiskNotFound as exc:
+                LOG.warn(_('Ignoring DiskNotFound: %s') % exc, instance=instance)
+            except exception.VolumeNotFound as exc:
+                LOG.warn(_('Ignoring VolumeNotFound: %s') % exc, instance=instance)
+
+    def _discard_blessed_snapshots(self, context, instance):
+        """Removes the snapshots created for the blessed instance."""
+        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context,
+                                                                                 instance['uuid'])
+
+        for bdm in block_device_mappings:
+            if bdm.no_device:
+                continue
+
+            snapshot_id = getattr(bdm, 'snapshot_id')
+            if snapshot_id:
+                # Remove the snapshot
+                try:
+                    snapshot = self.volume_api.get_snapshot(context, snapshot_id)
+                    self.volume_api.delete_snapshot(context, snapshot)
+                except:
+                    LOG.warn(_("Failed to remove blessed snapshot %s") %(snapshot_id))
+
     @_lock_call
     def bless_instance(self, context, instance_uuid=None, instance_ref=None,
                        migration_url=None, migration_network_info=None):
@@ -369,7 +463,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         Construct the blessed instance, with the uuid instance_uuid. If migration_url is specified then
         bless will ensure a memory server is available at the given migration url.
         """
-
+        context = context.elevated()
         if migration_url:
             # Tweak only this instance directly.
             source_instance_ref = instance_ref
@@ -380,12 +474,19 @@ class GridCentricManager(manager.SchedulerDependentManager):
             source_instance_ref = self._get_source_instance(context, instance_uuid)
             migration = False
 
+        if not(migration):
+            try:
+                self._snapshot_attached_volumes(context, source_instance_ref, instance_ref)
+            except:
+                _log_error("snapshot volumes")
+                raise
+
         try:
             # Create a new 'blessed' VM with the given name.
             # NOTE: If this is a migration, then a successful bless will mean that
             # the VM no longer exists. This requires us to *relaunch* it below in
             # the case of a rollback later on.
-            name, migration_url, blessed_files = self.vms_conn.bless(context,
+            name, migration_url, blessed_files, lvms = self.vms_conn.bless(context,
                                                 source_instance_ref['name'],
                                                 instance_ref,
                                                 migration_url=migration_url)
@@ -411,6 +512,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             metadata = self._instance_metadata(context, instance_uuid)
             LOG.debug("image_refs = %s" % image_refs)
             metadata['images'] = ','.join(image_refs)
+            metadata['logical_volumes'] = ','.join(lvms)
             if not(migration):
                 metadata['blessed'] = True
             self._instance_metadata_update(context, instance_uuid, metadata)
@@ -421,8 +523,21 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                       vm_state="blessed", task_state=None,
                                       launched_at=timeutils.utcnow(),
                                       disable_terminate=True)
+            else:
+                self._detach_volumes(context, instance_ref)
+
         except:
+            _log_error("post_bless")
             if migration:
+                # Get a reference to the block_device_info for the instance. This will be needed
+                # if an error occurs during bless and we need to relaunch the instance here.
+                # NOTE(dscannell): We need ensure that the volumes are detached before setting up
+                # the block_device_info, which will reattach the volumes. Doing a double detach
+                # does not seem to create any issues.
+                self._detach_volumes(context, instance_ref)
+                bdms = self.db.block_device_mapping_get_all_by_instance(context, instance_uuid)
+                block_device_info = self.compute_manager._setup_block_device_mapping(context,
+                    instance_ref, bdms)
                 self.vms_conn.launch(context,
                                      source_instance_ref['name'],
                                      instance_ref,
@@ -431,7 +546,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                      migration_url=migration_url,
                                      skip_image_service=True,
                                      image_refs=blessed_files,
-                                     params={})
+                                     params={},
+                                     block_device_info=block_device_info)
 
             # Ensure that no data is left over here, since we were not
             # able to update the metadata service to save the locations.
@@ -450,12 +566,52 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # Return the memory URL (will be None for a normal bless).
         return migration_url
 
+    def _instance_floating_ips(self, context, instance):
+        # Returns a list of all the floating points for the instance.
+        floating_ips =[]
+        fixed_ips = self.db.fixed_ip_get_by_instance(context, instance['uuid'])
+        if fixed_ips:
+            for fixed_ip in fixed_ips:
+                network = self.db.network_get(context, fixed_ip['network_id'])
+                if network['multi_host']:
+                    floating = self.db.floating_ip_get_by_fixed_address(context,
+                                                                        fixed_ip['address'])
+                    if floating:
+                        floating_ips += [(fixed_ip['address'], ip) for ip in floating]
+
+        return floating_ips
+
+    def _migrate_floating_ips(self, context, floating_ips, src, dest):
+        # TODO(dscannell): In grizzly this have been made into an actual
+        # network API call. We should use that call instead of doing our
+        # own thing. That will ensure we are compatible with Quantum.
+
+        src_network_queue = rpc.queue_get_for(context, FLAGS.network_topic, src)
+        dest_network_queue = rpc.queue_get_for(context, FLAGS.network_topic, dest)
+        for (fixed_address, floating_ip) in floating_ips:
+            # We want to disassociate with on the source host and then associated it
+            # on the destination host.
+            #
+            # NOTE(dscannell): we should only have to do this on a multi_network because
+            # otherwise the central networking should take care of everything.
+            rpc.call(context, src_network_queue,
+                {'method': '_disassociate_floating_ip',
+                 'args': {'address': floating_ip['address'],
+                          'interface': floating_ip['interface']}})
+            rpc.call(context, dest_network_queue,
+                {'method': '_associate_floating_ip',
+                 'args': {'floating_address': floating_ip['address'],
+                          'fixed_address': fixed_address,
+                          'interface': floating_ip['interface']}})
+
+
     @_lock_call
     def migrate_instance(self, context, instance_uuid=None, instance_ref=None, dest=None):
         """
         Migrates an instance, dealing with special streaming cases as necessary.
         """
 
+        context = context.elevated()
         # FIXME: This live migration code does not currently support volumes,
         # nor floating IPs. Both of these would be fairly straight-forward to
         # add but probably cry out for a better factoring of this class as much
@@ -490,12 +646,20 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self._instance_metadata_update(context, instance_uuid, metadata)
 
         # Prepare the destination for live migration.
+        # NOTE(dscannell): The instance's host needs to change for the pre_live_migration
+        # call in order for the iptable rules for the DHCP server to be correctly setup
+        # to allow the destination host to respond to the instance. Its set back to the
+        # source after this call. Also note, that this does not update the database so
+        # no other processes should be affected.
+        instance_ref['host'] = dest
         rpc.call(context, compute_dest_queue,
                  {"method": "pre_live_migration",
                   "version": "2.2",
                   "args": {'instance': instance_ref,
                            'block_migration': False,
-                           'disk': None}})
+                           'disk': None}},
+                 timeout=CONF.gridcentric_compute_timeout)
+        instance_ref['host'] = self.host
 
         # Bless this instance for migration.
         migration_url = self.bless_instance(context,
@@ -505,6 +669,14 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # Run our premigration hook.
         self.vms_conn.pre_migration(context, instance_ref, network_info, migration_url)
+
+        # Migrate floating ips
+        floating_ips = self._instance_floating_ips(context, instance_ref)
+        try:
+            self._migrate_floating_ips(context, floating_ips, self.host, dest)
+        except:
+            _log_error("migrating floating ips.")
+            raise
 
         try:
             # Launch on the different host. With the non-null migration_url,
@@ -520,7 +692,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                     {"method": "launch_instance",
                      "args": {'instance_ref': instance_ref,
                               'migration_url': migration_url,
-                              'migration_network_info': network_info}})
+                              'migration_network_info': network_info}},
+                    timeout=1800.0)
             changed_hosts = True
 
         except:
@@ -536,6 +709,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                  instance_ref=instance_ref,
                                  migration_url=migration_url,
                                  migration_network_info=network_info)
+
+            # Try two re-assign the floating ips back to the source host.
+            try:
+                self._migrate_floating_ips(context, floating_ips, dest, self.host)
+            except:
+                _log_error("undo migration of floating ips")
             changed_hosts = False
 
         # Teardown any specific migration state on this host.
@@ -582,10 +761,13 @@ class GridCentricManager(manager.SchedulerDependentManager):
     def discard_instance(self, context, instance_uuid=None, instance_ref=None):
         """ Discards an instance so that no further instances maybe be launched from it. """
 
+        context = context.elevated()
         self._notify(context, instance_ref, "discard.start")
         metadata = self._instance_metadata(context, instance_uuid)
         image_refs = self._extract_image_refs(metadata)
 
+        # Try to discard the created snapshots
+        self._discard_blessed_snapshots(context, instance_ref)
         # Call discard in the backend.
         self.vms_conn.discard(context, instance_ref['name'], image_refs=image_refs)
 
@@ -638,10 +820,18 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                             requested_networks=requested_networks)
                 LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"),
                       instance_ref.name, network_info)
-            except Exception, e:
-                _log_error("network allocation", e)
+            except:
+                _log_error("network allocation")
 
         return network_info
+
+    def _generate_vms_policy_name(self, context, instance, source_instance):
+        instance_type = self.db.instance_type_get(context, instance['instance_type_id'])
+        policy_attrs = (('blessed', source_instance['uuid']),
+                        ('flavor', instance_type['name']),
+                        ('tenant', instance['project_id']),
+                        ('uuid', instance['uuid']),)
+        return "".join([";%s=%s;" %(key, value) for (key, value) in policy_attrs])
 
     @_lock_call
     def launch_instance(self, context, instance_uuid=None, instance_ref=None,
@@ -651,6 +841,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         the instance will be launched using the memory server at the migration_url
         """
 
+        context = context.elevated()
         if params == None:
             params = {}
 
@@ -664,10 +855,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 LOG.warn(_('%s -> defaulting to no target'), str(e))
                 target = "0"
 
-        # Extract out the image ids from the source instance's metadata.
-        metadata = self._instance_metadata(context, instance_uuid)
-        image_refs = self._extract_image_refs(metadata)
-
         if migration_url:
             # Update the instance state to be migrating. This will be set to
             # active again once it is completed in do_launch() as per all
@@ -679,6 +866,31 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
             # Create a new launched instance.
             source_instance_ref = self._get_source_instance(context, instance_uuid)
+
+        # Extract out the image ids from the source instance's metadata.
+        metadata = self._instance_metadata(context, source_instance_ref['uuid'])
+
+        try:
+            # NOTE(dscannell): This will construct the block_device_info object
+            # that gets passed to build/attached the volumes to the launched
+            # instance. Note that this method will also create full volumes our
+            # of any snapshot referenced by the instance's block_device_mapping.
+            bdms = self.db.block_device_mapping_get_all_by_instance(context, instance_uuid)
+            block_device_info = self.compute_manager._setup_block_device_mapping(context,
+                                                                                 instance_ref,
+                                                                                 bdms)
+        except:
+            # Since this creates volumes there are host of issues that can go wrong
+            # (e.g. cinder is down, quotas have been reached, snapshot deleted, etc).
+            _log_error("setting up block device mapping")
+            if not(migration_url):
+                self._instance_update(context, instance_ref['uuid'],
+                                      vm_state=vm_states.ERROR,
+                                      task_state=None)
+            raise
+
+        image_refs = self._extract_image_refs(metadata)
+        lvm_info = self._extract_lvm_info(metadata)
 
         if migration_network_info != None:
             # (dscannell): Since this migration_network_info came over the wire we need
@@ -694,9 +906,9 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                       task_state=None)
                 return
 
-        # Update the task state to spawning from networking.
-        self._instance_update(context, instance_ref['uuid'],
-                              task_state=task_states.SPAWNING)
+            # Update the task state to spawning from networking.
+            self._instance_update(context, instance_ref['uuid'],
+                                  task_state=task_states.SPAWNING)
 
         try:
             # The main goal is to have the nova-compute process take ownership of setting up
@@ -723,6 +935,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
                               'disk': None}},
                     timeout=CONF.gridcentric_compute_timeout)
 
+            vms_policy = self._generate_vms_policy_name(context, instance_ref,
+                                                        source_instance_ref)
             self.vms_conn.launch(context,
                                  source_instance_ref['name'],
                                  instance_ref,
@@ -730,7 +944,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
                                  target=target,
                                  migration_url=migration_url,
                                  image_refs=image_refs,
-                                 params=params)
+                                 params=params,
+                                 vms_policy=vms_policy,
+                                 block_device_info=block_device_info,
+                                 lvm_info=lvm_info)
 
             if not(migration_url):
                 self._notify(context, instance_ref, "launch.end", network_info=network_info)

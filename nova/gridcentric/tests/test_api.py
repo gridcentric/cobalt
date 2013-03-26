@@ -45,8 +45,13 @@ class GridCentricApiTestCase(unittest.TestCase):
 
         # Mock out all of the policy enforcement (the tests don't have a defined policy)
         utils.mock_policy()
+
+        # Mock quota checking
+        utils.mock_quota()
+
         self.gridcentric_api = gc_api.API()
         self.context = nova_context.RequestContext('fake', 'fake', True)
+        utils.create_gridcentric_service(self.context)
 
     def test_bless_instance(self):
         instance_uuid = utils.create_instance(self.context)
@@ -69,6 +74,19 @@ class GridCentricApiTestCase(unittest.TestCase):
         self.assertTrue(metadata['blessed_from'] == '%s' % instance_uuid,
             "The instance should have the blessed_from metadata set to true after being blessed. " \
           + "(value=%s)" % (metadata['blessed_from']))
+
+    def test_bless_instance_with_name(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context,
+                                           instance_uuid, {'name': 'test'})
+        self.assertEqual(blessed_instance['display_name'], 'test')
+
+    def test_bless_instance_with_none_params(self):
+        instance_uuid = utils.create_instance(self.context,
+                                              {'display_name': 'foo'})
+        blessed_instance = self.gridcentric_api.bless_instance(self.context,
+                                           instance_uuid, None)
+        self.assertEqual('foo-0', blessed_instance['display_name'])
 
     def test_bless_instance_twice(self):
 
@@ -107,22 +125,8 @@ class GridCentricApiTestCase(unittest.TestCase):
 
     def test_bless_a_launched_instance(self):
 
-        instance_uuid = utils.create_instance(self.context)
-        blessed_instance = self.gridcentric_api.bless_instance(self.context, instance_uuid)
-        blessed_uuid = blessed_instance['uuid']
-
-        launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_uuid)
-        launched_uuid = launched_instance['uuid']
-
-        no_exception = False
-        try:
-            self.gridcentric_api.bless_instance(self.context, launched_uuid)
-            no_exception = True
-        except:
-            pass # success
-
-        if no_exception:
-            self.fail("Should not be able to bless a launched instance.")
+        launched_uuid = utils.create_launched_instance(self.context)
+        self.gridcentric_api.bless_instance(self.context, launched_uuid)
 
     def test_bless_a_non_active_instance(self):
 
@@ -445,3 +449,44 @@ class GridCentricApiTestCase(unittest.TestCase):
                                                     blessed_instance_uuid,
                                                     params={})
         self.assertEqual(inst['security_groups'][0].id, sg.id)
+
+    def test_launch_with_key(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context,
+                                                               instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        db.key_pair_create(self.context, {'name': 'foo', 'public_key': 'bar',
+                                          'user_id': self.context.user_id,
+                                          'fingerprint': ''})
+        inst = self.gridcentric_api.launch_instance(self.context,
+                                                    blessed_instance_uuid,
+                                                    params={'key_name': 'foo'})
+        self.assertEqual(inst['key_name'], 'foo')
+        self.assertEqual(inst['key_data'], 'bar')
+
+    def test_launch_with_nonexistent_key(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.gridcentric_api.bless_instance(self.context,
+                                                               instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        try:
+            inst = self.gridcentric_api.launch_instance(self.context,
+                                             blessed_instance_uuid,
+                                             params={'key_name': 'nonexistent'})
+            self.fail('Expected KeypairNotFound')
+        except exception.KeypairNotFound:
+            pass
+
+    def test_launch_multiple(self):
+        # Note difference wrt Essex
+        for num in [1, 5]:
+            blessed_instance_uuid = utils.create_blessed_instance(self.context)
+            self.gridcentric_api.launch_instance(self.context,
+                                                 blessed_instance_uuid,
+                                                 params={'num_instances': num})
+            launched = self.gridcentric_api.list_launched_instances(
+                                            self.context, blessed_instance_uuid)
+            launched.sort(key=lambda inst: inst['launch_index'])
+            self.assertEqual(len(launched), num)
+            for i in range(num):
+                self.assertEqual(launched[i]['launch_index'], i)
