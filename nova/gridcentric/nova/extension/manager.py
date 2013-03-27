@@ -177,7 +177,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 raise exception.NovaException('Unsupported compute driver %s being used.' %(compute_driver))
 
             self.vms_conn = vmsconn.get_vms_connection(connection_type)
-            self.vms_conn.configure()
+            self.vms_conn.configure(compute_manager.ComputeVirtAPI(self.compute_manager))
 
     def _lock_instance(self, instance_uuid):
         self.cond.acquire()
@@ -586,8 +586,8 @@ class GridCentricManager(manager.SchedulerDependentManager):
         # network API call. We should use that call instead of doing our
         # own thing. That will ensure we are compatible with Quantum.
 
-        src_network_queue = rpc.queue_get_for(context, FLAGS.network_topic, src)
-        dest_network_queue = rpc.queue_get_for(context, FLAGS.network_topic, dest)
+        src_network_queue = rpc.queue_get_for(context, CONF.network_topic, src)
+        dest_network_queue = rpc.queue_get_for(context, CONF.network_topic, dest)
         for (fixed_address, floating_ip) in floating_ips:
             # We want to disassociate with on the source host and then associated it
             # on the destination host.
@@ -693,7 +693,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                      "args": {'instance_ref': instance_ref,
                               'migration_url': migration_url,
                               'migration_network_info': network_info}},
-                    timeout=1800.0)
+                    timeout=1800)
             changed_hosts = True
 
         except:

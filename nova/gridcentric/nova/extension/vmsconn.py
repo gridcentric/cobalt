@@ -30,6 +30,7 @@ from nova import exception
 
 from nova.image import glance
 from nova.virt import images
+from nova.virt.libvirt import blockinfo
 from nova.virt.libvirt import utils as libvirt_utils
 from nova.compute import utils as compute_utils
 from nova.openstack.common import log as logging
@@ -95,7 +96,7 @@ class VmsConnection:
     def __init__(self, vmsapi):
         self.vmsapi = vmsapi
 
-    def configure(self):
+    def configure(self, virtapi):
         """
         Configures vms for this type of connection.
         """
@@ -226,7 +227,7 @@ class VmsConnection:
         self.vmsapi.pause(instance_ref['name'])
 
 class DummyConnection(VmsConnection):
-    def configure(self):
+    def configure(self, virtapi):
         self.vmsapi.select_hypervisor('dummy')
 
 class XenApiConnection(VmsConnection):
@@ -237,7 +238,7 @@ class XenApiConnection(VmsConnection):
     def __init__(self, vmsapi):
         super(XenApiConnection, self).__init__(vmsapi)
 
-    def configure(self):
+    def configure(self, virtapi):
         # (dscannell) We need to import this to ensure that the xenapi
         # flags can be read in.
         from nova.virt import xenapi_conn
@@ -253,16 +254,16 @@ class LibvirtConnection(VmsConnection):
     VMS connection for Libvirt
     """
 
-    def configure(self):
+    def configure(self, virtapi):
         # (dscannell) import the libvirt module to ensure that the the
         # libvirt flags can be read in.
         from nova.virt.libvirt.driver import LibvirtDriver
 
         self.determine_openstack_user()
 
-        self.libvirt_conn = LibvirtDriver(False)
+        self.libvirt_conn = LibvirtDriver(virtapi, read_only=False)
         vms_config = self.vmsapi.config()
-        vms_config.MANAGEMENT['connection_url'] = self.libvirt_conn.uri
+        vms_config.MANAGEMENT['connection_url'] = self.libvirt_conn.uri()
         self.vmsapi.select_hypervisor('libvirt')
 
     @_log_call
@@ -295,7 +296,7 @@ class LibvirtConnection(VmsConnection):
                        "Please configure the openstack_user flag correctly." % (openstack_user))
             raise e
 
-    def _stub_disks(self, instance, block_device_info, lvm_info):
+    def _stub_disks(self, instance, disk_mapping, block_device_info, lvm_info):
         # Note(dscannell): We want to stub out the disks that nova expects to
         # to exists and our calls _create_image will lazy create them. There
         # are essentially two disk we need to stub:
@@ -305,11 +306,11 @@ class LibvirtConnection(VmsConnection):
         # Once we know which disks to stub we figure out the backend nova is
         # using and stub them with the correct path.
         disk_names_to_stub = []
-        if not self.libvirt_conn._volume_in_mapping(self.libvirt_conn.default_root_device,
-                                                block_device_info):
-
+        booted_from_volume = ( (not bool(instance.get('image_ref')))
+                                or 'disk' not in disk_mapping)
+        if not booted_from_volume:
             disk_names_to_stub.append('disk')
-        if self._instance_has_ephemeral(instance, block_device_info):
+        if  'disk.local' in disk_mapping:
             # We will have to stub out the ephemeral disk as well.
             disk_names_to_stub.append('disk.local')
 
@@ -324,9 +325,9 @@ class LibvirtConnection(VmsConnection):
                     # make it the same size.
                     lvm_size = int(size)
 
-            nova_disk = self.libvirt_conn.image_backend.image(instance['name'],
+            nova_disk = self.libvirt_conn.image_backend.image(instance,
                                                               disk_name,
-                                                              FLAGS.libvirt_images_type)
+                                                              CONF.libvirt_images_type)
             self._stub_disk(nova_disk, size=lvm_size)
             stubbed_disks[disk_name] = nova_disk
 
@@ -414,11 +415,22 @@ class LibvirtConnection(VmsConnection):
         if network_info and self.libvirt_conn.legacy_nwinfo():
             network_info = network_info.legacy()
 
+        # TODO(dscannell): This method can take an optional image_meta that
+        # appears to be the root disk's image metadata. it checks the metadata
+        # for the image format (e.g. iso, disk, etc). Right now we are passing
+        # in None (default) but we need to double check this.
+        disk_info = blockinfo.get_disk_info(CONF.libvirt_type,
+                                            new_instance_ref,
+                                            block_device_info)
+
         # We need to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
-        working_dir = os.path.join(CONF.instances_path, new_instance_ref['name'])
+        working_dir = os.path.join(CONF.instances_path, new_instance_ref['uuid'])
 
-        stubbed_disks = self._stub_disks(new_instance_ref,block_device_info,lvm_info)
+        stubbed_disks = self._stub_disks(new_instance_ref,
+                                         disk_info['mapping'],
+                                         block_device_info,
+                                         lvm_info)
 
         libvirt_file = os.path.join(working_dir, "libvirt.xml")
         # Make sure that our working directory exists.
@@ -442,9 +454,10 @@ class LibvirtConnection(VmsConnection):
         # (dscannell) This was taken from the core nova project as part of the
         # boot path for normal instances. We basically want to mimic this
         # functionality.
-        xml = self.libvirt_conn.to_xml(instance_dict, network_info, False,
+        xml = self.libvirt_conn.to_xml(instance_dict, network_info, disk_info,
                                    block_device_info=block_device_info)
         self.libvirt_conn._create_image(context, instance_dict, xml,
+                                    disk_info['mapping'],
                                     network_info=network_info,
                                     block_device_info=block_device_info)
 
