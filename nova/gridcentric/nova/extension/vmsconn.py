@@ -31,6 +31,7 @@ from nova import flags
 
 from nova.image import glance
 from nova.virt import images
+from nova .virt.libvirt import imagebackend
 from nova.virt.libvirt import utils as libvirt_utils
 from nova.compute import utils as compute_utils
 from nova.openstack.common import cfg
@@ -152,20 +153,6 @@ class VmsConnection:
     def _delete_images(self, context, image_refs):
         pass
 
-    def extract_mac_addresses(self, network_info):
-        # TODO(dscannell) We should be using the network_info object. This is
-        # just here until we figure out how to use it.
-        if network_info and self.libvirt_conn.legacy_nwinfo():
-            network_info = network_info.legacy()
-        mac_addresses = {}
-        vif = 0
-        for network in network_info:
-            mac_addresses[str(vif)] = network[1]['mac']
-            vif += 1
-
-        return mac_addresses
-
-
     @_log_call
     def launch(self, context, instance_name, new_instance_ref,
                network_info, skip_image_service=False, target=0,
@@ -249,6 +236,13 @@ class XenApiConnection(VmsConnection):
         vms_config.MANAGEMENT['connection_password'] = FLAGS.xenapi_connection_password
         self.vmsapi.select_hypervisor('xcp')
 
+class LaunchImageBackend(imagebackend.Backend):
+    """This is the image backend to use when launching instances."""
+
+    def backend(self, image_type=None):
+        """ The backend for launched instances will always be qcow2 """
+        return super(LaunchImageBackend, self).backend('qcow2')
+
 class LibvirtConnection(VmsConnection):
     """
     VMS connection for Libvirt
@@ -261,9 +255,24 @@ class LibvirtConnection(VmsConnection):
 
         self.determine_openstack_user()
 
-        self.libvirt_conn = LibvirtDriver(False)
+        # Two libvirt drivers are created for the two different cases:
+        #   migration: When doing a migration we attempt to keep everything
+        #              the same as a regular boot. In this case we just use
+        #              the regular driver without modifications.
+        #
+        #   launch:     When doing a launch we dealing exclusively with qcow2
+        #               images. We need to replace the regular image backend
+        #               with the LaunchImageBackend that will force exclusive
+        #               use of qcow2.
+        launch_libvirt_conn = LibvirtDriver(False)
+        launch_libvirt_conn.image_backend = LaunchImageBackend(FLAGS.use_cow_images)
+        self.libvirt_connections = {'migration': LibvirtDriver(False),
+                                    'launch': launch_libvirt_conn}
+
         vms_config = self.vmsapi.config()
-        vms_config.MANAGEMENT['connection_url'] = self.libvirt_conn.uri
+        # It doesn't matter which libvirt connection we use because the uri
+        # should be the same in either case.
+        vms_config.MANAGEMENT['connection_url'] = launch_libvirt_conn.uri
         self.vmsapi.select_hypervisor('libvirt')
 
     @_log_call
@@ -296,7 +305,7 @@ class LibvirtConnection(VmsConnection):
                        "Please configure the openstack_user flag correctly." % (openstack_user))
             raise e
 
-    def _stub_disks(self, instance, block_device_info, lvm_info):
+    def _stub_disks(self, libvirt_conn, instance, block_device_info, lvm_info):
         # Note(dscannell): We want to stub out the disks that nova expects to
         # to exists and our calls _create_image will lazy create them. There
         # are essentially two disk we need to stub:
@@ -306,11 +315,11 @@ class LibvirtConnection(VmsConnection):
         # Once we know which disks to stub we figure out the backend nova is
         # using and stub them with the correct path.
         disk_names_to_stub = []
-        if not self.libvirt_conn._volume_in_mapping(self.libvirt_conn.default_root_device,
+        if not libvirt_conn._volume_in_mapping(libvirt_conn.default_root_device,
                                                 block_device_info):
 
             disk_names_to_stub.append('disk')
-        if self._instance_has_ephemeral(instance, block_device_info):
+        if self._instance_has_ephemeral(libvirt_conn, instance, block_device_info):
             # We will have to stub out the ephemeral disk as well.
             disk_names_to_stub.append('disk.local')
 
@@ -325,7 +334,10 @@ class LibvirtConnection(VmsConnection):
                     # make it the same size.
                     lvm_size = int(size)
 
-            nova_disk = self.libvirt_conn.image_backend.image(instance['name'],
+            # NOTE(dscannell): If this is a launch libvirt_conn then the
+            # backend will always be qcow2 because the image_backend is
+            # replaced with LaunchImageBackend
+            nova_disk = libvirt_conn.image_backend.image(instance['name'],
                                                               disk_name,
                                                               FLAGS.libvirt_images_type)
             self._stub_disk(nova_disk, size=lvm_size)
@@ -357,11 +369,11 @@ class LibvirtConnection(VmsConnection):
 
         return disk_file
 
-    def _instance_has_ephemeral(self, instance, block_device_info):
+    def _instance_has_ephemeral(self, libvirt_conn, instance, block_device_info):
         """This mimics the check the libvirt driver does to determine
         if ephemeral storage should be added."""
         return instance['ephemeral_gb'] and \
-               self.libvirt_conn._volume_in_mapping(self.libvirt_conn.default_second_device,
+               libvirt_conn._volume_in_mapping(libvirt_conn.default_second_device,
                                                     block_device_info)
 
     @_log_call
@@ -409,17 +421,18 @@ class LibvirtConnection(VmsConnection):
                     except:
                         os.unlink(temp_target)
                         raise
-
+        libvirt_conn_type = 'migration' if migration else 'launch'
+        libvirt_conn = self.libvirt_connections[libvirt_conn_type]
         # (dscannell) Check to see if we need to convert the network_info
         # object into the legacy format.
-        if network_info and self.libvirt_conn.legacy_nwinfo():
+        if network_info and libvirt_conn.legacy_nwinfo():
             network_info = network_info.legacy()
 
         # We need to create the libvirt xml, and associated files. Pass back
         # the path to the libvirt.xml file.
         working_dir = os.path.join(FLAGS.instances_path, new_instance_ref['name'])
 
-        stubbed_disks = self._stub_disks(new_instance_ref,block_device_info,lvm_info)
+        stubbed_disks = self._stub_disks(libvirt_conn, new_instance_ref,block_device_info,lvm_info)
 
         libvirt_file = os.path.join(working_dir, "libvirt.xml")
         # Make sure that our working directory exists.
@@ -443,9 +456,9 @@ class LibvirtConnection(VmsConnection):
         # (dscannell) This was taken from the core nova project as part of the
         # boot path for normal instances. We basically want to mimic this
         # functionality.
-        xml = self.libvirt_conn.to_xml(instance_dict, network_info, False,
+        xml = libvirt_conn.to_xml(instance_dict, network_info, False,
                                    block_device_info=block_device_info)
-        self.libvirt_conn._create_image(context, instance_dict, xml,
+        libvirt_conn._create_image(context, instance_dict, xml,
                                     network_info=network_info,
                                     block_device_info=block_device_info)
 
@@ -476,8 +489,11 @@ class LibvirtConnection(VmsConnection):
                     network_info=None,
                     block_device_info=None,
                     migration=False):
-        self.libvirt_conn._enable_hairpin(new_instance_ref)
-        self.libvirt_conn.firewall_driver.apply_instance_filter(new_instance_ref, network_info)
+        libvirt_conn_type = 'migration' if migration else 'launch'
+        libvirt_conn = self.libvirt_connections[libvirt_conn_type]
+
+        libvirt_conn._enable_hairpin(new_instance_ref)
+        libvirt_conn.firewall_driver.apply_instance_filter(new_instance_ref, network_info)
 
     @_log_call
     def pre_migration(self, context, instance_ref, network_info, migration_url):
