@@ -250,3 +250,12 @@ def create_gridcentric_service(context):
     db.service_create(context, service)
     return service
 
+def create_availability_zone(context, hosts):
+
+    az = create_uuid()
+    # Create a new host aggregate
+    aggregate = db.aggregate_create(context, {'name': az}, metadata={'availability_zone': az})
+    for host in hosts:
+        db.aggregate_host_add(context, aggregate['id'], host)
+
+    return az

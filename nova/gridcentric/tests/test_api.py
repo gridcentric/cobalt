@@ -51,7 +51,7 @@ class GridCentricApiTestCase(unittest.TestCase):
 
         self.gridcentric_api = gc_api.API()
         self.context = nova_context.RequestContext('fake', 'fake', True)
-        utils.create_gridcentric_service(self.context)
+        self.gridcentric_service = utils.create_gridcentric_service(self.context)
 
     def test_bless_instance(self):
         instance_uuid = utils.create_instance(self.context)
@@ -423,6 +423,7 @@ class GridCentricApiTestCase(unittest.TestCase):
             self.fail("Check delete should fail for a blessed instance.")
         except exception.NovaException:
             pass
+
     def test_launch_with_security_groups(self):
         instance_uuid = utils.create_instance(self.context)
         blessed_instance = self.gridcentric_api.bless_instance(self.context,
@@ -490,3 +491,28 @@ class GridCentricApiTestCase(unittest.TestCase):
             self.assertEqual(len(launched), num)
             for i in range(num):
                 self.assertEqual(launched[i]['launch_index'], i)
+
+    def test_list_gridcentric_hosts(self):
+        hosts = [self.gridcentric_service['host']]
+        for i in range(3):
+            hosts.append(utils.create_gridcentric_service(self.context)['host'])
+
+        gc_hosts = self.gridcentric_api._list_gridcentric_hosts(self.context)
+        hosts.sort()
+        gc_hosts.sort()
+
+        self.assertEquals(hosts, gc_hosts)
+
+    def test_list_gridcentric_hosts_availability_zone(self):
+
+        hosts_in_zone = []
+        for i in range(3):
+            hosts_in_zone.append(utils.create_gridcentric_service(self.context)['host'])
+
+        az = utils.create_availability_zone(self.context, hosts_in_zone)
+
+        gc_hosts = self.gridcentric_api._list_gridcentric_hosts(self.context, availability_zone=az)
+        hosts_in_zone.sort()
+        gc_hosts.sort()
+
+        self.assertEquals(hosts_in_zone, gc_hosts)

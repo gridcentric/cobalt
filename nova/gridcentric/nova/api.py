@@ -17,6 +17,7 @@
 """Handles all requests relating to GridCentric functionality."""
 import random
 
+from nova import availability_zones
 from nova import compute
 from nova.compute import instance_types
 from nova.compute import task_states
@@ -254,8 +255,11 @@ class API(base.Base):
 
         hosts = []
         for srv in services:
-            if srv['host'] not in hosts and (availability_zone is None
-                             or availability_zone == srv['availability_zone']):
+            in_availability_zone =  availability_zone is None or \
+                                    availability_zone == \
+                                            availability_zones.get_host_availability_zone(context,srv['host'])
+
+            if srv['host'] not in hosts and in_availability_zone:
                 hosts.append(srv['host'])
         return hosts
 
