@@ -146,6 +146,8 @@ class API(base.Base):
         instance = {
            'reservation_id': utils.generate_uid('r'),
            'image_ref': image_ref,
+           'ramdisk_id': instance_ref.get('ramdisk_id', ''),
+           'kernel_id': instance_ref.get('kernel_id', ''),
            'vm_state': vm_states.BUILDING,
            'state_description': 'halted',
            'user_id': context.user_id,
