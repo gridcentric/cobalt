@@ -29,13 +29,15 @@ import nova
 from nova import exception
 from nova import flags
 
-from nova.image import glance
 from nova.virt import images
 from nova .virt.libvirt import imagebackend
 from nova.virt.libvirt import utils as libvirt_utils
 from nova.compute import utils as compute_utils
 from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
+
+from .. import image as gc_image
+
 LOG = logging.getLogger('nova.gridcentric.vmsconn')
 FLAGS = flags.FLAGS
 
@@ -94,8 +96,10 @@ def _log_call(fn):
 
 class VmsConnection:
 
-    def __init__(self, vmsapi):
+    def __init__(self, vmsapi, image_service=None):
         self.vmsapi = vmsapi
+        self.image_service = image_service if image_service is not None \
+                                                    else gc_image.ImageService()
 
     def configure(self):
         """
@@ -136,7 +140,8 @@ class VmsConnection:
                     os.unlink(blessed_file)
 
     @_log_call
-    def _upload_files(self, context, instance_ref, blessed_files):
+    def _upload_files(self, context, instance_ref, blessed_files,
+                      image_ids=None):
         """ Upload the bless files into nova's image service (e.g. glance). """
         raise Exception("Uploading files to the image service is not supported.")
 
@@ -212,6 +217,75 @@ class VmsConnection:
     @_log_call
     def pause_instance(self, instance_ref):
         self.vmsapi.pause(instance_ref['name'])
+
+    def pre_export(self, context, instance_ref, image_refs=[]):
+        config = self.vmsapi.config()
+        shared = config.SHARED
+
+        artifacts = []
+
+        for image_ref in image_refs:
+            image = self.image_service.show(context, image_ref)
+            target = os.path.join(shared, image['name'])
+            self.image_service.download(context, image_ref, target)
+            artifacts.append(target)
+
+        fd, temp_target = tempfile.mkstemp()
+        os.close(fd)
+        return temp_target, None, artifacts
+
+    def export_instance(self, context, instance_ref, image_id, image_refs=[]):
+        archive, path, artifacts = self.pre_export(context, instance_ref, image_refs)
+
+        self.vmsapi.export(instance_ref, archive, path)
+
+        self.post_export(context, instance_ref, archive, image_id, artifacts)
+
+    def post_export(self, context, instance_ref, archive, image_id, artifacts):
+        for artifact in artifacts:
+            os.unlink(artifact)
+
+        # Load the archive into glance
+        self.image_service.upload(context, image_id, archive)
+
+        os.unlink(archive)
+
+    def pre_import(self, context, image_id):
+        fd, archive = tempfile.mkstemp()
+        try:
+            os.close(fd)
+            self.image_service.download(context, image_id, archive)
+        except Exception, ex:
+
+            try:
+                os.unlink(archive)
+            except:
+                LOG.warn(_("Failed to remove the import archive %s. It may still be on the system."), archive)
+            raise ex
+
+        return archive
+
+    def import_instance(self, context, instance_ref, image_id):
+        archive = self.pre_import(context, image_id)
+
+        artifacts = self.vmsapi.import_(instance_ref, archive)
+
+        return self.post_import(context, instance_ref, image_id, archive, artifacts)
+
+    def post_import(self, context, instance_ref, image_id, archive, artifacts):
+
+        os.unlink(archive)
+
+        image_ids = []
+
+        if FLAGS.gridcentric_use_image_service:
+            for artifact in artifacts:
+                image_id = self.image_service.create(context, os.path.basename(artifact), instance_ref['uuid'])
+                self.image_service.upload(context, image_id, artifact)
+                image_ids.append(image_id)
+                os.unlink(artifact)
+
+        return image_ids
 
 class DummyConnection(VmsConnection):
     def configure(self):
@@ -395,9 +469,9 @@ class LibvirtConnection(VmsConnection):
             if not os.path.exists(image_base_path):
                 LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
                 mkdir_as(image_base_path, self.openstack_uid)
-            image_service = glance.get_default_image_service()
+
             for image_ref in image_refs:
-                image = image_service.show(context, image_ref)
+                image = self.image_service.show(context, image_ref)
                 target = os.path.join(image_base_path, image['name'])
                 if migration or not os.path.exists(target):
                     # If the path does not exist fetch the data from the image
@@ -410,11 +484,7 @@ class LibvirtConnection(VmsConnection):
                     fd, temp_target = tempfile.mkstemp(dir=image_base_path)
                     try:
                         os.close(fd)
-                        images.fetch(context,
-                                     image_ref,
-                                     temp_target,
-                                     new_instance_ref['user_id'],
-                                     new_instance_ref['project_id'])
+                        self.image_service.download(context, image_ref, temp_target)
                         os.chown(temp_target, self.openstack_uid, self.openstack_gid)
                         os.chmod(temp_target, 0644)
                         os.rename(temp_target, target)
@@ -531,43 +601,23 @@ class LibvirtConnection(VmsConnection):
         image_id = recv_meta['id']
         return str(image_id)
 
-    def _upload_files(self, context, instance_ref, blessed_files):
-        image_service = glance.get_default_image_service()
+    def _upload_files(self, context, instance_ref, blessed_files, image_ids=None):
         blessed_image_refs = []
         for blessed_file in blessed_files:
 
             image_name = blessed_file.split("/")[-1]
-            image_ref = self._create_image(context, image_service, instance_ref, image_name)
-            blessed_image_refs.append(image_ref)
+            image_id = self.image_service.create(context, image_name, instance_uuid=instance_ref['uuid'])
+            blessed_image_refs.append(image_id)
 
-            # Send up the file data to the newly created image.
-            metadata = {'is_public': False,
-                        'protected': True,
-                        'status': 'active',
-                        'name': image_name,
-                        'properties': {
-                                       'image_state': 'available',
-                                       'owner_id': instance_ref['project_id']}
-                        }
-            metadata['disk_format'] = "raw"
-            metadata['container_format'] = "bare"
-
-            # Upload that image to the image service
-            with open(blessed_file) as image_file:
-                image_service.update(context,
-                                     image_ref,
-                                     metadata,
-                                     image_file)
+            self.image_service.upload(context, image_id, blessed_file)
 
         return blessed_image_refs
 
     @_log_call
     def _delete_images(self, context, image_refs):
-        image_service = glance.get_default_image_service()
         for image_ref in image_refs:
             try:
-                image_service.update(context, image_ref, {'protected': False})
-                image_service.delete(context, image_ref)
+                self.image_service.delete(context, image_ref)
             except (exception.ImageNotFound, HTTPForbidden):
                 # Simply ignore this error because the end result
                 # is that the image is no longer there.

@@ -21,6 +21,8 @@ API extensions.
 import os
 import base64
 import re
+import json
+import sys
 
 from novaclient import utils
 from novaclient import base
@@ -39,6 +41,7 @@ CAPABILITIES = {'user-data': ['user-data'],
                 'availability-zone': ['availability-zone'],
                 'bless-name': ['bless-name'],
                 'launch-key': ['launch-key'],
+                'import-export': ['import-export'],
                 }
 
 def __pre_parse_args__():
@@ -177,6 +180,50 @@ def do_list_blessed(cs, args):
     """List instances blessed from this instance."""
     server = _find_server(cs, args.server)
     _print_list(cs.gridcentric.list_blessed(server))
+
+@utils.arg('server', metavar='<server>', help="ID or name of the blessed instance")
+@utils.arg('output', metavar='<output>', default=None, help="Name of a file to write the exported data to.")
+def do_gc_export(cs, args):
+    """Export a blessed instance"""
+    server = _find_server(cs, args.server)
+    result = server.export()
+
+    json_result = json.dumps(result, sort_keys=True, indent=4, separators=(',', ': ')) + '\n'
+
+    with file(args.output, 'w') as f:
+        f.write(json_result)
+
+    print "Instance data is being exported to image %s" %(result['export_image_id'])
+
+@utils.arg('data_filename', metavar='<data-filename>',
+                              help="A file containing the exported server data")
+@utils.arg('--override', metavar='<override>',
+                      help="Semicolon-separated list of parameters to override")
+def do_gc_import(cs, args):
+    """Import a blessed instance"""
+
+    # The override option can be something like this:
+    # export_image_id=THE-ID;security_groups=sg1,sg2;fields.display_name=foo
+
+    # Read in the contents of the server data (should be a JSON file)
+    with open(args.data_filename, 'r') as f:
+        data = json.load(f)
+
+    if args.override is not None:
+        def override(key, value, data):
+            if '.' in key:
+                parent, _, key = key.partition('.')
+                override(key, value, data[parent])
+            else:
+                if isinstance(data[key], list):
+                    value = value.split(',')
+                data[key] = value
+        for override_arg in args.override.split(';'):
+            key, value = override_arg.split('=', 1)
+            override(key, value, data)
+
+    server = cs.gridcentric.import_instance(data)
+    _print_server(cs, server)
 
 @utils.arg('--flavor',
      default=None,
@@ -350,6 +397,9 @@ class GcServer(servers.Server):
     def list_blessed(self):
         return self.manager.list_blessed(self)
 
+    def export(self):
+        return self.manager.export(self)
+
     def install_agent(self, user, key_path, location=None,
                         version=None, ip=None):
         self.manager.install_agent(self, user, key_path, location=location,
@@ -431,6 +481,16 @@ class GcServerManager(servers.ServerManager):
     def list_blessed(self, server):
         header, info = self._action("gc_list_blessed", base.getid(server))
         return [self.get(server['id']) for server in info]
+
+    def export(self, server):
+        header, info = self._action("gc_export", server.id)
+        return info
+
+    def import_instance(self, data):
+        url = "/gc-import-server"
+        body = {'data': data}
+
+        return self._create(url, body, 'server')
 
     def create(self, name, image, flavor, meta=None, files=None,
                reservation_id=None, min_count=None,
