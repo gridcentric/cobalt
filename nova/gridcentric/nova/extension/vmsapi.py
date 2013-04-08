@@ -56,7 +56,6 @@ class BlessResult(object):
             logical_volumes = artifacts.get('logical_volumes', {})
             self.logical_volumes = ['%s:%s' %(lv['name'],lv['size_bytes']) for lv in logical_volumes]
 
-
 class VmsApi(object):
     """
     The interface into the vms commands. This will be versioned whenever the vms interface
@@ -119,10 +118,16 @@ class VmsApi(object):
     def pause(self, instance_name):
         return tpool.execute(commands.pause, instance_name)
 
+    def export(self, *args, **kwargs):
+        raise exception.NovaException('Export is not supported on this version of VMS')
+
+    def import_(self, *args, **kwargs):
+        raise exception.NovaException('Import is not supported on this version of VMS')
+
 class VmsApi26(VmsApi):
 
-    def __init__(self):
-        super(VmsApi26, self).__init__(version='2.6')
+    def __init__(self, version='2.6'):
+        super(VmsApi26, self).__init__(version=version)
 
     def config(self):
 
@@ -143,6 +148,21 @@ class VmsApi26(VmsApi):
             migration=migration,
             vmsargs=vms_args)
 
+class VmsApi27(VmsApi26):
+
+    def __init__(self, version='2.7'):
+        super(VmsApi27, self).__init__(version=version)
+
+    def export(self, instance_ref, archive, path):
+        return tpool.execute(commands.export,
+                                instance_ref['name'],
+                                archive,
+                                path=path)
+
+    def import_(self, instance_ref, archive):
+        return tpool.execute(commands.import_,
+                               instance_ref['name'],
+                               archive)
 
 def get_vmsapi(version=None):
     if version == None:
@@ -150,7 +170,9 @@ def get_vmsapi(version=None):
 
     [major, minor] = [int(value) for value in  version.split('.')]
 
-    if major >= 2 and minor >= 6:
+    if major >= 2 and minor >= 7:
+        vmsapi = VmsApi27()
+    elif major >= 2 and minor >= 6:
         vmsapi = VmsApi26()
     elif major >= 2:
         vmsapi = VmsApi()

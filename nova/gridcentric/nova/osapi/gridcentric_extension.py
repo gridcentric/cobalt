@@ -152,6 +152,13 @@ class GridcentricServerControllerExtension(wsgi.Controller):
          if instance_uuid != None:
              self.gridcentric_api.check_delete(context, instance_uuid)
 
+    @wsgi.action('gc_export')
+    @convert_exception
+    @authorize
+    def _export_blessed_instance(self, req, id, body):
+        context = req.environ["nova.context"]
+        return self.gridcentric_api.export_blessed_instance(context, id)
+
     def _build_instance_list(self, req, instances):
         def _build_view(req, instance, is_detail=True):
             project_id = getattr(req.environ['nova.context'], 'project_id', '')
@@ -203,6 +210,25 @@ class GridcentricTargetBootController(object):
     def create(self, req, body):
         return self.nova_servers.create(req, body)
 
+class GridcentricImportController(wsgi.Controller):
+
+    _view_builder_class = views_servers.ViewBuilder
+
+    def __init__(self):
+        super(GridcentricImportController, self).__init__()
+        self.gridcentric_api = API()
+
+    @convert_exception
+    @authorize
+    def create(self, req, body):
+        context = req.environ["nova.context"]
+
+        data = body.get('data')
+
+        instance = self.gridcentric_api.import_blessed_instance(context, data)
+        view = self._view_builder.create(req, instance)
+        return wsgi.ResponseObject(view)
+
 class Gridcentric_extension(object):
     """ 
     The OpenStack Extension definition for the Gridcentric capabilities. Currently this includes:
@@ -231,6 +257,8 @@ class Gridcentric_extension(object):
             extensions.ResourceExtension('gcinfo', GridcentricInfoController()),
             extensions.ResourceExtension('gcservers',
                                              GridcentricTargetBootController()),
+            extensions.ResourceExtension('gc-import-server',
+                                                 GridcentricImportController()),
         ]
 
     def get_controller_extensions(self):
