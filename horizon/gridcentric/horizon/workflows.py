@@ -54,7 +54,7 @@ def bless_instance_workflow(request):
         finalize_button_name = _("Bless")
         success_message = _('Blessed {name}.')
         failure_message = _('Unable to bless {name}.')
-        success_url = "horizon:nova:instances:index"
+        success_url = "."
         default_steps = (Step,)
 
         def format_status_message(self, message):
@@ -150,7 +150,7 @@ def launch_blessed_workflow(request):
         finalize_button_name = _("Launch")
         success_message = _('Launched "{name}".')
         failure_message = _('Unable to launch "{name}".')
-        success_url = "horizon:nova:instances:index"
+        success_url = "."
         default_steps = (LaunchBlessedStep,)
 
         def format_status_message(self, message):
@@ -208,7 +208,7 @@ class GCMigrate(workflows.Workflow):
     finalize_button_name = _("Migrate")
     success_message = _("Instance migration has been initiated")
     failure_message = _("Unable to initiate migration")
-    success_url = "horizon:nova:instances:index"
+    success_url = "."
     default_steps = (GCMigrateStep,)
 
     def format_status_message(self, message):
