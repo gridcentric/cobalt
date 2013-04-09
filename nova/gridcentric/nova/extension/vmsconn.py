@@ -28,13 +28,16 @@ from glanceclient.exc import HTTPForbidden
 import nova
 from nova import exception
 
-from nova.image import glance
 from nova.virt import images
 from nova.virt.libvirt import blockinfo
+from nova .virt.libvirt import imagebackend
 from nova.virt.libvirt import utils as libvirt_utils
 from nova.compute import utils as compute_utils
 from nova.openstack.common import log as logging
 from oslo.config import cfg
+
+from .. import image as gc_image
+
 LOG = logging.getLogger('nova.gridcentric.vmsconn')
 CONF = cfg.CONF
 
@@ -93,8 +96,10 @@ def _log_call(fn):
 
 class VmsConnection:
 
-    def __init__(self, vmsapi):
+    def __init__(self, vmsapi, image_service=None):
         self.vmsapi = vmsapi
+        self.image_service = image_service if image_service is not None \
+                                                    else gc_image.ImageService()
 
     def configure(self, virtapi):
         """
@@ -135,7 +140,8 @@ class VmsConnection:
                     os.unlink(blessed_file)
 
     @_log_call
-    def _upload_files(self, context, instance_ref, blessed_files):
+    def _upload_files(self, context, instance_ref, blessed_files,
+                      image_ids=None):
         """ Upload the bless files into nova's image service (e.g. glance). """
         raise Exception("Uploading files to the image service is not supported.")
 
@@ -151,20 +157,6 @@ class VmsConnection:
     @_log_call
     def _delete_images(self, context, image_refs):
         pass
-
-    def extract_mac_addresses(self, network_info):
-        # TODO(dscannell) We should be using the network_info object. This is
-        # just here until we figure out how to use it.
-        if network_info and self.libvirt_conn.legacy_nwinfo():
-            network_info = network_info.legacy()
-        mac_addresses = {}
-        vif = 0
-        for network in network_info:
-            mac_addresses[str(vif)] = network[1]['mac']
-            vif += 1
-
-        return mac_addresses
-
 
     @_log_call
     def launch(self, context, instance_name, new_instance_ref,
@@ -226,6 +218,75 @@ class VmsConnection:
     def pause_instance(self, instance_ref):
         self.vmsapi.pause(instance_ref['name'])
 
+    def pre_export(self, context, instance_ref, image_refs=[]):
+        config = self.vmsapi.config()
+        shared = config.SHARED
+
+        artifacts = []
+
+        for image_ref in image_refs:
+            image = self.image_service.show(context, image_ref)
+            target = os.path.join(shared, image['name'])
+            self.image_service.download(context, image_ref, target)
+            artifacts.append(target)
+
+        fd, temp_target = tempfile.mkstemp()
+        os.close(fd)
+        return temp_target, None, artifacts
+
+    def export_instance(self, context, instance_ref, image_id, image_refs=[]):
+        archive, path, artifacts = self.pre_export(context, instance_ref, image_refs)
+
+        self.vmsapi.export(instance_ref, archive, path)
+
+        self.post_export(context, instance_ref, archive, image_id, artifacts)
+
+    def post_export(self, context, instance_ref, archive, image_id, artifacts):
+        for artifact in artifacts:
+            os.unlink(artifact)
+
+        # Load the archive into glance
+        self.image_service.upload(context, image_id, archive)
+
+        os.unlink(archive)
+
+    def pre_import(self, context, image_id):
+        fd, archive = tempfile.mkstemp()
+        try:
+            os.close(fd)
+            self.image_service.download(context, image_id, archive)
+        except Exception, ex:
+
+            try:
+                os.unlink(archive)
+            except:
+                LOG.warn(_("Failed to remove the import archive %s. It may still be on the system."), archive)
+            raise ex
+
+        return archive
+
+    def import_instance(self, context, instance_ref, image_id):
+        archive = self.pre_import(context, image_id)
+
+        artifacts = self.vmsapi.import_(instance_ref, archive)
+
+        return self.post_import(context, instance_ref, image_id, archive, artifacts)
+
+    def post_import(self, context, instance_ref, image_id, archive, artifacts):
+
+        os.unlink(archive)
+
+        image_ids = []
+
+        if CONF.gridcentric_use_image_service:
+            for artifact in artifacts:
+                image_id = self.image_service.create(context, os.path.basename(artifact), instance_ref['uuid'])
+                self.image_service.upload(context, image_id, artifact)
+                image_ids.append(image_id)
+                os.unlink(artifact)
+
+        return image_ids
+
 class DummyConnection(VmsConnection):
     def configure(self, virtapi):
         self.vmsapi.select_hypervisor('dummy')
@@ -249,6 +310,13 @@ class XenApiConnection(VmsConnection):
         vms_config.MANAGEMENT['connection_password'] = CONF.xenapi_connection_password
         self.vmsapi.select_hypervisor('xcp')
 
+class LaunchImageBackend(imagebackend.Backend):
+    """This is the image backend to use when launching instances."""
+
+    def backend(self, image_type=None):
+        """ The backend for launched instances will always be qcow2 """
+        return super(LaunchImageBackend, self).backend('qcow2')
+
 class LibvirtConnection(VmsConnection):
     """
     VMS connection for Libvirt
@@ -261,9 +329,24 @@ class LibvirtConnection(VmsConnection):
 
         self.determine_openstack_user()
 
-        self.libvirt_conn = LibvirtDriver(virtapi, read_only=False)
+        # Two libvirt drivers are created for the two different cases:
+        #   migration: When doing a migration we attempt to keep everything
+        #              the same as a regular boot. In this case we just use
+        #              the regular driver without modifications.
+        #
+        #   launch:     When doing a launch we dealing exclusively with qcow2
+        #               images. We need to replace the regular image backend
+        #               with the LaunchImageBackend that will force exclusive
+        #               use of qcow2.
+        launch_libvirt_conn = LibvirtDriver(virtapi, read_only=False)
+        launch_libvirt_conn.image_backend = LaunchImageBackend(CONF.use_cow_images)
+        self.libvirt_connections = {'migration': LibvirtDriver(virtapi, read_only=False),
+                                    'launch': launch_libvirt_conn}
+
         vms_config = self.vmsapi.config()
-        vms_config.MANAGEMENT['connection_url'] = self.libvirt_conn.uri()
+        # It doesn't matter which libvirt connection we use because the uri
+        # should be the same in either case.
+        vms_config.MANAGEMENT['connection_url'] = launch_libvirt_conn.uri()
         self.vmsapi.select_hypervisor('libvirt')
 
     @_log_call
@@ -296,7 +379,7 @@ class LibvirtConnection(VmsConnection):
                        "Please configure the openstack_user flag correctly." % (openstack_user))
             raise e
 
-    def _stub_disks(self, instance, disk_mapping, block_device_info, lvm_info):
+    def _stub_disks(self, libvirt_conn, instance, disk_mapping, block_device_info, lvm_info):
         # Note(dscannell): We want to stub out the disks that nova expects to
         # to exists and our calls _create_image will lazy create them. There
         # are essentially two disk we need to stub:
@@ -306,6 +389,7 @@ class LibvirtConnection(VmsConnection):
         # Once we know which disks to stub we figure out the backend nova is
         # using and stub them with the correct path.
         disk_names_to_stub = []
+
         booted_from_volume = ( (not bool(instance.get('image_ref')))
                                 or 'disk' not in disk_mapping)
         if not booted_from_volume:
@@ -325,9 +409,12 @@ class LibvirtConnection(VmsConnection):
                     # make it the same size.
                     lvm_size = int(size)
 
-            nova_disk = self.libvirt_conn.image_backend.image(instance,
-                                                              disk_name,
-                                                              CONF.libvirt_images_type)
+            # NOTE(dscannell): If this is a launch libvirt_conn then the
+            # backend will always be qcow2 because the image_backend is
+            # replaced with LaunchImageBackend
+            nova_disk = libvirt_conn.image_backend.image(instance,
+                                                         disk_name,
+                                                         CONF.libvirt_images_type)
             self._stub_disk(nova_disk, size=lvm_size)
             stubbed_disks[disk_name] = nova_disk
 
@@ -357,11 +444,11 @@ class LibvirtConnection(VmsConnection):
 
         return disk_file
 
-    def _instance_has_ephemeral(self, instance, block_device_info):
+    def _instance_has_ephemeral(self, libvirt_conn, instance, block_device_info):
         """This mimics the check the libvirt driver does to determine
         if ephemeral storage should be added."""
         return instance['ephemeral_gb'] and \
-               self.libvirt_conn._volume_in_mapping(self.libvirt_conn.default_second_device,
+               libvirt_conn._volume_in_mapping(libvirt_conn.default_second_device,
                                                     block_device_info)
 
     @_log_call
@@ -383,9 +470,9 @@ class LibvirtConnection(VmsConnection):
             if not os.path.exists(image_base_path):
                 LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
                 mkdir_as(image_base_path, self.openstack_uid)
-            image_service = glance.get_default_image_service()
+
             for image_ref in image_refs:
-                image = image_service.show(context, image_ref)
+                image = self.image_service.show(context, image_ref)
                 target = os.path.join(image_base_path, image['name'])
                 if migration or not os.path.exists(target):
                     # If the path does not exist fetch the data from the image
@@ -398,21 +485,18 @@ class LibvirtConnection(VmsConnection):
                     fd, temp_target = tempfile.mkstemp(dir=image_base_path)
                     try:
                         os.close(fd)
-                        images.fetch(context,
-                                     image_ref,
-                                     temp_target,
-                                     new_instance_ref['user_id'],
-                                     new_instance_ref['project_id'])
+                        self.image_service.download(context, image_ref, temp_target)
                         os.chown(temp_target, self.openstack_uid, self.openstack_gid)
                         os.chmod(temp_target, 0644)
                         os.rename(temp_target, target)
                     except:
                         os.unlink(temp_target)
                         raise
-
+        libvirt_conn_type = 'migration' if migration else 'launch'
+        libvirt_conn = self.libvirt_connections[libvirt_conn_type]
         # (dscannell) Check to see if we need to convert the network_info
         # object into the legacy format.
-        if network_info and self.libvirt_conn.legacy_nwinfo():
+        if network_info and libvirt_conn.legacy_nwinfo():
             network_info = network_info.legacy()
 
         # TODO(dscannell): This method can take an optional image_meta that
@@ -427,7 +511,8 @@ class LibvirtConnection(VmsConnection):
         # the path to the libvirt.xml file.
         working_dir = os.path.join(CONF.instances_path, new_instance_ref['uuid'])
 
-        stubbed_disks = self._stub_disks(new_instance_ref,
+        stubbed_disks = self._stub_disks(libvirt_conn,
+                                         new_instance_ref,
                                          disk_info['mapping'],
                                          block_device_info,
                                          lvm_info)
@@ -454,13 +539,12 @@ class LibvirtConnection(VmsConnection):
         # (dscannell) This was taken from the core nova project as part of the
         # boot path for normal instances. We basically want to mimic this
         # functionality.
-        xml = self.libvirt_conn.to_xml(instance_dict, network_info, disk_info,
+        xml = libvirt_conn.to_xml(instance_dict, network_info, disk_info,
+                                  block_device_info=block_device_info)
+        libvirt_conn._create_image(context, instance_dict, xml,
+                                   disk_info['mapping'],
+                                   network_info=network_info,
                                    block_device_info=block_device_info)
-        self.libvirt_conn._create_image(context, instance_dict, xml,
-                                    disk_info['mapping'],
-                                    network_info=network_info,
-                                    block_device_info=block_device_info)
-
 
         if not(migration):
             for disk_name, disk_file in stubbed_disks.iteritems():
@@ -488,8 +572,11 @@ class LibvirtConnection(VmsConnection):
                     network_info=None,
                     block_device_info=None,
                     migration=False):
-        self.libvirt_conn._enable_hairpin(new_instance_ref)
-        self.libvirt_conn.firewall_driver.apply_instance_filter(new_instance_ref, network_info)
+        libvirt_conn_type = 'migration' if migration else 'launch'
+        libvirt_conn = self.libvirt_connections[libvirt_conn_type]
+
+        libvirt_conn._enable_hairpin(new_instance_ref)
+        libvirt_conn.firewall_driver.apply_instance_filter(new_instance_ref, network_info)
 
     @_log_call
     def pre_migration(self, context, instance_ref, network_info, migration_url):
@@ -527,43 +614,23 @@ class LibvirtConnection(VmsConnection):
         image_id = recv_meta['id']
         return str(image_id)
 
-    def _upload_files(self, context, instance_ref, blessed_files):
-        image_service = glance.get_default_image_service()
+    def _upload_files(self, context, instance_ref, blessed_files, image_ids=None):
         blessed_image_refs = []
         for blessed_file in blessed_files:
 
             image_name = blessed_file.split("/")[-1]
-            image_ref = self._create_image(context, image_service, instance_ref, image_name)
-            blessed_image_refs.append(image_ref)
+            image_id = self.image_service.create(context, image_name, instance_uuid=instance_ref['uuid'])
+            blessed_image_refs.append(image_id)
 
-            # Send up the file data to the newly created image.
-            metadata = {'is_public': False,
-                        'protected': True,
-                        'status': 'active',
-                        'name': image_name,
-                        'properties': {
-                                       'image_state': 'available',
-                                       'owner_id': instance_ref['project_id']}
-                        }
-            metadata['disk_format'] = "raw"
-            metadata['container_format'] = "bare"
-
-            # Upload that image to the image service
-            with open(blessed_file) as image_file:
-                image_service.update(context,
-                                     image_ref,
-                                     metadata,
-                                     image_file)
+            self.image_service.upload(context, image_id, blessed_file)
 
         return blessed_image_refs
 
     @_log_call
     def _delete_images(self, context, image_refs):
-        image_service = glance.get_default_image_service()
         for image_ref in image_refs:
             try:
-                image_service.update(context, image_ref, {'protected': False})
-                image_service.delete(context, image_ref)
+                self.image_service.delete(context, image_ref)
             except (exception.ImageNotFound, HTTPForbidden):
                 # Simply ignore this error because the end result
                 # is that the image is no longer there.

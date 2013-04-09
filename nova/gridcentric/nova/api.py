@@ -31,6 +31,8 @@ from nova import utils
 from oslo.config import cfg
 from nova.openstack.common import timeutils
 
+from . import image
+
 # New API capabilities should be added here
 
 CAPABILITIES = ['user-data',
@@ -39,7 +41,8 @@ CAPABILITIES = ['user-data',
                 'availability-zone',
                 'num-instances',
                 'bless-name',
-                'launch-key']
+                'launch-key',
+                'import-export']
 
 LOG = logging.getLogger('nova.gridcentric.api')
 CONF = cfg.CONF
@@ -53,9 +56,11 @@ CONF.register_opts(gridcentric_api_opts)
 class API(base.Base):
     """API for interacting with the gridcentric manager."""
 
-    def __init__(self, **kwargs):
+    # Allow passing in dummy image_service, but normally use the default
+    def __init__(self, image_service=None, **kwargs):
         super(API, self).__init__(**kwargs)
         self.compute_api = compute.API()
+        self.image_service = image_service if image_service is not None else image.ImageService()
         self.CAPABILITIES = CAPABILITIES
 
     def get_info(self):
@@ -469,6 +474,115 @@ class API(base.Base):
         """ Raises an error if the instance uuid is blessed. """
         if self._is_instance_blessed(context, instance_uuid):
             raise exception.NovaException("Cannot delete a blessed instance. Please discard it instead.")
+
+    def export_blessed_instance(self, context, instance_uuid):
+        """
+        Exports the blessed instance in a format that can be imported.
+        This is useful for moving a blessed instance between clouds.
+        """
+        # Ensure that the instance_uuid is blessed
+        instance = self.get(context, instance_uuid)
+        if not(self._is_instance_blessed(context, instance_uuid)):
+            # The instance is not blessed. We can't launch new instances from it.
+            raise exception.Error(
+                _(("Instance %s is not blessed. " +
+                   "Only blessed instances can be exported.") % instance_uuid))
+
+        # Create an image record to store the blessed artifacts for this instance
+        # and call to nova-gc to populate the record
+
+        # Create the image in the image_service.
+        image_name = '%s-export' % instance['display_name']
+        image_id = self.image_service.create(context, image_name)
+
+        self._cast_gridcentric_message("export_instance", context, instance_uuid, params={'image_id': image_id})
+
+        # Copy these fields directly
+        fields = {
+            'image_ref',
+            'vm_state',
+            'memory_mb',
+            'vcpus',
+            'root_gb',
+            'ephemral_gb',
+            'display_name',
+            'display_description',
+            'user_data',
+            'key_name',
+            'key_data',
+            'locked',
+            'availability_zone',
+            'os_type',
+            'project_id',
+            'user_id'
+        }
+
+        return {
+            'fields': {field: instance[field] for field in fields if (field in instance)},
+            'metadata': {entry.key: entry.value
+                                for entry in instance['metadata']},
+            'system_metadata': {entry.key: entry.value
+                                 for entry in instance['system_metadata']},
+            'security_group_names': [secgroup.name for secgroup
+                                                in instance['security_groups']],
+            'flavor_name': self.compute_api.db.instance_type_get(context,
+                                          instance['instance_type_id'])['name'],
+            'export_image_id': image_id,
+        }
+
+    def import_blessed_instance(self, context, data):
+        """
+        Imports the instance as a new blessed instance.
+        """
+
+        # NOTE(dscannell) we need to do all the bless quota stuff around here because
+        # we are essentially creating a new blessed instance into the system.
+
+        fields = data['fields']
+
+        if not context.is_admin:
+            fields['project_id'] = context.project_id
+            fields['user_id'] = context.user_id
+
+        flavor_name = data['flavor_name']
+
+        try:
+            inst_type = self.compute_api.db.\
+                                 instance_type_get_by_name(context, flavor_name)
+        except exception.InstanceTypeNotFoundByName:
+            raise exception.Error(_('Flavor could not be found: %s' \
+                                                                 % flavor_name))
+
+        fields['instance_type_id'] = inst_type['id']
+
+        secgroup_ids = []
+
+        for secgroup_name in data['security_group_names']:
+            try:
+                secgroup = self.db.security_group_get_by_name(context,
+                                              context.project_id, secgroup_name)
+            except exception.SecurityGroupNotFoundForProject:
+                raise exception.Error(_('Security group could not be found: %s'\
+                                                               % secgroup_name))
+            secgroup_ids.append(secgroup['id'])
+
+        instance = self.db.instance_create(context, data['fields'])
+        LOG.debug(_("Imported new instance %s" % (instance)))
+        self._instance_metadata_update(context, instance['uuid'],
+                                                               data['metadata'])
+        self.db.instance_update(context, instance['uuid'],
+                                {'vm_state':vm_states.BUILDING,
+                                 'system_metadata': data['system_metadata']})
+
+        # Apply the security groups
+        for secgroup_id in secgroup_ids:
+                self.db.instance_add_security_group(context.elevated(),
+                                                  instance['uuid'], secgroup_id)
+
+        self._cast_gridcentric_message('import_instance', context,
+                 instance['uuid'], params={'image_id': data['export_image_id']})
+
+        return self.get(context, instance['uuid'])
 
     def _find_boot_host(self, context, metadata):
 
