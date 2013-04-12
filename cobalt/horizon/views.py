@@ -13,8 +13,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from .workflows import bless_instance_workflow, launch_blessed_workflow, GCMigrate
+from .workflows import bless_instance_workflow, launch_blessed_workflow, MigrateWorkflow
 from horizon import workflows
+from openstack_dashboard.dashboards.project.instances import views as proj_views
+from openstack_dashboard.dashboards.admin.instances import views as adm_views
+from . import tables
 
 view_cache = {}
 
@@ -51,10 +54,16 @@ def make_bless_instance_view(request):
 
 bless_instance_view = cached_view(make_bless_instance_view)
 
-class GCMigrateView(workflows.WorkflowView):
-    workflow_class = GCMigrate
+class MigrateView(workflows.WorkflowView):
+    workflow_class = MigrateWorkflow
 
     def get_initial(self):
-        initial = super(GCMigrateView, self).get_initial()
+        initial = super(MigrateView, self).get_initial()
         initial['instance_id'] = self.kwargs['instance_id']
         return initial
+
+class InstancesView(proj_views.IndexView):
+    table_class = tables.InstancesTable
+
+class AdminInstancesView(adm_views.AdminIndexView):
+    table_class = tables.AdminInstancesTable

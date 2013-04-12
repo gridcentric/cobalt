@@ -13,8 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-
-from horizon import api
+from openstack_dashboard.api import nova as api
 
 from novaclient import shell
 from novaclient.v1_1 import client
@@ -50,15 +49,15 @@ def server_discard(request, instance_id):
     novaclient(request).cobalt.discard(instance_id)
 api.server_discard = server_discard
 
-def gc_migrate(request, instance_id, dest_id=None):
+def co_migrate(request, instance_id, dest_id=None):
     novaclient(request).cobalt.migrate(instance_id, dest_id)
-api.gc_migrate = gc_migrate
+api.co_migrate = co_migrate
 
 def list_hosts(request):
     return novaclient(request).hosts.list_all()
 api.list_hosts = list_hosts
 
-def list_gc_hosts(request):
+def list_co_hosts(request):
     all_hosts = list_hosts(request)
     return [host for host in all_hosts if host.service == 'cobalt']
-api.list_gc_hosts = list_gc_hosts
+api.list_co_hosts = list_co_hosts

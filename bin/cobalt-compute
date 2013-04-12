@@ -53,6 +53,8 @@ def sig_usr2_handler(signum, frame):
 
 signal.signal(signal.SIGUSR2, sig_usr2_handler)
 
+gettext.install('nova', unicode=1)
+
 # (dscannell): We need to preload this otherwise it leads to our main
 # manager class not loading because we won't be able to load the virt module
 # so that we may pull out the connection string paramters.
@@ -65,8 +67,6 @@ possible_topdir = os.path.normpath(os.path.join(os.path.abspath(sys.argv[0]),
                                    os.pardir))
 if os.path.exists(os.path.join(possible_topdir, 'nova', '__init__.py')):
     sys.path.insert(0, possible_topdir)
-
-gettext.install('nova', unicode=1)
 
 from nova import config
 from nova import service

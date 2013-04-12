@@ -13,9 +13,12 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from django.utils.translation import ugettext_lazy as _
+
 from horizon import workflows, forms
 from . import api
 from horizon import exceptions
+from openstack_dashboard.api import nova
 
 def bless_instance_workflow(request):
     client = api.novaclient(request)
@@ -119,7 +122,7 @@ def launch_blessed_workflow(request):
 
         def populate_security_groups_choices(self, request, context):
             try:
-                groups = api.api.nova.security_group_list(request)
+                groups = nova.security_group_list(request)
                 security_group_list = [(sg.name, sg.name) for sg in groups]
             except:
                 exceptions.handle(request,
@@ -169,18 +172,18 @@ def launch_blessed_workflow(request):
 
     return LaunchBlessed
 
-class GCMigrateAction(workflows.Action):
+class MigrateAction(workflows.Action):
     dest_id = forms.DynamicChoiceField(label=_("Destination Host"),
                                        required=False)
 
     class Meta:
         name = _("Migrate")
-        help_text = _("")
+        help_text = _("Migrate instance to another host.")
 
     def populate_dest_id_choices(self, request, context):
-        gc_hosts = api.list_gc_hosts(request)
+        co_hosts = api.list_co_hosts(request)
         try:
-            hosts = [(host.host_name, host.host_name) for host in gc_hosts]
+            hosts = [(host.host_name, host.host_name) for host in co_hosts]
         except:
             hosts = []
             exceptions.handle(request,
@@ -191,8 +194,8 @@ class GCMigrateAction(workflows.Action):
             hosts = (("", _("No hosts available.")),)
         return hosts
 
-class GCMigrateStep(workflows.Step):
-    action_class = GCMigrateAction
+class MigrateStep(workflows.Step):
+    action_class = MigrateAction
     depends_on = ('instance_id',)
     contributes = ('dest_id',)
 
@@ -202,21 +205,21 @@ class GCMigrateStep(workflows.Step):
             context['dest_id'] = post['dest_id'] or None
         return context
 
-class GCMigrate(workflows.Workflow):
-    slug = 'gc_migrate'
+class MigrateWorkflow(workflows.Workflow):
+    slug = 'co_migrate'
     name = _("Migrate")
     finalize_button_name = _("Migrate")
     success_message = _("Instance migration has been initiated")
     failure_message = _("Unable to initiate migration")
     success_url = "."
-    default_steps = (GCMigrateStep,)
+    default_steps = (MigrateStep,)
 
     def format_status_message(self, message):
         return message
 
     def handle(self, request, context):
         try:
-            api.gc_migrate(request, context['instance_id'], context['dest_id'])
+            api.co_migrate(request, context['instance_id'], context['dest_id'])
             return True
         except:
             exceptions.handle(request)

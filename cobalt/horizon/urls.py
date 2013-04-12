@@ -13,15 +13,26 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-# We piggy-back on all URLs provided by the instance module.
-from horizon.dashboards.nova.instances.urls import urlpatterns, INSTANCES
-from .views import bless_instance_view, launch_blessed_view, GCMigrateView
-from django.conf.urls.defaults import url, patterns
+from django.conf.urls.defaults import patterns, url
+from openstack_dashboard.dashboards.project.instances.urls import urlpatterns as proj_urls, VIEW_MOD as PROJ_VIEW_MOD, INSTANCES as PROJ_INSTANCES
+from openstack_dashboard.dashboards.admin.instances.urls import urlpatterns as adm_urls, INSTANCES as ADM_INSTANCES
+from . import views
 
-urlpatterns += patterns('horizon.dashboards.nova.instances.views',
-    url(INSTANCES % 'bless_instance', bless_instance_view,
-       name='bless_instance'),
-    url(INSTANCES % 'launch_blessed', launch_blessed_view,
-       name='launch_blessed'),
-    url(INSTANCES % 'gc_migrate', GCMigrateView.as_view(),
-       name='gc_migrate'))
+def get_urls(view_mod, view, instances):
+    return patterns(view_mod,
+                    url(r'^$', view, name='index'),
+                    url(instances % 'bless_instance', views.bless_instance_view,
+                        name='bless_instance'),
+                    url(instances % 'launch_blessed', views.launch_blessed_view,
+                        name='launch_blessed'),
+                    url(instances % 'co_migrate', views.MigrateView.as_view(),
+                        name='co_migrate'))
+
+# Replace the URLs with our own to override the views and patch the dashboard
+# We remove the first URL, which is the original Instances table. Then, we add
+# our own instances table and action URLs.
+def patch():
+    for (urlpatterns, view_mod, view, instances) in [(proj_urls, PROJ_VIEW_MOD, views.InstancesView.as_view(), PROJ_INSTANCES), (adm_urls, 'openstack_dashboard.dashboards.admin.instances.views', views.AdminInstancesView.as_view(), ADM_INSTANCES)]:
+        urlpatterns.pop(0)
+        for url in get_urls(view_mod, view, instances):
+            urlpatterns.append(url)

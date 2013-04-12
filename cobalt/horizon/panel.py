@@ -1,4 +1,4 @@
-# Copyright 2011 Gridcentric Inc.
+# Copyright 2013 GridCentric Inc.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -13,30 +13,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from horizon.dashboards.nova import dashboard
-from horizon.dashboards.nova.instances import panel
+from . import urls
 
-# Ensure that the API is loaded and our tables have
-# monkey-patch the internal instance tables. Note that
-# at this point, we don't actually need to remove and
-# re-register our Panel class but we do so in case we'd
-# like to add more functionality down the line.
-from . import api
-from . import tables
-
-from horizon.dashboards.nova.instances.tables import InstancesTable
-InstancesTable.base_actions['launch'].verbose_name = _("Boot Instance")
-tables.extend_table(InstancesTable)
-
-from horizon.dashboards.syspanel.instances.tables import SyspanelInstancesTable
-tables.extend_table(SyspanelInstancesTable)
-
-class Instances(panel.Instances):
-    pass
-
-# Pretend we're instances.
-# This will allow us to use all the standard instance templates.
-__file__ = panel.__file__
-
-dashboard.Nova.unregister(panel.Instances)
-dashboard.Nova.register(Instances)
+urls.patch()
