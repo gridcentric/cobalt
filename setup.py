@@ -46,3 +46,12 @@ if PACKAGE == 'all' or PACKAGE == 'nova-api-gridcentric':
           author_email='support@gridcentric.com',
           url='http://www.gridcentric.com/',
           packages=['gridcentric.nova.osapi'])
+
+if PACKAGE == 'all' or PACKAGE == 'horizon-gridcentric':
+    setup(name='horizon-gridcentric',
+          version='1.0',
+          description='GridCentric plugin for OpenStack Dashboard',
+          author='GridCentric',
+          author_email='support@gridcentric.com',
+          url='http://www.gridcentric.com/',
+          packages=['gridcentric.horizon'])
