@@ -137,14 +137,23 @@ class API(base.Base):
         if image_ref == '':
             image_ref = instance_ref.get('image_id', '')
 
-        if launch:
-            metadata = {'launched_from':'%s' % (instance_ref['uuid'])}
-        else:
-            metadata = {'blessed_from':'%s' % (instance_ref['uuid'])}
 
         system_metadata = {}
         for data in instance_ref.get('system_metadata', []):
             system_metadata[data['key']] = data['value']
+
+        metadata = {}
+        # We need to record the launched_from / blessed_from in both the
+        # metadata and system_metadata. It needs to be in the metadata so
+        # that we can we can query the database to support list-blessed
+        # and list-launched operations. It needs to be in the system
+        # metadata so that the manager can access it.
+        if launch:
+            metadata['launched_from'] = '%s' % (instance_ref['uuid'])
+            system_metadata['launched_from'] = '%s' % (instance_ref['uuid'])
+        else:
+            metadata['blessed_from'] = '%s' % (instance_ref['uuid'])
+            system_metadata['blessed_from'] = '%s' % (instance_ref['uuid'])
 
         if key_name is None:
             key_name = instance_ref.get('key_name', '')

@@ -192,8 +192,9 @@ def create_instance(context, instance=None, driver=None):
     if instance == None:
         instance = {}
 
+    system_metadata = instance.get('system_metadata', {})
     instance_type = instance_types.get_instance_type_by_name('m1.tiny')
-    system_metadata = instance_types.save_instance_type_info(dict(), instance_type)
+    system_metadata.update(instance_types.save_instance_type_info(dict(), instance_type))
 
     instance.setdefault('user_id', context.user_id)
     instance.setdefault('project_id', context.project_id)
@@ -239,9 +240,10 @@ def create_pre_blessed_instance(context, instance=None, source_uuid=None):
     if instance == None:
         instance = {}
 
-    metadata = instance.get('metadata', {})
-    metadata['blessed_from'] = source_uuid
-    instance['metadata'] = metadata
+    for key in ['metadata', 'system_metadata']:
+        d = instance.get(key, {})
+        d['blessed_from'] = source_uuid
+        instance[key] = d
 
     return create_instance(context, instance)
 
@@ -251,11 +253,15 @@ def create_blessed_instance(context, instance=None, source_uuid=None):
     if instance == None:
         instance = {}
     instance['vm_state'] = 'blessed'
-    metadata = instance.get('metadata', {})
-    metadata['blessed_from'] = source_uuid
-    if 'images' not in metadata:
-        metadata['images'] = ''
-    instance['metadata'] = metadata
+    for key in ['metadata', 'system_metadata']:
+        d = instance.get(key, {})
+        d['blessed_from'] = source_uuid
+        instance[key] = d
+
+    system_metadata = instance.get('system_metadata', {})
+    if 'images' not in system_metadata:
+        system_metadata['images'] = ''
+    instance['system_metadata'] = system_metadata
 
     return create_instance(context, instance)
 
@@ -266,9 +272,10 @@ def create_pre_launched_instance(context, instance=None, source_uuid=None):
     if instance == None:
         instance = {}
 
-    metadata = instance.get('metadata', {})
-    metadata['launched_from'] = source_uuid
-    instance['metadata'] = metadata
+    for key in ['metadata', 'system_metadata']:
+        d = instance.get(key, {})
+        d['launched_from'] = source_uuid
+        instance[key] = d
 
     return create_instance(context, instance)
 

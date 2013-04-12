@@ -119,12 +119,9 @@ class CobaltManagerTestCase(unittest.TestCase):
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         self.assertEquals("blessed", blessed_instance['vm_state'])
         self.assertEquals("migration_url", migration_url)
-        metadata = db.instance_metadata_get(self.context, blessed_uuid)
-        self.assertEquals("file1_ref,file2_ref,file3_ref", metadata['images'])
+        system_metadata = db.instance_system_metadata_get(self.context, blessed_uuid)
+        self.assertEquals("file1_ref,file2_ref,file3_ref", system_metadata['images'])
 
-        # note(dscannell): Although we set the blessed metadata to True in the code, we need to compare
-        # it against '1'. This is because the True gets converted to a '1' when added to the database.
-        self.assertEquals('1', metadata['blessed'])
         self.assertTrue(pre_bless_time <= blessed_instance['launched_at'])
 
         self.assertTrue(blessed_instance['disable_terminate'])
@@ -146,9 +143,9 @@ class CobaltManagerTestCase(unittest.TestCase):
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         self.assertEquals(vm_states.ERROR, blessed_instance['vm_state'])
         self.assertEquals(None, migration_url)
-        metadata = db.instance_metadata_get(self.context, blessed_uuid)
-        self.assertEquals(None, metadata.get('images', None))
-        self.assertEquals(None, metadata.get('blessed', None))
+        system_metadata = db.instance_system_metadata_get(self.context, blessed_uuid)
+        self.assertEquals(None, system_metadata.get('images', None))
+        self.assertEquals(None, system_metadata.get('blessed', None))
         self.assertEquals(None, blessed_instance['launched_at'])
 
         self.assertFalse(blessed_instance.get('disable_terminate', False))
@@ -178,8 +175,8 @@ class CobaltManagerTestCase(unittest.TestCase):
 
         self.assertEquals(pre_bless_instance['vm_state'], post_bless_instance['vm_state'])
         self.assertEquals("migration_url", migration_url)
-        metadata = db.instance_metadata_get(self.context, blessed_uuid)
-        self.assertEquals("file1_ref,file2_ref,file3_ref", metadata['images'])
+        system_metadata = db.instance_system_metadata_get(self.context, blessed_uuid)
+        self.assertEquals("file1_ref,file2_ref,file3_ref", system_metadata['images'])
         self.assertEquals(pre_bless_instance['launched_at'], post_bless_instance['launched_at'])
         self.assertFalse(pre_bless_instance.get('disable_terminate', None),
                          post_bless_instance.get('disable_terminate', None))
@@ -209,12 +206,11 @@ class CobaltManagerTestCase(unittest.TestCase):
     def test_launch_instance_images(self):
         self.vmsconn.set_return_val("launch", None)
         blessed_uuid = utils.create_blessed_instance(self.context,
-            instance={'metadata':{'images':'image1'}})
+            instance={'system_metadata':{'images':'image1'}})
 
         instance = db.instance_get_by_uuid(self.context, blessed_uuid)
-        metadata = db.instance_metadata_get(self.context, instance['uuid'])
-        self.assertEquals('image1', metadata.get('images', ''))
-
+        system_metadata = db.instance_system_metadata_get(self.context, instance['uuid'])
+        self.assertEquals('image1', system_metadata.get('images', ''))
 
         launched_uuid = utils.create_pre_launched_instance(self.context, source_uuid=blessed_uuid)
 
@@ -346,8 +342,8 @@ class CobaltManagerTestCase(unittest.TestCase):
         instance_uuid = utils.create_instance(self.context,
                                              {'task_state':task_states.MIGRATING,
                                               'host': src_host,
-                                              'metadata': {'gc_src_host': src_host,
-                                                           'gc_dst_host': dst_host}},
+                                              'system_metadata': {'gc_src_host': src_host,
+                                                                  'gc_dst_host': dst_host}},
                                             driver=self.cobalt.compute_manager.driver)
         self.cobalt.host = src_host
         self.cobalt._refresh_host(self.context)
@@ -363,8 +359,8 @@ class CobaltManagerTestCase(unittest.TestCase):
         instance_uuid = utils.create_instance(self.context,
                                              {'task_state':task_states.MIGRATING,
                                               'host': dst_host,
-                                              'metadata': {'gc_src_host': src_host,
-                                                           'gc_dst_host': dst_host}},
+                                              'system_metadata': {'gc_src_host': src_host,
+                                                                  'gc_dst_host': dst_host}},
                                             driver=self.cobalt.compute_manager.driver)
         self.cobalt.host = dst_host
         self.cobalt._refresh_host(self.context)
@@ -380,8 +376,8 @@ class CobaltManagerTestCase(unittest.TestCase):
         instance_uuid = utils.create_instance(self.context,
                                              {'task_state':task_states.MIGRATING,
                                               'host': src_host,
-                                              'metadata': {'gc_src_host': src_host,
-                                                           'gc_dst_host': dst_host}})
+                                              'system_metadata': {'gc_src_host': src_host,
+                                                                  'gc_dst_host': dst_host}})
         self.cobalt.host = src_host
         self.cobalt._refresh_host(self.context)
 
@@ -396,8 +392,8 @@ class CobaltManagerTestCase(unittest.TestCase):
         instance_uuid = utils.create_instance(self.context,
                                              {'task_state':task_states.MIGRATING,
                                               'host': dst_host,
-                                              'metadata': {'gc_src_host': src_host,
-                                                           'gc_dst_host': dst_host}})
+                                              'system_metadata': {'gc_src_host': src_host,
+                                                                  'gc_dst_host': dst_host}})
         self.cobalt.host = dst_host
         self.cobalt._refresh_host(self.context)
 

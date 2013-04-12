@@ -77,6 +77,13 @@ class CobaltApiTestCase(unittest.TestCase):
             "The instance should have the blessed_from metadata set to true after being blessed. " \
           + "(value=%s)" % (metadata['blessed_from']))
 
+        system_metadata = db.instance_system_metadata_get(self.context, blessed_instance['uuid'])
+        self.assertTrue(system_metadata.has_key('blessed_from'),
+            "The instance should have a bless system_metadata after being blessed.")
+        self.assertTrue(system_metadata['blessed_from'] == '%s' % instance_uuid,
+            "The instance should have the blessed_from system_metadata set to true after being blessed. "\
+            + "(value=%s)" % (system_metadata['blessed_from']))
+
     def test_bless_instance_with_name(self):
         instance_uuid = utils.create_instance(self.context)
         blessed_instance = self.cobalt_api.bless_instance(self.context,
@@ -272,6 +279,13 @@ class CobaltApiTestCase(unittest.TestCase):
         self.assertTrue(metadata['launched_from'] == '%s' % (blessed_instance_uuid),
             "The instance should have the 'launched from' metadata set to blessed instanced id after being launched. " \
           + "(value=%s)" % (metadata['launched_from']))
+
+        system_metadata = db.instance_system_metadata_get(self.context, launched_instance['uuid'])
+        self.assertTrue(system_metadata.has_key('launched_from'),
+            "The instance should have a 'launched from' system_metadata after being launched.")
+        self.assertTrue(system_metadata['launched_from'] == '%s' % (blessed_instance_uuid),
+            "The instance should have the 'launched from' system_metadata set to blessed instanced id after being launched. "\
+            + "(value=%s)" % (system_metadata['launched_from']))
 
     def test_launch_not_blessed_image(self):
 
