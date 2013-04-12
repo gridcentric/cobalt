@@ -27,7 +27,9 @@ if PACKAGE == 'all' or PACKAGE == 'cobalt':
           author_email='support@gridcentric.com',
           url='http://www.gridcentric.com/',
           packages=['cobalt',
+                    'cobalt.horizon',
                     'cobalt.nova',
+                    'cobalt.nova.osapi',
                     'cobalt.nova.extension'])
 
 if PACKAGE == 'all' or PACKAGE == 'cobalt-compute':
@@ -47,8 +49,7 @@ if PACKAGE == 'all' or PACKAGE == 'cobalt-api':
           author='Gridcentric Inc.',
           author_email='support@gridcentric.com',
           install_requires=['cobalt'],
-          url='http://www.gridcentric.com/'
-          packages=['cobalt.nova.osapi'])
+          url='http://www.gridcentric.com/')
 
 if PACKAGE == 'all' or PACKAGE == 'cobalt-horizon':
     setup(name='cobalt-horizon',
@@ -57,5 +58,4 @@ if PACKAGE == 'all' or PACKAGE == 'cobalt-horizon':
           author='Gridcentric Inc.',
           author_email='support@gridcentric.com',
           install_requires=['cobalt'],
-          url='http://www.gridcentric.com/',
-          packages=['cobalt.horizon'])
+          url='http://www.gridcentric.com/')
