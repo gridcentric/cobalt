@@ -484,7 +484,7 @@ class API(base.Base):
         self._cast_gridcentric_message("export_instance", context, instance_uuid, params={'image_id': image_id})
 
         # Copy these fields directly
-        fields = {
+        fields = set([
             'image_ref',
             'vm_state',
             'memory_mb',
@@ -501,7 +501,7 @@ class API(base.Base):
             'os_type',
             'project_id',
             'user_id'
-        }
+        ])
 
         return {
             'fields': {field: instance[field] for field in fields if (field in instance)},
