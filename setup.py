@@ -19,8 +19,8 @@ from distutils.core import setup
 
 PACKAGE = os.getenv('PACKAGE', 'all')
 
-if PACKAGE == 'all' or PACKAGE == 'cobalt-nova':
-    setup(name='cobalt-nova',
+if PACKAGE == 'all' or PACKAGE == 'cobalt':
+    setup(name='cobalt',
           version=os.getenv('VERSION', '1.0'),
           description='Cobalt extension for OpenStack Compute.',
           author='Gridcentric Inc.',
@@ -28,9 +28,7 @@ if PACKAGE == 'all' or PACKAGE == 'cobalt-nova':
           url='http://www.gridcentric.com/',
           packages=['cobalt',
                     'cobalt.nova',
-                    'cobalt.nova.client',
-                    'cobalt.nova.extension',
-                    'cobalt.nova.osapi'])
+                    'cobalt.nova.extension'])
 
 if PACKAGE == 'all' or PACKAGE == 'cobalt-compute':
     setup(name='cobalt-compute',
@@ -39,7 +37,7 @@ if PACKAGE == 'all' or PACKAGE == 'cobalt-compute':
           author='Gridcentric Inc.',
           author_email='support@gridcentric.com',
           url='http://www.gridcentric.com/',
-          install_requires=['cobalt-nova'],
+          install_requires=['cobalt'],
           scripts=['bin/cobalt-compute'])
 
 if PACKAGE == 'all' or PACKAGE == 'cobalt-api':
@@ -48,5 +46,16 @@ if PACKAGE == 'all' or PACKAGE == 'cobalt-api':
           description='Cobalt API extension.',
           author='Gridcentric Inc.',
           author_email='support@gridcentric.com',
-          install_requires=['cobalt-nova'],
-          url='http://www.gridcentric.com/')
+          install_requires=['cobalt'],
+          url='http://www.gridcentric.com/'
+          packages=['cobalt.nova.osapi'])
+
+if PACKAGE == 'all' or PACKAGE == 'cobalt-horizon':
+    setup(name='cobalt-horizon',
+          version=os.getenv('VERSION', '1.0'),
+          description='Gridcentric plugin for OpenStack Dashboard',
+          author='Gridcentric Inc.',
+          author_email='support@gridcentric.com',
+          install_requires=['cobalt'],
+          url='http://www.gridcentric.com/',
+          packages=['cobalt.horizon'])
