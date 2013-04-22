@@ -35,7 +35,8 @@ if PACKAGE == 'all' or PACKAGE == 'nova-compute-gridcentric':
           author='GridCentric',
           author_email='support@gridcentric.com',
           url='http://www.gridcentric.com/',
-          packages=['gridcentric.nova.extension'],
+          packages=['gridcentric.nova.extension',
+                    'gridcentric.nova.extension.driver'],
           scripts=['bin/nova-gc'])
 
 if PACKAGE == 'all' or PACKAGE == 'nova-api-gridcentric':

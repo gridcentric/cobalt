@@ -509,7 +509,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # We set the image_refs to an empty array first in case the
             # post_bless() fails and we need to cleanup artifacts.
             image_refs = []
-            image_refs = self.vms_conn.post_bless(context, instance_ref, blessed_files)
+            vms_policy_template = self._generate_vms_policy_template(context,
+                                                            instance_ref)
+            image_refs = self.vms_conn.post_bless(context,
+                                    instance_ref,
+                                    blessed_files,
+                                    vms_policy_template=vms_policy_template)
 
             # Mark this new instance as being 'blessed'. If this fails,
             # we simply clean up all metadata and attempt to mark the VM
@@ -832,13 +837,21 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         return network_info
 
-    def _generate_vms_policy_name(self, context, instance, source_instance):
-        instance_type = self.db.instance_type_get(context, instance['instance_type_id'])
-        policy_attrs = (('blessed', source_instance['uuid']),
+    def _generate_vms_policy_template(self, context, instance):
+        instance_type = self.db.instance_type_get(context,
+                                                  instance['instance_type_id'])
+        policy_attrs = (('blessed', instance['uuid']),
                         ('flavor', instance_type['name']),
-                        ('tenant', instance['project_id']),
-                        ('uuid', instance['uuid']),)
-        return "".join([";%s=%s;" %(key, value) for (key, value) in policy_attrs])
+                        ('tenant', '%(tenant)s'),
+                        ('uuid', '%(uuid)s'),)
+        return "".join([";%s=%s;" %(key, value)
+                        for (key, value) in policy_attrs])
+
+
+    def _generate_vms_policy_name(self, context, instance, source_instance):
+        template = self._generate_vms_policy_template(context, source_instance)
+        return template %({'uuid': instance['uuid'],
+                           'tenant':instance['project_id']})
 
     @_lock_call
     def launch_instance(self, context, instance_uuid=None, instance_ref=None,
