@@ -504,7 +504,7 @@ class API(base.Base):
         ])
 
         return {
-            'fields': {field: instance[field] for field in fields if (field in instance)},
+            'fields': dict((field, instance[field]) for field in fields if (field in instance)),
             'metadata': {entry.key: entry.value
                                 for entry in instance['metadata']},
             'security_group_names': [secgroup.name for secgroup
