@@ -505,8 +505,8 @@ class API(base.Base):
 
         return {
             'fields': dict((field, instance[field]) for field in fields if (field in instance)),
-            'metadata': {entry.key: entry.value
-                                for entry in instance['metadata']},
+            'metadata': dict((entry.key, entry.value)
+                                for entry in instance['metadata']),
             'security_group_names': [secgroup.name for secgroup
                                                 in instance['security_groups']],
             'flavor_name': self.compute_api.db.instance_type_get(context,
