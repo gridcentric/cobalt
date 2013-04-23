@@ -59,7 +59,7 @@ def bless_instance_workflow(request):
 
         def format_status_message(self, message):
             if 'name' in self.context:
-                name = '"{}"'.format(self.context['name'])
+                name = '"%s"' % (self.context['name'])
             else:
                 name = 'instance'
             return message.format(name=name)

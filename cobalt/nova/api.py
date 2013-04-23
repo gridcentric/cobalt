@@ -498,7 +498,7 @@ class API(base.Base):
         self._cast_cobalt_message("export_instance", context, instance_uuid, params={'image_id': image_id})
 
         # Copy these fields directly
-        fields = {
+        fields = set([
             'image_ref',
             'vm_state',
             'memory_mb',
@@ -515,14 +515,14 @@ class API(base.Base):
             'os_type',
             'project_id',
             'user_id'
-        }
+        ])
 
         return {
-            'fields': {field: instance[field] for field in fields if (field in instance)},
-            'metadata': {entry.key: entry.value
-                                for entry in instance['metadata']},
-            'system_metadata': {entry.key: entry.value
-                                 for entry in instance['system_metadata']},
+            'fields': dict((field, instance[field]) for field in fields if (field in instance)),
+            'metadata': dict((entry.key, entry.value)
+                                for entry in instance['metadata']),
+            'system_metadata': dict((entry.key, entry.value)
+                                for entry in instance['system_metadata']),
             'security_group_names': [secgroup.name for secgroup
                                                 in instance['security_groups']],
             'flavor_name': self.compute_api.db.instance_type_get(context,
