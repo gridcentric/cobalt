@@ -316,7 +316,6 @@ class GridCentricApiTestCase(unittest.TestCase):
         blessed_instance_uuid = blessed_instance['uuid']
         launched_instance = self.gridcentric_api.launch_instance(self.context, blessed_instance_uuid, params={})
         name = launched_instance['display_name']
-        print 'instance name: {}'.format(name)
         self.assertEqual(name, 'None-0-clone')
         self.assertEqual(launched_instance['hostname'], 'none-0-clone')
 

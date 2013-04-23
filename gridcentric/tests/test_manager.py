@@ -63,7 +63,7 @@ class GridCentricManagerTestCase(unittest.TestCase):
             FLAGS.connection_type = conn_type
             FLAGS.compute_driver = driver
             self.gridcentric._init_vms()
-            self.assertIs(type(self.gridcentric.vms_conn),
+            self.assertEqual(type(self.gridcentric.vms_conn),
                              type(vmsconn.get_vms_connection('fake')))
 
     def test_target_memory_string_conversion_case_insensitive(self):
