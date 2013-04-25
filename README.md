@@ -29,7 +29,7 @@ Installing from source:
     # Modify your nova.conf to include the API extension.
     # i.e.
     # osapi_compute_extension=nova.api.openstack.compute.contrib.standard_extensions
-    # osapi_compute_extension=cobalt.nova.osapi.cobalt_extension.CobaltExtension
+    # osapi_compute_extension=cobalt.nova.osapi.cobalt_extension.Cobalt_extension
 
     # (Optional) Copy the upstart script (etc/cobalt-compute.conf) to /etc/init/
     $ sudo cp etc/cobalt-compute.conf /etc/init
