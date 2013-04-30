@@ -390,10 +390,10 @@ class API(base.Base):
                     launch_index=i,
                     availability_zone=instance_params.pop('availability_zone', None)))
 
-            request_spec = self._create_request_spec(context, instance)
+            request_spec = self._create_request_spec(context, launch_instances)
             filter_properties = {}
             hosts = self.scheduler_rpcapi.select_hosts(context,request_spec,filter_properties)
-            instances = launch_instances.copy()
+
             for host, launch_instance in zip(hosts, launch_instances):
                 self._cast_cobalt_message('launch_instance', context,
                     launch_instance['uuid'], host,
@@ -412,7 +412,7 @@ class API(base.Base):
         instance = instances[0]
         instance_type = self.db.instance_type_get(context,
                                                   instance['instance_type_id'])
-        image = instance['image']
+        image = self.image_service.show(context, instance['image_ref'])
         bdm = self.db.block_device_mapping_get_all_by_instance(context,
                                                             instance['uuid'])
         security_groups = self.db.security_group_get_by_instance(context,

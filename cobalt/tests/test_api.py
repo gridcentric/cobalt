@@ -27,6 +27,7 @@ from nova.db.sqlalchemy import api as sqlalchemy_db
 from oslo.config import cfg
 
 import cobalt.nova.api as gc_api
+from cobalt.nova import image
 import cobalt.tests.utils as utils
 import base64
 
@@ -49,7 +50,8 @@ class CobaltApiTestCase(unittest.TestCase):
         # Mock quota checking
         utils.mock_quota()
 
-        self.cobalt_api = gc_api.API()
+        self.cobalt_api = gc_api.API(image_service=utils.mock_image_service())
+        utils.mock_scheduler_rpcapi(self.cobalt_api.scheduler_rpcapi)
         self.context = nova_context.RequestContext('fake', 'fake', True)
         self.cobalt_service = utils.create_cobalt_service(self.context)
 

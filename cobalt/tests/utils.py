@@ -26,6 +26,7 @@ from nova.network import model as network_model
 from nova.virt.fake import FakeInstance
 
 from cobalt.nova import api
+from cobalt.nova import image
 
 class TestInducedException(Exception):
 
@@ -54,6 +55,39 @@ mock_rpc = MockRpc()
 rpc.call = mock_rpc.call
 rpc.cast = mock_rpc.cast
 
+class MockImageService(object):
+    """
+    A simple mock for the Nova ImageService defined
+    """
+    def __init__(self):
+        self.images = {}
+        self.image_data = {}
+
+    def show(self, context, image_id):
+        return self.images.get(image_id, {})
+
+    def create(self, context, sent_data):
+        image_id = create_uuid()
+        self.images[image_id] = sent_data
+
+    def update(self, context, image_id, metadata, image_file):
+        self.images[image_id] = metadata
+        image_data = [line for line in image_file.readlines()]
+        self.image_data[image_id] = image_data
+
+
+    def download(self, context, image_id, image_file):
+        image_data = self.image_data.get(image_id, [])
+        image_file.writelines(image_data)
+
+    def delete(self, context, image_id):
+        if image_id in self.images:
+            del self.images[image_id]
+
+def mock_image_service():
+    return image.ImageService(image_service=MockImageService())
+
+
 def do_nothing(*args, **kwargs):
     pass
 
@@ -62,6 +96,15 @@ def mock_policy():
 
 def mock_quota():
     api.API._check_quota = do_nothing
+
+def mock_scheduler_rpcapi(scheduler_rpcapi, hosts=None):
+    if hosts == None:
+        hosts = [create_uuid()]
+
+    def mock_select_hosts(context,request_spec,filter_properties):
+        return [hosts[i % len(hosts)] for i in range(0, len(request_spec['instance_uuids']))]
+
+    scheduler_rpcapi.select_hosts = mock_select_hosts
 
 class MockVmsConn(object):
     """
