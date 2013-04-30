@@ -98,7 +98,7 @@ class CobaltServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_bless')
     def _dep_bless_instance(self, req, id, body):
-        return self._bless_instance(req, id, body)
+        return self._bless_instance(req=req, id=id, body=body)
 
     @wsgi.action('co_discard')
     @convert_exception
@@ -110,7 +110,7 @@ class CobaltServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_discard')
     def _dep_discard_instance(self, req, id, body):
-        return self._discard_instance(req, id, body)
+        return self._discard_instance(req=req, id=id, body=body)
 
     @wsgi.action('co_launch')
     @convert_exception
@@ -127,7 +127,7 @@ class CobaltServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_launch')
     def _dep_launch_instance(self, req, id, body):
-        return self._launch_instance(req, id, body)
+        return self._launch_instance(req=req, id=id, body=body)
 
     @wsgi.action('co_migrate')
     @convert_exception
@@ -144,7 +144,7 @@ class CobaltServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_migrate')
     def _dep_migrate_instance(self, req, id, body):
-        return self._migrate_instance(req, id, body)
+        return self._migrate_instance(req=req, id=id, body=body)
 
     @wsgi.action('co_list_launched')
     @convert_exception
@@ -155,7 +155,7 @@ class CobaltServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_list_launched')
     def _dep_list_launched_instances(self, req, id, body):
-        return self._list_launched_instances(req, id, body)
+        return self._list_launched_instances(req=req, id=id, body=body)
 
     @wsgi.action('co_list_blessed')
     @convert_exception
@@ -166,7 +166,7 @@ class CobaltServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_list_blessed')
     def _dep_list_blessed_instances(self, req, id, body):
-        return self._list_blessed_instances(req, id, body)
+        return self._list_blessed_instances(req=req, id=id, body=body)
 
     @wsgi.extends
     @convert_exception
@@ -186,7 +186,7 @@ class CobaltServerControllerExtension(wsgi.Controller):
 
     @wsgi.action('gc_export')
     def _dep_export_blessed_instance(self, req, id, body):
-        return self._export_blessed_instance(req, id, body)
+        return self._export_blessed_instance(req=req, id=id, body=body)
 
     def _build_instance_list(self, req, instances):
         def _build_view(req, instance, is_detail=True):
