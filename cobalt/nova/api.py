@@ -19,17 +19,20 @@ import random
 
 from nova import availability_zones
 from nova import compute
+from nova import exception
+from nova import quota
+from nova import utils
 from nova.compute import instance_types
 from nova.compute import task_states
 from nova.compute import vm_states
-from nova import exception
 from nova.db import base
-from nova import quota
+from nova.openstack.common import jsonutils
 from nova.openstack.common import log as logging
 from nova.openstack.common import rpc
-from nova import utils
-from oslo.config import cfg
 from nova.openstack.common import timeutils
+from nova.scheduler import rpcapi as scheduler_rpcapi
+
+from oslo.config import cfg
 
 from . import image
 
@@ -61,6 +64,7 @@ class API(base.Base):
         super(API, self).__init__(**kwargs)
         self.compute_api = compute.API()
         self.image_service = image_service if image_service is not None else image.ImageService()
+        self.scheduler_rpcapi = scheduler_rpcapi.SchedulerAPI()
         self.CAPABILITIES = CAPABILITIES
 
     def get_info(self):
@@ -122,7 +126,7 @@ class API(base.Base):
 
     def _copy_instance(self, context, instance_uuid, new_name, launch=False,
                        new_user_data=None, security_groups=None, key_name=None,
-                       launch_index=0):
+                       launch_index=0, availability_zone=None):
         # (dscannell): Basically we want to copy all of the information from
         # instance with id=instance_uuid into a new instance. This is because we
         # are basically "cloning" the vm as far as all the properties are
@@ -149,6 +153,9 @@ class API(base.Base):
             key_pair = self.db.key_pair_get(context, context.user_id, key_name)
             key_data = key_pair['public_key']
 
+        if availability_zone is None:
+            availability_zone = instance_ref['availability_zone']
+
         instance = {
            'reservation_id': utils.generate_uid('r'),
            'image_ref': image_ref,
@@ -172,7 +179,7 @@ class API(base.Base):
            'key_data': key_data,
            'locked': False,
            'metadata': metadata,
-           'availability_zone': instance_ref['availability_zone'],
+           'availability_zone': availability_zone,
            'os_type': instance_ref['os_type'],
            'host': None,
            'system_metadata': system_metadata,
@@ -367,47 +374,57 @@ class API(base.Base):
         reservations = self._acquire_addition_reservation(context, instance, num_instances)
 
         try:
-
-            first_uuid = None
+            launch_instances = []
             # We are handling num_instances in this (odd) way because this is how
             # standard nova handles it.
             for i in xrange(num_instances):
                 instance_params = params.copy()
                 # Create a new launched instance.
-                new_instance_ref = self._copy_instance(context, instance_uuid,
+                launch_instances.append(self._copy_instance(context, instance_uuid,
                     instance_params.get('name', "%s-%s" %\
                                         (instance['display_name'], "clone")),
                     launch=True,
                     new_user_data=instance_params.pop('user_data', None),
                     security_groups=security_groups,
                     key_name=instance_params.pop('key_name', None),
-                    launch_index=i)
+                    launch_index=i,
+                    availability_zone=instance_params.pop('availability_zone', None)))
 
-                if first_uuid is None:
-                    first_uuid = new_instance_ref['uuid']
-
-                LOG.debug(_("Choosing host for %(pid)s/%(uid)s's"
-                            " instance %(instance_uuid)s") % locals())
-
-                availability_zone = params.pop('availability_zone', None)
-                if availability_zone is None:
-                    availability_zone = new_instance_ref['availability_zone']
-                else:
-                    new_instance_ref['availability_zone'] = availability_zone
-                hosts = self._list_cobalt_hosts(context, availability_zone)
-                if hosts:
-                    host = hosts[random.randint(0, len(hosts) - 1)]
-                    self._cast_cobalt_message('launch_instance', context,
-                               new_instance_ref['uuid'], host,
-                               { "params" : params })
-                else:
-                    raise exception.NovaException(_('No hosts found'))
+            request_spec = self._create_request_spec(context, instance)
+            filter_properties = {}
+            hosts = self.scheduler_rpcapi.select_hosts(context,request_spec,filter_properties)
+            instances = launch_instances.copy()
+            for host, launch_instance in zip(hosts, launch_instances):
+                self._cast_cobalt_message('launch_instance', context,
+                    launch_instance['uuid'], host,
+                    { "params" : params })
             self._commit_reservation(context, reservations)
         except Exception, e:
             self._rollback_reservation(context, reservations)
             raise e
 
-        return self.get(context, first_uuid)
+        return self.get(context, launch_instances[0]['uuid'])
+
+    def _create_request_spec(self, context, instances):
+        """ Creates a scheduler request spec for the launch instances."""
+        # Use the first instance as a representation for the entire group of
+        # instances in the request.
+        instance = instances[0]
+        instance_type = self.db.instance_type_get(context,
+                                                  instance['instance_type_id'])
+        image = instance['image']
+        bdm = self.db.block_device_mapping_get_all_by_instance(context,
+                                                            instance['uuid'])
+        security_groups = self.db.security_group_get_by_instance(context,
+                                                            instance['id'])
+        return {
+            'image': jsonutils.to_primitive(image),
+            'instance_properties': dict(instance.iteritems()),
+            'instance_type': instance_type,
+            'instance_uuids': [i['uuid'] for i in instances],
+            'block_device_mapping': bdm,
+            'security_group': security_groups
+        }
 
     def _find_migration_target(self, context, instance_host, dest):
         cobalt_hosts = self._list_cobalt_hosts(context)
