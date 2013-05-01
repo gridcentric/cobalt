@@ -22,6 +22,7 @@ import os
 import pwd
 import tempfile
 import uuid
+import inspect
 
 from glanceclient.exc import HTTPForbidden
 
@@ -540,12 +541,25 @@ class LibvirtConnection(VmsConnection):
         # (dscannell) This was taken from the core nova project as part of the
         # boot path for normal instances. We basically want to mimic this
         # functionality.
-        xml = libvirt_conn.to_xml(instance_dict, network_info, disk_info,
-                                  block_device_info=block_device_info)
-        libvirt_conn._create_image(context, instance_dict, xml,
-                                   disk_info['mapping'],
-                                   network_info=network_info,
-                                   block_device_info=block_device_info)
+        # (rui-lin) libvirt_xml parameter was removed from 2013.1 to 2013.1.1
+        # Check if the parameter is in argument list of _create_image to
+        # decide which method signature to use, and whether to write the xml
+        # file to disk afterwards.
+        if 'libvirt_xml' in inspect.getargspec(libvirt_conn._create_image).args:
+            xml = libvirt_conn.to_xml(instance_dict, network_info, disk_info,
+                                      block_device_info=block_device_info)
+            libvirt_conn._create_image(context, instance_dict, xml,
+                                       disk_info['mapping'],
+                                       network_info=network_info,
+                                       block_device_info=block_device_info)
+        else:
+            libvirt_conn._create_image(context, instance_dict,
+                                       disk_info['mapping'],
+                                       network_info=network_info,
+                                       block_device_info=block_device_info)
+            xml = libvirt_conn.to_xml(instance_dict, network_info, disk_info,
+                                      block_device_info=block_device_info,
+                                      write_to_disk=True)
 
         if not(migration):
             for disk_name, disk_file in stubbed_disks.iteritems():
