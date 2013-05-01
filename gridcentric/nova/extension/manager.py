@@ -353,6 +353,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
             lvm_info[key] = value
         return lvm_info
 
+    def _extract_requested_networks(self, metadata):
+        networks = self._extract_list(metadata, 'attached_networks')
+        if len(networks) == 0:
+            return None
+        return [[id, None] for id in networks]
+
     def _get_source_instance(self, context, instance_uuid):
         """ 
         Returns a the instance reference for the source instance of instance_id. In other words:
@@ -514,6 +520,12 @@ class GridCentricManager(manager.SchedulerDependentManager):
             metadata['images'] = ','.join(image_refs)
             metadata['logical_volumes'] = ','.join(lvms)
             if not(migration):
+                # Record the networks that we attached to this instance so that when launching
+                # only these networks will be attached,
+                network_info = self._instance_network_info(context,
+                                                           source_instance_ref,
+                                                           True)
+                metadata['attached_networks'] = ','.join([vif['network']['id'] for vif in network_info])
                 metadata['blessed'] = True
             self._instance_metadata_update(context, instance_uuid, metadata)
 
@@ -782,7 +794,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self.db.instance_destroy(context, instance_uuid)
         self._notify(context, instance_ref, "discard.end")
 
-    def _instance_network_info(self, context, instance_ref, already_allocated):
+    def _instance_network_info(self, context, instance_ref, already_allocated, requested_networks=None):
         """
         Retrieve the network info for the instance. If the info is already_allocated then
         this will simply query for the information. Otherwise, it will ask for new network info
@@ -803,8 +815,6 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # cast because we are not waiting on any return value.
 
             is_vpn = False
-            requested_networks = None
-
             try:
                 self._instance_update(context, instance_ref['uuid'],
                           task_state=task_states.NETWORKING,
@@ -886,13 +896,16 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         image_refs = self._extract_image_refs(metadata)
         lvm_info = self._extract_lvm_info(metadata)
+        requested_networks = self._extract_requested_networks(metadata)
 
         if migration_network_info != None:
             # (dscannell): Since this migration_network_info came over the wire we need
             # to hydrate it back into a full NetworkInfo object.
             network_info = network_model.NetworkInfo.hydrate(migration_network_info)
         else:
-            network_info = self._instance_network_info(context, instance_ref, migration_url != None)
+            network_info = self._instance_network_info(context, instance_ref,
+                                                       migration_url != None,
+                                                       requested_networks=requested_networks)
             if network_info == None:
                 # An error would have occured acquiring the instance network info. We should
                 # mark the instances as error and return because there is nothing else we can do.
