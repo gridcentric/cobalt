@@ -63,7 +63,7 @@ class GCMigrate(tables.LinkAction):
     classes = ("ajax-modal", "btn-edit")
 
     def allowed(self, request, instance):
-        return str(request.user.is_superuser) and instance.status in ('ACTIVE',) and not instance_tables._is_deleting(instance)
+        return request.user.is_superuser and instance.status in ('ACTIVE',) and not instance_tables._is_deleting(instance)
 
 # Neuter all the built-in row actions to support blessed.
 def wrap_allowed(fn):
