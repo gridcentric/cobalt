@@ -14,45 +14,85 @@
 #    under the License.
 
 import os
-import sys
+import subprocess
 from distutils.core import setup
 
-PACKAGE = os.getenv('PACKAGE', 'all')
+def git(*args):
+    topdir = os.path.abspath(os.path.dirname(__file__))
+    p = subprocess.Popen(('git',) + args, stdout=subprocess.PIPE, cwd=topdir)
+    return p.communicate()[0]
+
+def get_version():
+    v = os.getenv('VERSION', None)
+    if v is None:
+        try:
+            from pkginfo import UnpackedSDist
+            d = UnpackedSDist(__file__)
+            v = d.version
+        except ValueError:
+            try:
+                v = git('describe', '--tags').strip().split('/', 1)[1].split('-', 1)[1]
+            except Exception:
+                v = '0.0'
+    return v
+
+def get_package():
+    p = os.getenv('PACKAGE', None)
+    if p is None:
+        try:
+            from pkginfo import UnpackedSDist
+            d = UnpackedSDist(__file__)
+            p = d.name
+        except ValueError:
+            p = 'all'
+    return p
+
+
+PACKAGE = get_package()
+VERSION = get_version()
+
+
+COMMON = dict(
+    author='GridCentric',
+    author_email='support@gridcentric.com',
+    namespace_packages=['gridcentric'],
+    install_requires=['setuptools'],
+    url='http://www.gridcentric.com/',
+    version=VERSION,
+    classifiers = [
+        'Environment :: OpenStack',
+        'Intended Audience :: Information Technology',
+        'Intended Audience :: System Administrators',
+        'License :: OSI Approved :: Apache Software License',
+        'Operating System :: POSIX :: Linux',
+        'Programming Language :: Python',
+        'Programming Language :: Python :: 2',
+        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 2.6']
+)
 
 if PACKAGE == 'all' or PACKAGE == 'nova-gridcentric':
     setup(name='nova-gridcentric',
-          version=os.getenv('VERSION', '1.0'),
           description='GridCentric extension for OpenStack Compute.',
-          author='GridCentric',
-          author_email='support@gridcentric.com',
-          url='http://www.gridcentric.com/',
-          packages=['gridcentric.nova'])
+          packages=['gridcentric.nova'],
+          **COMMON)
 
 if PACKAGE == 'all' or PACKAGE == 'nova-compute-gridcentric':
     setup(name='nova-compute-gridcentric',
-          version=os.getenv('VERSION', '1.0'),
           description='GridCentric extension for OpenStack Compute.',
-          author='GridCentric',
-          author_email='support@gridcentric.com',
-          url='http://www.gridcentric.com/',
           packages=['gridcentric.nova.extension',
                     'gridcentric.nova.extension.driver'],
-          scripts=['bin/nova-gc'])
+          scripts=['bin/nova-gc'],
+          **COMMON)
 
 if PACKAGE == 'all' or PACKAGE == 'nova-api-gridcentric':
     setup(name='nova-api-gridcentric',
-          version=os.getenv('VERSION', '1.0'),
           description='GridCentric API extension.',
-          author='GridCentric',
-          author_email='support@gridcentric.com',
-          url='http://www.gridcentric.com/',
-          packages=['gridcentric.nova.osapi'])
+          packages=['gridcentric.nova.osapi'],
+          **COMMON)
 
 if PACKAGE == 'all' or PACKAGE == 'horizon-gridcentric':
     setup(name='horizon-gridcentric',
-          version='1.0',
           description='GridCentric plugin for OpenStack Dashboard',
-          author='GridCentric',
-          author_email='support@gridcentric.com',
-          url='http://www.gridcentric.com/',
-          packages=['gridcentric.horizon'])
+          packages=['gridcentric.horizon'],
+          **COMMON)
