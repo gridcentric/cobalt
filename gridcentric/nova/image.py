@@ -63,6 +63,19 @@ class ImageService(object):
                 metadata,
                 image_file)
 
+    def update(self, context, image_id, metadata, overwrite=False):
+
+        if not overwrite:
+            # Grab the existing metadata for the image and update it
+            # with the new metadata.
+            image = self.show(context, image_id)
+            image.update(metadata)
+        else:
+            image = metadata
+
+        LOG.debug(_("Updating image %s: %s" %(image_id, image)))
+        self.image_service.update(context, image_id, image)
+
     def download(self, context, image_id, location):
         try:
             with open(location, "wb") as image_file:
