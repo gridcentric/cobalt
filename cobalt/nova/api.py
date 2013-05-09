@@ -20,6 +20,7 @@ import random
 from nova import availability_zones
 from nova import compute
 from nova import exception
+from nova import policy
 from nova import quota
 from nova import utils
 from nova.compute import instance_types
@@ -386,6 +387,13 @@ class API(base.Base):
             launch_instances = []
             # We are handling num_instances in this (odd) way because this is how
             # standard nova handles it.
+            availability_zone, forced_host = \
+                    self.compute_api._handle_availability_zone(params.pop('availability_zone', None))
+            filter_properties = {}
+            if forced_host:
+                policy.enforce(context, 'compute:create:forced', {})
+                filter_properties['force_hosts'] = [forced_host]
+
             for i in xrange(num_instances):
                 instance_params = params.copy()
                 # Create a new launched instance.
@@ -400,7 +408,6 @@ class API(base.Base):
                     availability_zone=instance_params.pop('availability_zone', None)))
 
             request_spec = self._create_request_spec(context, launch_instances)
-            filter_properties = {}
             hosts = self.scheduler_rpcapi.select_hosts(context,request_spec,filter_properties)
 
             for host, launch_instance in zip(hosts, launch_instances):
