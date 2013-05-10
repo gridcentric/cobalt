@@ -42,14 +42,26 @@ class MockRpc(object):
     """
 
     def __init__(self):
-        self.call_log = []
-        self.cast_log = []
+        self.call_log = {}
+        self.cast_log = {}
 
-    def call(self, context, queue, method,timeout, **kwargs):
-        self.call_log.append((queue, method, timeout, kwargs))
+    def __add_to_log(self, log, queue, kwargs):
+        _instance = kwargs['args'].get('instance_uuid', 'unknown')
+        _method   = kwargs['method']
+        if log.get(_method) is None:
+            log[_method] = {}
+        if log[_method].get(queue) is None:
+            log[_method][queue] = {}
+        if log[_method][queue].get(_instance) is None:
+            log[_method][queue][_instance] = []
+        log[_method][queue][_instance] += [kwargs]
 
-    def cast(self, context, queue, method, **kwargs):
-        self.cast_log.append((queue, method, kwargs))
+    def call(self, context, queue, params, timeout=None):
+        params['timeout'] = timeout
+        self.__add_to_log(self.call_log, queue, params)
+
+    def cast(self, context, queue, kwargs):
+        self.__add_to_log(self.cast_log, queue, kwargs)
 
 mock_rpc = MockRpc()
 rpc.call = mock_rpc.call
@@ -102,6 +114,13 @@ def mock_scheduler_rpcapi(scheduler_rpcapi, hosts=None):
         hosts = [create_uuid()]
 
     def mock_select_hosts(context,request_spec,filter_properties):
+        force_host = filter_properties.pop('force_hosts', None)
+        if force_host is not None:
+            return [force_host[0]] * len(request_spec['instance_uuids'])
+        if len(filter_properties.keys()) > 0:
+            # Coarse!
+            assert filter_properties['a'] == 'b'
+            assert filter_properties['c'] == 'd'
         return [hosts[i % len(hosts)] for i in range(0, len(request_spec['instance_uuids']))]
 
     scheduler_rpcapi.select_hosts = mock_select_hosts

@@ -287,6 +287,30 @@ class CobaltApiTestCase(unittest.TestCase):
             "The instance should have the 'launched from' system_metadata set to blessed instanced id after being launched. "\
             + "(value=%s)" % (system_metadata['launched_from']))
 
+    def test_launch_instance_host_az(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.cobalt_api.bless_instance(self.context, instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        launched_instance = self.cobalt_api.launch_instance(self.context,
+                                                            blessed_instance_uuid,
+                                                            params = {
+                                                                'availability_zone' : 'nova:myhost',
+                                                                     })
+        launched_instance_uuid = launched_instance['uuid']
+        assert len(self.mock_rpc.cast_log['launch_instance']['cobalt.myhost'][launched_instance_uuid]) > 0
+
+    def test_launch_instance_filter_props(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.cobalt_api.bless_instance(self.context, instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        launched_instance = self.cobalt_api.launch_instance(self.context,
+                                                            blessed_instance_uuid,
+                                                            params = {
+                                                                'scheduler_hints' : {'a':'b','c':'d'},
+                                                                     })
+        launched_instance_uuid = launched_instance['uuid']
+        # The filter properties are asserted in the mock rpc api
+
     def test_launch_not_blessed_image(self):
 
         instance_uuid = utils.create_instance(self.context)
