@@ -43,7 +43,9 @@ CAPABILITIES = ['user-data',
                 'num-instances',
                 'bless-name',
                 'launch-key',
-                'import-export']
+                'import-export',
+                'install-policy',
+                ]
 
 LOG = logging.getLogger('nova.gridcentric.api')
 FLAGS = flags.FLAGS
@@ -94,7 +96,6 @@ class API(base.Base):
 
         :returns: None
         """
-
         if not params:
             params = {}
         if not host:
@@ -398,7 +399,7 @@ class API(base.Base):
                     new_instance_ref['availability_zone'] = availability_zone
                 hosts = self._list_gridcentric_hosts(context, availability_zone)
                 if hosts:
-                    host = hosts[random.randint(0, len(hosts) - 1)]
+                    host = random.choice(hosts)
                     self._cast_gridcentric_message('launch_instance', context,
                                new_instance_ref['uuid'], host,
                                { "params" : params })
@@ -580,6 +581,35 @@ class API(base.Base):
                  instance['uuid'], params={'image_id': data['export_image_id']})
 
         return self.get(context, instance['uuid'])
+
+    def install_policy(self, context, policy_ini_string, wait):
+        validated = False
+        faults = []
+        for host in self._list_gridcentric_hosts(context):
+            queue = rpc.queue_get_for(context, FLAGS.gridcentric_topic, host)
+            args = {
+                "method": "install_policy",
+                "args" : { "policy_ini_string": policy_ini_string },
+            }
+
+            if (not validated) or wait:
+                try:
+                    rpc.call(context, queue, args)
+                    validated = True
+                except Exception, ex:
+                    faults.append((host, str(ex)))
+                    if not wait:
+                        raise exception.NovaException(
+                            _("Failed to install policy on host %s: %s" % \
+                                (host, str(ex))))
+            else:
+                rpc.cast(context, queue, args)
+
+        if len(faults) > 0:
+            raise exception.NovaException(
+                _("Failed to install policy on %d hosts, faults:\n%s") % \
+                    (len(faults), '\n'.join([ host + ": " + str(fault).strip()
+                        for host, fault in faults ])))
 
     def _find_boot_host(self, context, metadata):
 

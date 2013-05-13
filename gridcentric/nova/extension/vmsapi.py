@@ -16,12 +16,12 @@
 """
 Performs the direct interactions with the vms library.
 """
-
 from eventlet import tpool
 
 from nova import exception
 from nova.openstack.common import log as logging
 
+import tempfile
 import vms
 import vms.commands as commands
 import vms.config as config
@@ -124,6 +124,9 @@ class VmsApi(object):
     def import_(self, *args, **kwargs):
         raise exception.NovaException('Import is not supported on this version of VMS')
 
+    def install_policy(self, *args, **kwargs):
+        raise exception.NovaException('Memory policies are not supported on this version of VMS')
+
 class VmsApi26(VmsApi):
 
     def __init__(self, version='2.6'):
@@ -147,6 +150,16 @@ class VmsApi26(VmsApi):
             mem_url=mem_url,
             migration=migration,
             vmsargs=vms_args)
+
+    def install_policy(self, policy_ini_string):
+        if hasattr(commands, "installpolicy"):
+            with tempfile.NamedTemporaryFile() as temp_policy_file:
+                temp_policy_file.write(policy_ini_string)
+                temp_policy_file.flush()
+                return tpool.execute(commands.installpolicy, temp_policy_file.name)
+        else:
+            raise exception.NovaException("Installed version of VMS doesn't "
+                                          "support policy management")
 
 class VmsApi27(VmsApi26):
 

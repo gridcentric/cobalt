@@ -30,7 +30,7 @@ from nova import exception
 from nova import flags
 
 from nova.virt import images
-from nova .virt.libvirt import imagebackend
+from nova.virt.libvirt import imagebackend
 from nova.virt.libvirt import utils as libvirt_utils
 from nova.compute import utils as compute_utils
 from nova.openstack.common import cfg
@@ -290,6 +290,14 @@ class VmsConnection:
                 os.unlink(artifact)
 
         return image_ids
+
+    @_log_call
+    def install_policy(self, raw_ini_policy):
+        """
+        Install a new set of policy definitions (provided as a string with the
+        contents of an ini file) on the local host.
+        """
+        return self.vmsapi.install_policy(raw_ini_policy)
 
 class DummyConnection(VmsConnection):
     def configure(self):

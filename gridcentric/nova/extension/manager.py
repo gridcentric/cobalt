@@ -30,7 +30,6 @@ import subprocess
 import greenlet
 from eventlet.green import threading as gthreading
 
-
 from nova import context as nova_context
 from nova import block_device
 from nova import exception
@@ -360,7 +359,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         return [[id, None] for id in networks]
 
     def _get_source_instance(self, context, instance_uuid):
-        """ 
+        """
         Returns a the instance reference for the source instance of instance_id. In other words:
         if instance_id is a BLESSED instance, it returns the instance that was blessed
         if instance_id is a LAUNCH instance, it returns the blessed instance.
@@ -1032,3 +1031,13 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self._instance_metadata_update(context, instance_uuid, metadata)
         self._instance_update(context, instance_uuid, vm_state='blessed',
                 disable_terminate=True)
+
+    def install_policy(self, context, policy_ini_string=None):
+        """
+        Install new vmspolicyd policy definitions on the host.
+        """
+        try:
+            self.vms_conn.install_policy(policy_ini_string)
+        except Exception, ex:
+            LOG.error(_("Policy install failed: %s"), ex)
+            raise ex
