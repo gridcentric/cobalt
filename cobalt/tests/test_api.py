@@ -297,7 +297,7 @@ class CobaltApiTestCase(unittest.TestCase):
                                                                 'availability_zone' : 'nova:myhost',
                                                                      })
         launched_instance_uuid = launched_instance['uuid']
-        assert len(self.mock_rpc.cast_log['launch_instance']['cobalt.myhost'][launched_instance_uuid]) > 0
+        self.assertTrue(len(self.mock_rpc.cast_log['launch_instance']['cobalt.myhost'][launched_instance_uuid]) > 0)
 
     def test_launch_instance_filter_props(self):
         instance_uuid = utils.create_instance(self.context)
@@ -309,7 +309,23 @@ class CobaltApiTestCase(unittest.TestCase):
                                                                 'scheduler_hints' : {'a':'b','c':'d'},
                                                                      })
         launched_instance_uuid = launched_instance['uuid']
-        # The filter properties are asserted in the mock rpc api
+        self.assertTrue({'a':'b','c':'d'} in utils.stored_hints[launched_instance_uuid])
+
+
+    def test_launch_instance_filter_and_az(self):
+        instance_uuid = utils.create_instance(self.context)
+        blessed_instance = self.cobalt_api.bless_instance(self.context, instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        launched_instance = self.cobalt_api.launch_instance(self.context,
+                                                            blessed_instance_uuid,
+                                                            params = {
+                                                                'availability_zone' : 'nova:filter_host',
+                                                                'scheduler_hints' : {'a':'b','c':'d'},
+                                                                     })
+        launched_instance_uuid = launched_instance['uuid']
+        self.assertTrue({'a': 'b', 'c': 'd', 'force_hosts' : ['filter_host']} in
+                            utils.stored_hints[launched_instance_uuid])
+        self.assertTrue(len(self.mock_rpc.cast_log['launch_instance']['cobalt.filter_host'][launched_instance_uuid]) > 0)
 
     def test_launch_not_blessed_image(self):
 

@@ -109,18 +109,21 @@ def mock_policy():
 def mock_quota():
     api.API._check_quota = do_nothing
 
+stored_hints = {}
+
 def mock_scheduler_rpcapi(scheduler_rpcapi, hosts=None):
     if hosts == None:
         hosts = [create_uuid()]
 
     def mock_select_hosts(context,request_spec,filter_properties):
-        force_host = filter_properties.pop('force_hosts', None)
+        force_host = filter_properties.get('force_hosts', None)
+        if len(filter_properties.keys()) > 0:
+            for uuid in request_spec['instance_uuids']:
+                instance_hints = stored_hints.get(uuid, [])
+                instance_hints.append(filter_properties)
+                stored_hints[uuid] = instance_hints
         if force_host is not None:
             return [force_host[0]] * len(request_spec['instance_uuids'])
-        if len(filter_properties.keys()) > 0:
-            # Coarse!
-            assert filter_properties['a'] == 'b'
-            assert filter_properties['c'] == 'd'
         return [hosts[i % len(hosts)] for i in range(0, len(request_spec['instance_uuids']))]
 
     scheduler_rpcapi.select_hosts = mock_select_hosts
