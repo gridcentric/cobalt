@@ -470,9 +470,8 @@ class API(base.Base):
         instance = self.get(context, instance_uuid)
         if not(self._is_instance_blessed(context, instance_uuid)):
             # The instance is not blessed. We can't launch new instances from it.
-            raise exception.Error(
-                _(("Instance %s is not blessed. " +
-                   "Only blessed instances can be exported.") % instance_uuid))
+            raise exception.NovaException(_("Instance %s is not blessed. " + \
+                  "Only blessed instances can be exported.") % instance_uuid)
 
         # Create an image record to store the blessed artifacts for this instance
         # and call to nova-gc to populate the record
@@ -534,7 +533,7 @@ class API(base.Base):
             inst_type = self.compute_api.db.\
                                  instance_type_get_by_name(context, flavor_name)
         except exception.InstanceTypeNotFoundByName:
-            raise exception.Error(_('Flavor could not be found: %s' \
+            raise exception.NovaException(_('Flavor could not be found: %s' \
                                                                  % flavor_name))
 
         fields['instance_type_id'] = inst_type['id']
@@ -546,7 +545,7 @@ class API(base.Base):
                 secgroup = self.db.security_group_get_by_name(context,
                                               context.project_id, secgroup_name)
             except exception.SecurityGroupNotFoundForProject:
-                raise exception.Error(_('Security group could not be found: %s'\
+                raise exception.NovaException(_('Security group could not be found: %s'\
                                                                % secgroup_name))
             secgroup_ids.append(secgroup['id'])
 
