@@ -490,7 +490,7 @@ class API(base.Base):
             'memory_mb',
             'vcpus',
             'root_gb',
-            'ephemral_gb',
+            'ephemeral_gb',
             'display_name',
             'display_description',
             'user_data',
