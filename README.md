@@ -48,33 +48,33 @@ Installing from source:
 Usage
 =====
 
-    # Boot a new instance using the regular OpenStack API
+    # Boot a new instance using the regular OpenStack API.
     $ nova boot --flavor 1 --image 1 ChromeOS-HVM
     
     # Wait for the first instance to move from BUILD to ACTIVE. Once ACTIVE ssh into the instance
     # and install the vms-agent package. The agent package is used to ensure that the networking is
     # reconfigured correctly when launching new instances.
     
-    # Bless the instance. This will create a running snapshot of the instance that can later be
+    # Create a live-image. This will create a snapshot of the running instance that can later be
     # used to launch new instances. Launched instances will be started with the same loaded memory
-    # as this blessed one.
-    $ nova bless <id of the instance from step 1>
+    # as the running instance at the time of the snapshot.
+    $ nova live-image-create <id of the instance from step 1>
     
     # List the nova instances and there should now be a new one with a status of BLESSED. This
-    # instance represents a blessed snapshot that can be launched. Note that this instance is not
-    # using any CPU or RAM resources.
+    # instance represents a live-image that can be launched. Note that this instance is not using
+    # any CPU or RAM resources.
     
-    # Launch more instances based off of the blessed one
-    $ nova launch <blessed instance id>
-    $ nova launch <blessed instance id>
+    # Launch more instances based off of the live-image.
+    $ nova live-image-start <live-image-id>
+    $ nova live-image-start <live-image-id>
     # ... etc ...
     
-    # Delete the launched instances.
-    $ nova delete <instance_id>
+    # Delete the instances (standard).
+    $ nova delete <instance-id>
     
-    # Discard the blessed instance. This will clean up all the VMS artifacts associated with the
-    # snapshot and remove the blessed instance from the nova database.
-    $ nova discard <blessed instance id>
+    # Discard the live-image. This will clean up all the VMS artifacts associated with the snapshot
+    # and remove the live-image from the nova database.
+    $ nova live-image-delete <live-image-id>
 
 Project Contents
 ================
