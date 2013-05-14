@@ -1030,4 +1030,5 @@ class GridCentricManager(manager.SchedulerDependentManager):
         metadata = self._instance_metadata(context, instance_uuid)
         metadata['images'] = image_ids_str
         self._instance_metadata_update(context, instance_uuid, metadata)
-        self._instance_update(context, instance_uuid, vm_state='blessed')
+        self._instance_update(context, instance_uuid, vm_state='blessed',
+                disable_terminate=True)
