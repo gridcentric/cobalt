@@ -309,7 +309,7 @@ class CobaltApiTestCase(unittest.TestCase):
                                                                 'scheduler_hints' : {'a':'b','c':'d'},
                                                                      })
         launched_instance_uuid = launched_instance['uuid']
-        self.assertTrue({'a':'b','c':'d'} in utils.stored_hints[launched_instance_uuid])
+        self.assertTrue({'scheduler_hints': {'a':'b','c':'d'}} in utils.stored_hints[launched_instance_uuid])
 
 
     def test_launch_instance_filter_and_az(self):
@@ -323,7 +323,7 @@ class CobaltApiTestCase(unittest.TestCase):
                                                                 'scheduler_hints' : {'a':'b','c':'d'},
                                                                      })
         launched_instance_uuid = launched_instance['uuid']
-        self.assertTrue({'a': 'b', 'c': 'd', 'force_hosts' : ['filter_host']} in
+        self.assertTrue({'scheduler_hints' : {'a': 'b', 'c': 'd'}, 'force_hosts' : ['filter_host']} in
                             utils.stored_hints[launched_instance_uuid])
         self.assertTrue(len(self.mock_rpc.cast_log['launch_instance']['cobalt.filter_host'][launched_instance_uuid]) > 0)
 

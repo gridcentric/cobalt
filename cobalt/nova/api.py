@@ -390,7 +390,7 @@ class API(base.Base):
             # standard nova handles it.
             availability_zone, forced_host = \
                     self.compute_api._handle_availability_zone(params.pop('availability_zone', None))
-            filter_properties = params.pop('scheduler_hints', {})
+            filter_properties = { 'scheduler_hints' : params.pop('scheduler_hints', {}) }
             if forced_host:
                 policy.enforce(context, 'compute:create:forced', {})
                 filter_properties['force_hosts'] = [forced_host]
