@@ -226,10 +226,13 @@ class VmsConnection:
         artifacts = []
 
         for image_ref in image_refs:
-            image = self.image_service.show(context, image_ref)
-            target = os.path.join(shared, image['name'])
-            self.image_service.download(context, image_ref, target)
-            artifacts.append(target)
+            if image_ref.startswith(config.SHARED):
+                pass
+            else:
+                image = self.image_service.show(context, image_ref)
+                target = os.path.join(shared, image['name'])
+                self.image_service.download(context, image_ref, target)
+                artifacts.append(target)
 
         fd, temp_target = tempfile.mkstemp()
         os.close(fd)
