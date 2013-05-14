@@ -247,6 +247,11 @@ class API(base.Base):
         metadata = self._instance_metadata(context, instance_uuid)
         return 'blessed_from' in metadata
 
+    def _is_instance_blessing(self, context, instance_uuid):
+        """ Returns True if this instance is being blessed, False otherwise. """
+        instance = self.get(context, instance_uuid)
+        return instance['task_state'] == 'blessing'
+
     def _is_instance_launched(self, context, instance_uuid):
         """ Returns True if this instance is launched, False otherwise """
         metadata = self._instance_metadata(context, instance_uuid)
@@ -478,6 +483,8 @@ class API(base.Base):
         """ Raises an error if the instance uuid is blessed. """
         if self._is_instance_blessed(context, instance_uuid):
             raise exception.NovaException("Cannot delete a blessed instance. Please discard it instead.")
+        if self._is_instance_blessing(context, instance_uuid):
+            raise exception.NovaException("Cannot delete while blessing. Please try again later.")
 
     def export_blessed_instance(self, context, instance_uuid):
         """

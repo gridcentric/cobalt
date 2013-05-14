@@ -65,7 +65,6 @@ from nova.openstack.common import rpc
 from nova import network
 from nova import volume
 
-
 # We need to import this module because other nova modules use the flags that
 # it defines (without actually importing this module). So we need to ensure
 # this module is loaded so that we can have access to those flags.
@@ -487,7 +486,18 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 _log_error("snapshot volumes")
                 raise
 
+        source_locked = False
         try:
+            # Lock the source instance if blessing
+            if not(migration):
+                old_dis = source_instance_ref['disable_terminate']
+                self._instance_update(context, source_instance_ref['uuid'],
+                                      disable_terminate=True, task_state='blessing')
+                LOG.debug("Locking source instance %s (fn:%s)" %
+                                (source_instance_ref['uuid'], "bless_instance"))
+                self.compute_manager.compute_api.lock(context, source_instance_ref)
+                source_locked = True
+
             # Create a new 'blessed' VM with the given name.
             # NOTE: If this is a migration, then a successful bless will mean that
             # the VM no longer exists. This requires us to *relaunch* it below in
@@ -502,6 +512,15 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 self._instance_update(context, instance_uuid,
                                       vm_state=vm_states.ERROR, task_state=None)
             raise
+        finally:
+            # Unlock source instance
+            if not(migration):
+                if source_locked:
+                    self.compute_manager.compute_api.unlock(context, source_instance_ref)
+                    LOG.debug("Unlocked source instance %s (fn:%s)" %
+                                   (source_instance_ref['uuid'], "bless_instance"))
+                self._instance_update(context, source_instance_ref['uuid'],
+                                      disable_terminate=old_dis is True, task_state=None)
 
         try:
             # Extract the image references.
