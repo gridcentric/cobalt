@@ -142,7 +142,10 @@ class API(base.Base):
 
         system_metadata = {}
         for data in instance_ref.get('system_metadata', []):
-            system_metadata[data['key']] = data['value']
+            # (dscannell) Do not copy over the system metadata that we setup
+            # on an instance. This is important when doing clone-of-clones.
+            if data['key'] not in ['blessed_from', 'launched_from']:
+                system_metadata[data['key']] = data['value']
 
         metadata = {}
         # We need to record the launched_from / blessed_from in both the
