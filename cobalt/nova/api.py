@@ -389,8 +389,10 @@ class API(base.Base):
             # We are handling num_instances in this (odd) way because this is how
             # standard nova handles it.
             availability_zone, forced_host = \
-                    self.compute_api._handle_availability_zone(params.pop('availability_zone', None))
-            filter_properties = { 'scheduler_hints' : params.pop('scheduler_hints', {}) }
+                    self.compute_api._handle_availability_zone(
+                                                params.get('availability_zone'))
+            filter_properties = { 'scheduler_hints' :
+                                    params.pop('scheduler_hints', {}) }
             if forced_host:
                 policy.enforce(context, 'compute:create:forced', {})
                 filter_properties['force_hosts'] = [forced_host]
@@ -406,7 +408,8 @@ class API(base.Base):
                     security_groups=security_groups,
                     key_name=instance_params.pop('key_name', None),
                     launch_index=i,
-                    availability_zone=instance_params.pop('availability_zone', None)))
+                    # Note this is after groking by handle_az above
+                    availability_zone=availability_zone))
 
             request_spec = self._create_request_spec(context, launch_instances)
             hosts = self.scheduler_rpcapi.select_hosts(context,request_spec,filter_properties)

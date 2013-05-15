@@ -323,7 +323,9 @@ class CobaltApiTestCase(unittest.TestCase):
                                                                 'scheduler_hints' : {'a':'b','c':'d'},
                                                                      })
         launched_instance_uuid = launched_instance['uuid']
-        self.assertTrue({'scheduler_hints' : {'a': 'b', 'c': 'd'}, 'force_hosts' : ['filter_host']} in
+        self.assertTrue({'scheduler_hints'      : {'a': 'b', 'c': 'd'},
+                         'force_hosts'          : ['filter_host'],
+                         'availability_zone'    : 'nova' } in
                             utils.stored_hints[launched_instance_uuid])
         self.assertTrue(len(self.mock_rpc.cast_log['launch_instance']['cobalt.filter_host'][launched_instance_uuid]) > 0)
 
@@ -547,6 +549,25 @@ class CobaltApiTestCase(unittest.TestCase):
             self.assertEqual(len(launched), num)
             for i in range(num):
                 self.assertEqual(launched[i]['launch_index'], i)
+
+    def test_launch_multiple_scheduling(self):
+        blessed_instance_uuid = utils.create_blessed_instance(self.context)
+        params = {
+            'num_instances'         : 5,
+            'availability_zone'     : 'nova',
+            'scheduler_hints'       : {'foo':'bar'}
+        }
+        self.cobalt_api.launch_instance(self.context,
+                                             blessed_instance_uuid,
+                                             params=params)
+        launched = self.cobalt_api.list_launched_instances(
+                                        self.context, blessed_instance_uuid)
+        for instance in launched:
+            uuid = instance['uuid']
+            self.assertEqual('nova', instance['availability_zone'])
+            self.assertTrue({'availability_zone' : 'nova',
+                             'scheduler_hints'   : {'foo':'bar'}} in
+                             utils.stored_hints[uuid])
 
     def test_list_cobalt_hosts(self):
         hosts = [self.cobalt_service['host']]

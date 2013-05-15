@@ -117,6 +117,10 @@ def mock_scheduler_rpcapi(scheduler_rpcapi, hosts=None):
 
     def mock_select_hosts(context,request_spec,filter_properties):
         force_host = filter_properties.get('force_hosts', None)
+        az = request_spec['instance_properties']['availability_zone']
+        if az is not None:
+            # Overload for the sake of testing
+            filter_properties['availability_zone'] = az
         if len(filter_properties['scheduler_hints'].keys()) > 0:
             for uuid in request_spec['instance_uuids']:
                 instance_hints = stored_hints.get(uuid, [])
