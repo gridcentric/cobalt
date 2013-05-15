@@ -17,8 +17,10 @@
 """Handles all requests relating to GridCentric functionality."""
 import random
 
+import nova
 from nova import compute
 from nova.compute import vm_states
+from nova.compute import power_state
 from nova import flags
 from nova import exception
 from nova import log as logging
@@ -54,6 +56,19 @@ class API(base.Base):
         super(API, self).__init__(**kwargs)
         self.compute_api = compute.API()
         self.CAPABILITIES = CAPABILITIES
+
+        # Fixup an power-states related to blessed instances.
+        elevated = nova.context.get_admin_context()
+        instances = self.compute_api.get_all(elevated,
+                                             {'deleted':False})
+        for instance in instances:
+            if instance['power_state'] == None:
+                # (dscannell) We need to update the power_state to something
+                # valid. Since it is a blessed instance we simply update its
+                # state to 'no state'.
+                self.db.instance_update(elevated, instance['uuid'],
+                                        {'power_state':power_state.NOSTATE})
+
 
     def get_info(self):
         return {'capabilities': self.CAPABILITIES}
@@ -160,6 +175,7 @@ class API(base.Base):
            'os_type': instance_ref['os_type'],
            'host': None,
            'launch_index': launch_index,
+           'power_state': power_state.NOSTATE,
         }
         new_instance_ref = self.db.instance_create(context, instance)
 
