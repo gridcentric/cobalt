@@ -52,13 +52,13 @@ cobalt_opts = [
 
                 cfg.IntOpt('cobalt_compute_timeout',
                 deprecated_name='gridcentric_compute_timeout',
-                default=None,
+                default=60* 60,
                 help='The timeout used to wait on called to nova-compute to setup the '
                      'iptables rules for an instance. Since this is a locking procedure '
                      'mutliple launches on the same host will be processed synchronously. '
                      'This timeout can be raised to ensure that launch waits long enough '
-                     'for nova-compute to process its request. By default this uses the '
-                     'standard nova-wide rpc timeout.')]
+                     'for nova-compute to process its request. By default this is set to '
+                     'one hour.')]
 CONF.register_opts(cobalt_opts)
 
 from nova import manager
@@ -354,6 +354,12 @@ class CobaltManager(manager.SchedulerDependentManager):
             lvm_info[key] = value
         return lvm_info
 
+    def _extract_requested_networks(self, metadata):
+        networks = self._extract_list(metadata, 'attached_networks')
+        if len(networks) == 0:
+            return None
+        return [[id, None] for id in networks]
+
     def _get_source_instance(self, context, instance_uuid):
         """ 
         Returns a the instance reference for the source instance of instance_id. In other words:
@@ -505,7 +511,12 @@ class CobaltManager(manager.SchedulerDependentManager):
             # We set the image_refs to an empty array first in case the
             # post_bless() fails and we need to cleanup artifacts.
             image_refs = []
-            image_refs = self.vms_conn.post_bless(context, instance_ref, blessed_files)
+            vms_policy_template = self._generate_vms_policy_template(context,
+                                                            instance_ref)
+            image_refs = self.vms_conn.post_bless(context,
+                                    instance_ref,
+                                    blessed_files,
+                                    vms_policy_template=vms_policy_template)
 
             # Mark this new instance as being 'blessed'. If this fails,
             # we simply clean up all system_metadata and attempt to mark the VM
@@ -515,6 +526,14 @@ class CobaltManager(manager.SchedulerDependentManager):
             LOG.debug("image_refs = %s" % image_refs)
             system_metadata['images'] = ','.join(image_refs)
             system_metadata['logical_volumes'] = ','.join(lvms)
+            if not(migration):
+                # Record the networks that we attached to this instance so that when launching
+                # only these networks will be attached,
+                network_info = self._instance_network_info(context,
+                                                           source_instance_ref,
+                                                           True)
+                system_metadata['attached_networks'] = ','.join(
+                                [vif['network']['id'] for vif in network_info])
             self._instance_system_metadata_update(context, instance_uuid, system_metadata)
 
             if not(migration):
@@ -762,7 +781,7 @@ class CobaltManager(manager.SchedulerDependentManager):
         self.db.instance_destroy(context, instance_uuid)
         self._notify(context, instance_ref, "discard.end")
 
-    def _instance_network_info(self, context, instance_ref, already_allocated):
+    def _instance_network_info(self, context, instance_ref, already_allocated, requested_networks=None):
         """
         Retrieve the network info for the instance. If the info is already_allocated then
         this will simply query for the information. Otherwise, it will ask for new network info
@@ -783,8 +802,6 @@ class CobaltManager(manager.SchedulerDependentManager):
             # cast because we are not waiting on any return value.
 
             is_vpn = False
-            requested_networks = None
-
             try:
                 self._instance_update(context, instance_ref['uuid'],
                           task_state=task_states.NETWORKING,
@@ -802,13 +819,21 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         return network_info
 
-    def _generate_vms_policy_name(self, context, instance, source_instance):
-        instance_type = self.db.instance_type_get(context, instance['instance_type_id'])
-        policy_attrs = (('blessed', source_instance['uuid']),
+    def _generate_vms_policy_template(self, context, instance):
+        instance_type = self.db.instance_type_get(context,
+                                                  instance['instance_type_id'])
+        policy_attrs = (('blessed', instance['uuid']),
                         ('flavor', instance_type['name']),
-                        ('tenant', instance['project_id']),
-                        ('uuid', instance['uuid']),)
-        return "".join([";%s=%s;" %(key, value) for (key, value) in policy_attrs])
+                        ('tenant', '%(tenant)s'),
+                        ('uuid', '%(uuid)s'),)
+        return "".join([";%s=%s;" %(key, value)
+                        for (key, value) in policy_attrs])
+
+
+    def _generate_vms_policy_name(self, context, instance, source_instance):
+        template = self._generate_vms_policy_template(context, source_instance)
+        return template %({'uuid': instance['uuid'],
+                           'tenant':instance['project_id']})
 
     @_lock_call
     def launch_instance(self, context, instance_uuid=None, instance_ref=None,
@@ -868,13 +893,16 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         image_refs = self._extract_image_refs(system_metadata)
         lvm_info = self._extract_lvm_info(system_metadata)
+        requested_networks = self._extract_requested_networks(system_metadata)
 
         if migration_network_info != None:
             # (dscannell): Since this migration_network_info came over the wire we need
             # to hydrate it back into a full NetworkInfo object.
             network_info = network_model.NetworkInfo.hydrate(migration_network_info)
         else:
-            network_info = self._instance_network_info(context, instance_ref, migration_url != None)
+            network_info = self._instance_network_info(context, instance_ref,
+                                                       migration_url != None,
+                                                       requested_networks=requested_networks)
             if network_info == None:
                 # An error would have occured acquiring the instance network info. We should
                 # mark the instances as error and return because there is nothing else we can do.
@@ -986,4 +1014,5 @@ class CobaltManager(manager.SchedulerDependentManager):
         system_metadata = self._instance_system_metadata(context, instance_uuid)
         system_metadata['images'] = image_ids_str
         self._instance_system_metadata_update(context, instance_uuid, system_metadata)
-        self._instance_update(context, instance_uuid, vm_state='blessed')
+        self._instance_update(context, instance_uuid, vm_state='blessed',
+                disable_terminate=True)

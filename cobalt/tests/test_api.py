@@ -495,6 +495,7 @@ class CobaltApiTestCase(unittest.TestCase):
         self.assertEqual(inst['security_groups'][0].id, sg.id)
         self.assertEqual(1, len(inst['security_groups']))
 
+
     def test_launch_default_security_group(self):
         sg = utils.create_security_group(self.context,
                                     {'name': 'test-sg',

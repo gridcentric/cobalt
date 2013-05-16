@@ -128,9 +128,10 @@ class VmsConnection:
         pass
 
     @_log_call
-    def post_bless(self, context, new_instance_ref, blessed_files):
+    def post_bless(self, context, new_instance_ref, blessed_files, vms_policy_template=None):
         if CONF.cobalt_use_image_service:
-            return self._upload_files(context, new_instance_ref, blessed_files)
+            return self._upload_files(context, new_instance_ref, blessed_files,
+                                      vms_policy_template=vms_policy_template)
         else:
             return blessed_files
 
@@ -143,7 +144,7 @@ class VmsConnection:
 
     @_log_call
     def _upload_files(self, context, instance_ref, blessed_files,
-                      image_ids=None):
+                      image_ids=None, vms_policy_template=None):
         """ Upload the bless files into nova's image service (e.g. glance). """
         raise Exception("Uploading files to the image service is not supported.")
 
@@ -498,7 +499,7 @@ class LibvirtConnection(VmsConnection):
         libvirt_conn = self.libvirt_connections[libvirt_conn_type]
         # (dscannell) Check to see if we need to convert the network_info
         # object into the legacy format.
-        if network_info and libvirt_conn.legacy_nwinfo():
+        if hasattr(network_info, 'legacy') and libvirt_conn.legacy_nwinfo():
             network_info = network_info.legacy()
 
         # TODO(dscannell): This method can take an optional image_meta that
@@ -629,16 +630,34 @@ class LibvirtConnection(VmsConnection):
         image_id = recv_meta['id']
         return str(image_id)
 
-    def _upload_files(self, context, instance_ref, blessed_files, image_ids=None):
+    def _upload_files(self, context, instance_ref, blessed_files,
+                      image_ids=None, vms_policy_template=None):
         blessed_image_refs = []
+        descriptor_ref = None
+        other_images = []
         for blessed_file in blessed_files:
 
             image_name = blessed_file.split("/")[-1]
             image_id = self.image_service.create(context, image_name, instance_uuid=instance_ref['uuid'])
+            if image_name.endswith('.gc'):
+                descriptor_ref = image_id
+            else:
+                other_images.append((image_name, image_id))
             blessed_image_refs.append(image_id)
 
             self.image_service.upload(context, image_id, blessed_file)
 
+        properties = {'live_image': True,
+                      'image_state': 'available',
+                      'owner_id': instance_ref['project_id'],
+                      'live_image_source': instance_ref['name'],
+                      'instance_uuid': instance_ref['uuid'],
+                      'instance_type_id': instance_ref['instance_type_id']}
+        for image_name, image_id in other_images:
+            properties['live_image_data_%s' %(image_name)] = image_id
+        if vms_policy_template != None:
+            properties['vms_policy_template'] = vms_policy_template
+        self.image_service.update(context, descriptor_ref, {'properties': properties})
         return blessed_image_refs
 
     @_log_call

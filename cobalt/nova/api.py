@@ -18,6 +18,7 @@
 import random
 
 from nova import availability_zones
+from nova import context
 from nova import compute
 from nova import exception
 from nova import policy
@@ -26,6 +27,8 @@ from nova import utils
 from nova.compute import instance_types
 from nova.compute import task_states
 from nova.compute import vm_states
+from nova.compute import power_state
+from nova import exception
 from nova.db import base
 from nova.openstack.common import jsonutils
 from nova.openstack.common import log as logging
@@ -68,6 +71,19 @@ class API(base.Base):
         self.image_service = image_service if image_service is not None else image.ImageService()
         self.scheduler_rpcapi = scheduler_rpcapi.SchedulerAPI()
         self.CAPABILITIES = CAPABILITIES
+
+        # Fixup an power-states related to blessed instances.
+        elevated = context.get_admin_context()
+        instances = self.compute_api.get_all(elevated,
+                                             {'deleted':False})
+        for instance in instances:
+            if instance['power_state'] == None:
+                # (dscannell) We need to update the power_state to something
+                # valid. Since it is a blessed instance we simply update its
+                # state to 'no state'.
+                self.db.instance_update(elevated, instance['uuid'],
+                                        {'power_state':power_state.NOSTATE})
+
 
     def get_info(self):
         return {'capabilities': self.CAPABILITIES}
@@ -198,7 +214,8 @@ class API(base.Base):
            'host': None,
            'system_metadata': system_metadata,
            'launch_index': launch_index,
-           'root_device_name': instance_ref['root_device_name']
+           'root_device_name': instance_ref['root_device_name'],
+           'power_state': power_state.NOSTATE,
         }
         new_instance_ref = self.db.instance_create(context, instance)
 
@@ -524,9 +541,8 @@ class API(base.Base):
         instance = self.get(context, instance_uuid)
         if not(self._is_instance_blessed(context, instance_uuid)):
             # The instance is not blessed. We can't launch new instances from it.
-            raise exception.Error(
-                _(("Instance %s is not blessed. " +
-                   "Only blessed instances can be exported.") % instance_uuid))
+            raise exception.NovaException(_("Instance %s is not blessed. " + \
+                  "Only blessed instances can be exported.") % instance_uuid)
 
         # Create an image record to store the blessed artifacts for this instance
         # and call to nova-gc to populate the record
@@ -544,7 +560,7 @@ class API(base.Base):
             'memory_mb',
             'vcpus',
             'root_gb',
-            'ephemral_gb',
+            'ephemeral_gb',
             'display_name',
             'display_description',
             'user_data',
@@ -590,7 +606,7 @@ class API(base.Base):
             inst_type = self.compute_api.db.\
                                  instance_type_get_by_name(context, flavor_name)
         except exception.InstanceTypeNotFoundByName:
-            raise exception.Error(_('Flavor could not be found: %s' \
+            raise exception.NovaException(_('Flavor could not be found: %s' \
                                                                  % flavor_name))
 
         fields['instance_type_id'] = inst_type['id']
@@ -602,7 +618,7 @@ class API(base.Base):
                 secgroup = self.db.security_group_get_by_name(context,
                                               context.project_id, secgroup_name)
             except exception.SecurityGroupNotFoundForProject:
-                raise exception.Error(_('Security group could not be found: %s'\
+                raise exception.NovaException(_('Security group could not be found: %s'\
                                                                % secgroup_name))
             secgroup_ids.append(secgroup['id'])
 
