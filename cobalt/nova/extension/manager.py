@@ -36,6 +36,7 @@ from nova import block_device
 from nova import exception
 from nova.openstack.common import log as logging
 from nova.openstack.common import timeutils
+from nova.openstack.common import importutils
 from oslo.config import cfg
 LOG = logging.getLogger('nova.cobalt.manager')
 CONF = cfg.CONF
@@ -147,6 +148,7 @@ class CobaltManager(manager.SchedulerDependentManager):
 
     def __init__(self, *args, **kwargs):
 
+        self.quantum_attempted = False
         self.network_api = network.API()
         self.cobalt_api = API()
         self.compute_manager = compute_manager.ComputeManager()
@@ -358,7 +360,27 @@ class CobaltManager(manager.SchedulerDependentManager):
         networks = self._extract_list(metadata, 'attached_networks')
         if len(networks) == 0:
             return None
-        return [[id, None] for id in networks]
+        if self._is_quantum_v2():
+            return [[id, None, None] for id in networks]
+        else:
+            return [[id, None] for id in networks]
+
+    def _is_quantum_v2(self):
+        # This has been stolen from the latest nova API code.
+        # It is necessary because some of the quantum types are
+        # different for later APIs.
+        if self.quantum_attempted:
+            return self.have_quantum
+        try:
+            self.quantum_attempted = True
+            from nova.network.quantumv2 import api as quantum_api
+            self.have_quantum = issubclass(
+            importutils.import_class(CONF.network_api_class),
+               quantum_api.API)
+        except ImportError:
+            self.have_quantum = False
+
+        return self.have_quantum
 
     def _get_source_instance(self, context, instance_uuid):
         """ 
