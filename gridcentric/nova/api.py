@@ -45,6 +45,7 @@ CAPABILITIES = ['user-data',
                 'launch-key',
                 'import-export',
                 'install-policy',
+                'supports-volumes',
                 ]
 
 LOG = logging.getLogger('nova.gridcentric.api')
