@@ -866,7 +866,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
 
         # note(dscannell): The target is in pages so we need to convert the value
         # If target is set as None, or not defined, then we default to "0".
-        target = params.get("target", "0")
+        target = str(params.get("target", "0"))
         if target != "0":
             try:
                 target = str(memory_string_to_pages(target))
