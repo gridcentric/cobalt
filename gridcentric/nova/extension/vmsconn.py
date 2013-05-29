@@ -326,7 +326,10 @@ class LaunchImageBackend(imagebackend.Backend):
     """This is the image backend to use when launching instances."""
 
     def backend(self, image_type=None):
-        """ The backend for launched instances will always be qcow2 """
+        """ The backend for launched instances will always be
+            either qcow2 or raw (never lvm)"""
+        if image_type == 'raw':
+            return super(LaunchImageBackend, self).backend('raw')
         return super(LaunchImageBackend, self).backend('qcow2')
 
 class LibvirtConnection(VmsConnection):
