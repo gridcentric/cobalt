@@ -484,7 +484,12 @@ class LibvirtConnection(VmsConnection):
 
             for image_ref in image_refs:
                 image = self.image_service.show(context, image_ref)
-                target = os.path.join(image_base_path, image['name'])
+                # In previous versions name was the filename (*.gc, *.disk) so
+                # there was no file_name property. Now that name is more descriptive
+                # when uploaded to glance, file_name property is set; use if possible
+                target = os.path.join(image_base_path, 
+                                      image['properties'].get('file_name',image['name']))
+
                 if migration or not os.path.exists(target):
                     # If the path does not exist fetch the data from the image
                     # service.  NOTE: We always fetch in the case of a
@@ -620,9 +625,19 @@ class LibvirtConnection(VmsConnection):
         other_images = []
         for blessed_file in blessed_files:
 
-            image_name = blessed_file.split("/")[-1]
+            # blessed_file's name was very unenlightening (instance-xxxxx)
+            # This fix uses the blessed instance's display name to provide more meaning
+            # before uploading to glance. The live image tag/vms provide better branding.
+            image_name = instance_ref['display_name']
+            image_type = "Image"
+            if blessed_file.endswith(".gc"):
+                image_type = "Live-Image"
+            elif blessed_file.endswith(".disk"):
+                image_name += "." + blessed_file.split(".")[-2] + ".disk"
+
             image_id = self.image_service.create(context, image_name, instance_uuid=instance_ref['uuid'])
-            if image_name.endswith('.gc'):
+
+            if blessed_file.endswith(".gc"):
                 descriptor_ref = image_id
             else:
                 other_images.append((image_name, image_id))
@@ -630,12 +645,18 @@ class LibvirtConnection(VmsConnection):
 
             self.image_service.upload(context, image_id, blessed_file)
 
-        properties = {'live_image': True,
-                      'image_state': 'available',
-                      'owner_id': instance_ref['project_id'],
-                      'live_image_source': instance_ref['name'],
-                      'instance_uuid': instance_ref['uuid'],
-                      'instance_type_id': instance_ref['instance_type_id']}
+            properties = self.image_service.show(context, image_id)['properties']
+            properties.update({'image_type': image_type,
+                               'file_name': os.path.basename(blessed_file)})
+            self.image_service.update(context, image_id, {'properties': properties})
+
+        properties = self.image_service.show(context, descriptor_ref)['properties']
+        properties.update({'live_image': True,
+                           'image_state': 'available',
+                           'owner_id': instance_ref['project_id'],
+                           'live_image_source': instance_ref['name'],
+                           'instance_uuid': instance_ref['uuid'],
+                           'instance_type_id': instance_ref['instance_type_id']})
         for image_name, image_id in other_images:
             properties['live_image_data_%s' %(image_name)] = image_id
         if vms_policy_template != None:
