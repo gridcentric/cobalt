@@ -50,7 +50,10 @@ CAPABILITIES = ['user-data',
                 'bless-name',
                 'launch-key',
                 'import-export',
-                'scheduler-hints']
+                'scheduler-hints',
+                'install-policy',
+                'supports-volumes',
+                ]
 
 LOG = logging.getLogger('nova.cobalt.api')
 CONF = cfg.CONF
@@ -102,7 +105,6 @@ class API(base.Base):
 
         :returns: None
         """
-
         if not params:
             params = {}
         if not host:
@@ -277,6 +279,11 @@ class API(base.Base):
         metadata = self._instance_metadata(context, instance_uuid)
         return 'blessed_from' in metadata
 
+    def _is_instance_blessing(self, context, instance_uuid):
+        """ Returns True if this instance is being blessed, False otherwise. """
+        instance = self.get(context, instance_uuid)
+        return instance['task_state'] == 'blessing'
+
     def _is_instance_launched(self, context, instance_uuid):
         """ Returns True if this instance is launched, False otherwise """
         metadata = self._instance_metadata(context, instance_uuid)
@@ -438,6 +445,7 @@ class API(base.Base):
                 self._cast_cobalt_message('launch_instance', context,
                     launch_instance['uuid'], host,
                     { "params" : params })
+
             self._commit_reservation(context, reservations)
         except Exception, e:
             self._rollback_reservation(context, reservations)
@@ -531,6 +539,8 @@ class API(base.Base):
         """ Raises an error if the instance uuid is blessed. """
         if self._is_instance_blessed(context, instance_uuid):
             raise exception.NovaException("Cannot delete a blessed instance. Please discard it instead.")
+        if self._is_instance_blessing(context, instance_uuid):
+            raise exception.NovaException("Cannot delete while blessing. Please try again later.")
 
     def export_blessed_instance(self, context, instance_uuid):
         """
@@ -639,6 +649,35 @@ class API(base.Base):
                  instance['uuid'], params={'image_id': data['export_image_id']})
 
         return self.get(context, instance['uuid'])
+
+    def install_policy(self, context, policy_ini_string, wait):
+        validated = False
+        faults = []
+        for host in self._list_gridcentric_hosts(context):
+            queue = rpc.queue_get_for(context, FLAGS.gridcentric_topic, host)
+            args = {
+                "method": "install_policy",
+                "args" : { "policy_ini_string": policy_ini_string },
+            }
+
+            if (not validated) or wait:
+                try:
+                    rpc.call(context, queue, args)
+                    validated = True
+                except Exception, ex:
+                    faults.append((host, str(ex)))
+                    if not wait:
+                        raise exception.NovaException(
+                            _("Failed to install policy on host %s: %s" % \
+                                (host, str(ex))))
+            else:
+                rpc.cast(context, queue, args)
+
+        if len(faults) > 0:
+            raise exception.NovaException(
+                _("Failed to install policy on %d hosts, faults:\n%s") % \
+                    (len(faults), '\n'.join([ host + ": " + str(fault).strip()
+                        for host, fault in faults ])))
 
     def _find_boot_host(self, context, metadata):
 

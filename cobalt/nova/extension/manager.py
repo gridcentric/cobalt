@@ -30,7 +30,6 @@ import subprocess
 import greenlet
 from eventlet.green import threading as gthreading
 
-
 from nova import context as nova_context
 from nova import block_device
 from nova import exception
@@ -67,7 +66,6 @@ from nova import utils
 from nova.openstack.common import rpc
 from nova import network
 from nova import volume
-
 
 # We need to import this module because other nova modules use the flags that
 # it defines (without actually importing this module). So we need to ensure
@@ -383,7 +381,7 @@ class CobaltManager(manager.SchedulerDependentManager):
         return self.have_quantum
 
     def _get_source_instance(self, context, instance_uuid):
-        """ 
+        """
         Returns a the instance reference for the source instance of instance_id. In other words:
         if instance_id is a BLESSED instance, it returns the instance that was blessed
         if instance_id is a LAUNCH instance, it returns the blessed instance.
@@ -511,7 +509,18 @@ class CobaltManager(manager.SchedulerDependentManager):
                 _log_error("snapshot volumes")
                 raise
 
+        source_locked = False
         try:
+            # Lock the source instance if blessing
+            if not(migration):
+                old_dis = source_instance_ref['disable_terminate']
+                self._instance_update(context, source_instance_ref['uuid'],
+                                      disable_terminate=True, task_state='blessing')
+                LOG.debug("Locking source instance %s (fn:%s)" %
+                                (source_instance_ref['uuid'], "bless_instance"))
+                self.compute_manager.compute_api.lock(context, source_instance_ref)
+                source_locked = True
+
             # Create a new 'blessed' VM with the given name.
             # NOTE: If this is a migration, then a successful bless will mean that
             # the VM no longer exists. This requires us to *relaunch* it below in
@@ -527,6 +536,15 @@ class CobaltManager(manager.SchedulerDependentManager):
                 self._instance_update(context, instance_uuid,
                                       vm_state=vm_states.ERROR, task_state=None)
             raise e
+        finally:
+            # Unlock source instance
+            if not(migration):
+                if source_locked:
+                    self.compute_manager.compute_api.unlock(context, source_instance_ref)
+                    LOG.debug("Unlocked source instance %s (fn:%s)" %
+                                   (source_instance_ref['uuid'], "bless_instance"))
+                self._instance_update(context, source_instance_ref['uuid'],
+                                      disable_terminate=old_dis is True, task_state=None)
 
         try:
             # Extract the image references.
@@ -871,7 +889,7 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         # note(dscannell): The target is in pages so we need to convert the value
         # If target is set as None, or not defined, then we default to "0".
-        target = params.get("target", "0")
+        target = str(params.get("target", "0"))
         if target != "0":
             try:
                 target = str(memory_string_to_pages(target))
@@ -1038,3 +1056,13 @@ class CobaltManager(manager.SchedulerDependentManager):
         self._instance_system_metadata_update(context, instance_uuid, system_metadata)
         self._instance_update(context, instance_uuid, vm_state='blessed',
                 disable_terminate=True)
+
+    def install_policy(self, context, policy_ini_string=None):
+        """
+        Install new vmspolicyd policy definitions on the host.
+        """
+        try:
+            self.vms_conn.install_policy(policy_ini_string)
+        except Exception, ex:
+            LOG.error(_("Policy install failed: %s"), ex)
+            raise ex

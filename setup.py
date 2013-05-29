@@ -14,48 +14,88 @@
 #    under the License.
 
 import os
-import sys
+import subprocess
 from distutils.core import setup
 
-PACKAGE = os.getenv('PACKAGE', 'all')
+def git(*args):
+    topdir = os.path.abspath(os.path.dirname(__file__))
+    p = subprocess.Popen(('git',) + args, stdout=subprocess.PIPE, cwd=topdir)
+    return p.communicate()[0]
+
+def get_version():
+    v = os.getenv('VERSION', None)
+    if v is None:
+        try:
+            from pkginfo import UnpackedSDist
+            d = UnpackedSDist(__file__)
+            v = d.version
+        except ValueError:
+            try:
+                v = git('describe', '--tags').strip().split('/', 1)[1].split('-', 1)[1]
+            except Exception:
+                v = '0.0'
+    return v
+
+def get_package():
+    p = os.getenv('PACKAGE', None)
+    if p is None:
+        try:
+            from pkginfo import UnpackedSDist
+            d = UnpackedSDist(__file__)
+            p = d.name
+        except ValueError:
+            p = 'all'
+    return p
+
+
+PACKAGE = get_package()
+VERSION = get_version()
+
+
+COMMON = dict(
+    author='GridCentric',
+    author_email='support@gridcentric.com',
+    namespace_packages=['gridcentric'],
+    url='http://www.gridcentric.com/',
+    version=VERSION,
+    classifiers = [
+        'Environment :: OpenStack',
+        'Intended Audience :: Information Technology',
+        'Intended Audience :: System Administrators',
+        'License :: OSI Approved :: Apache Software License',
+        'Operating System :: POSIX :: Linux',
+        'Programming Language :: Python',
+        'Programming Language :: Python :: 2',
+        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 2.6']
+)
 
 if PACKAGE == 'all' or PACKAGE == 'cobalt':
     setup(name='cobalt',
-          version=os.getenv('VERSION', '1.0'),
           description='Cobalt extension for OpenStack Compute.',
-          author='Gridcentric Inc.',
-          author_email='support@gridcentric.com',
-          url='http://www.gridcentric.com/',
           packages=['cobalt',
                     'cobalt.horizon',
                     'cobalt.nova',
                     'cobalt.nova.osapi',
-                    'cobalt.nova.extension'])
+                    'cobalt.nova.extension'],
+          install_requires=['setuptools'],
+          **COMMON)
 
 if PACKAGE == 'all' or PACKAGE == 'cobalt-compute':
     setup(name='cobalt-compute',
-          version=os.getenv('VERSION', '1.0'),
           description='Cobalt extension for OpenStack Compute.',
-          author='Gridcentric Inc.',
-          author_email='support@gridcentric.com',
-          url='http://www.gridcentric.com/',
-          install_requires=['cobalt'],
-          scripts=['bin/cobalt-compute'])
+          install_requires=['setuptools', 'cobalt'],
+          scripts=['bin/cobalt-compute'],
+          **COMMON)
 
 if PACKAGE == 'all' or PACKAGE == 'cobalt-api':
     setup(name='cobalt-api',
-          version=os.getenv('VERSION', '1.0'),
           description='Cobalt API extension.',
-          author='Gridcentric Inc.',
-          author_email='support@gridcentric.com',
-          install_requires=['cobalt'],
-          url='http://www.gridcentric.com/')
+          install_requires=['setuptools', 'cobalt'],
+          **COMMON)
 
 if PACKAGE == 'all' or PACKAGE == 'cobalt-horizon':
     setup(name='cobalt-horizon',
-          version=os.getenv('VERSION', '1.0'),
           description='Gridcentric plugin for OpenStack Dashboard',
-          author='Gridcentric Inc.',
-          author_email='support@gridcentric.com',
-          install_requires=['cobalt'],
-          url='http://www.gridcentric.com/')
+          install_requires=['setuptools', 'cobalt'],
+          **COMMON)

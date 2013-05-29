@@ -239,6 +239,17 @@ class CobaltTargetBootController(object):
     def create(self, req, body):
         return self.nova_servers.create(req, body)
 
+class CobaltPolicyController(wsgi.Controller):
+    def __init__(self):
+        super(CobaltPolicyController, self).__init__()
+        self.gridcentric_api = API()
+
+    @convert_exception
+    def create(self, req, body):
+        context = req.environ["nova.context"]
+        self.gridcentric_api.install_policy(context,
+            body.get('policy_ini_string'), body.get('wait'))
+
 class CobaltImportController(wsgi.Controller):
 
     _view_builder_class = views_servers.ViewBuilder
@@ -261,13 +272,13 @@ class CobaltImportController(wsgi.Controller):
 class Cobalt_extension(object):
     """
     The OpenStack Extension definition for the Gridcentric capabilities. Currently this includes:
-        
+
         * Bless an existing virtual machine (creates a new server snapshot
           of the virtual machine and enables the user to launch new copies
           nearly instantaneously).
-        
+
         * Launch new virtual machines from a blessed copy above.
-        
+
         * Discard blessed VMs.
 
         * List launched VMs (per blessed VM).
@@ -286,13 +297,16 @@ class Cobalt_extension(object):
         info_controller = CobaltInfoController()
         bootcontroller = CobaltTargetBootController()
         importcontroller = CobaltImportController()
+        policycontroller = CobaltPolicyController()
         return [
             extensions.ResourceExtension('cobaltinfo', info_controller),
             extensions.ResourceExtension('gcinfo', info_controller),
             extensions.ResourceExtension('coservers', bootcontroller),
             extensions.ResourceExtension('gcservers', bootcontroller),
             extensions.ResourceExtension('gc-import-server', importcontroller),
-            extensions.ResourceExtension('co-import-server', importcontroller)
+            extensions.ResourceExtension('co-import-server', importcontroller),
+            extensions.ResourceExtension('gcpolicy', policycontroller),
+            extensions.ResourceExtension('copolicy', policycontroller)
         ]
 
     def get_controller_extensions(self):
