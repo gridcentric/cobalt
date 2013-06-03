@@ -63,7 +63,7 @@ class Migrate(tables.LinkAction):
     classes = ("ajax-modal", "btn-edit")
 
     def allowed(self, request, instance):
-        return request.user.is_superuser and instance.status in ('ACTIVE',) and not instance_tables._is_deleting(instance)
+        return request.user.is_superuser and instance.status in proj_tables.ACTIVE_STATES and not proj_tables.is_deleting(instance)
 
 class BootLink(proj_tables.LaunchLink):
     verbose_name = _('Boot Instance')
