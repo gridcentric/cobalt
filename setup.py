@@ -47,6 +47,14 @@ def get_package():
             p = 'all'
     return p
 
+ROOT = os.path.dirname(os.path.realpath(__file__))
+PIP_REQUIRES = os.path.join(ROOT, 'pip-requires')
+TEST_REQUIRES = os.path.join(ROOT, 'test-requires')
+
+def read_file_list(filename):
+    with open(filename) as f:
+        return [line.strip() for line in f.readlines()
+                if len(line.strip()) > 0]
 
 PACKAGE = get_package()
 VERSION = get_version()
@@ -56,7 +64,8 @@ COMMON = dict(
     author='GridCentric',
     author_email='support@gridcentric.com',
     namespace_packages=['gridcentric'],
-    install_requires=['setuptools'],
+    install_requires = read_file_list(PIP_REQUIRES),
+    test_requires = read_file_list(TEST_REQUIRES),
     url='http://www.gridcentric.com/',
     version=VERSION,
     classifiers = [
