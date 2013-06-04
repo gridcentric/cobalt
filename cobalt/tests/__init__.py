@@ -25,7 +25,9 @@ def setup():
     import shutil
 
     sqlite_db = "tests.sqlite"
-    state_path = tempfile.mkdtemp()
+    # Set COBALT_TESTS_TMPFS to a tmpfs mount for faster setup. The fsyncs that
+    # sqlite does nops :-)
+    state_path = tempfile.mkdtemp(dir=os.environ.get('COBALT_TESTS_TMPFS'))
     testdb = os.path.join(state_path, sqlite_db)
     if os.path.exists(testdb):
         os.unlink(testdb)
