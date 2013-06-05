@@ -35,6 +35,7 @@ from nova import context as nova_context
 from nova import exception
 from nova import flags
 from nova.openstack.common import cfg
+from nova.rpc.common import Timeout
 from nova import log as logging
 LOG = logging.getLogger('nova.gridcentric.manager')
 FLAGS = flags.FLAGS
@@ -136,6 +137,27 @@ def memory_string_to_pages(mem):
 def _log_error(operation):
     """ Log exceptions with a common format. """
     LOG.exception(_("Error during %s") % operation)
+
+def _retry_rpc(fn):
+    def wrapped_fn(*args, **kwargs):
+        timeout = FLAGS.gridcentric_compute_timeout
+        i = 0
+        start = time.time()
+        while True:
+            try:
+                return fn(*args, **kwargs)
+            except Timeout:
+                elapsed = time.time() - start
+                if elapsed > timeout:
+                    raise
+                LOG.debug(_("%s timing out after %d seconds, try %d."),
+                            fn.__name__, elapsed, i)
+                i += 1
+
+    wrapped_fn.__name__ = fn.__name__
+    wrapped_fn.__doc__ = fn.__doc__
+
+    return wrapped_fn
 
 class GridCentricManager(manager.SchedulerDependentManager):
 
@@ -630,6 +652,10 @@ class GridCentricManager(manager.SchedulerDependentManager):
         self.db.instance_destroy(context, instance_uuid)
         self._notify(instance_ref, "discard.end")
 
+    @_retry_rpc
+    def _retry_get_nw_info(self, context, instance_ref):
+        return self.network_api.get_instance_nw_info(context, instance_ref)
+
     def _instance_network_info(self, context, instance_ref, already_allocated):
         """
         Retrieve the network info for the instance. If the info is already_allocated then
@@ -662,9 +688,16 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 instance_ref['host'] = self.host
                 LOG.debug(_("Making call to network for launching instance=%s"), \
                       instance_ref.name)
-                network_info = self.network_api.allocate_for_instance(context,
-                                            instance_ref, vpn=is_vpn,
-                                            requested_networks=requested_networks)
+                # In a contested host, this function can block behind locks for
+                # a good while. Use our compute_timeout as an upper wait bound
+                try:
+                    network_info = self.network_api.allocate_for_instance(
+                                    context, instance_ref, vpn=is_vpn,
+                                    requested_networks=requested_networks)
+                except Timeout:
+                    LOG.debug(_("Allocate network for instance=%s timed out"),
+                                instance_ref.name)
+                    network_info = self._retry_get_nw_info(context, instance_ref)
                 LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"),
                       instance_ref.name, network_info)
             except:
