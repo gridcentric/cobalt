@@ -30,6 +30,7 @@ import subprocess
 import greenlet
 from eventlet.green import threading as gthreading
 
+from nova import conductor
 from nova import context as nova_context
 from nova import block_device
 from nova import exception
@@ -98,8 +99,10 @@ def _lock_call(fn):
 
         # Ensure we've got exactly one of uuid or ref.
         if instance_uuid and not(instance_ref):
-            instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
+            instance_ref = self.conductor_api.\
+                instance_get_by_uuid(context, instance_uuid)
             kwargs['instance_ref'] = instance_ref
+            assert instance_ref is not None
         elif instance_ref and not(instance_uuid):
             instance_uuid = instance_ref['uuid']
             kwargs['instance_uuid'] = instance_ref['uuid']
@@ -173,6 +176,7 @@ class CobaltManager(manager.SchedulerDependentManager):
         self.cobalt_api = API()
         self.compute_manager = compute_manager.ComputeManager()
         self.volume_api = volume.API()
+        self.conductor_api = conductor.API()
 
         self.vms_conn = kwargs.pop('vmsconn', None)
         self._init_vms()
@@ -247,7 +251,9 @@ class CobaltManager(manager.SchedulerDependentManager):
             try:
                 # Database updates are idempotent, so we can retry this when
                 # we encounter transient failures. We retry up to 10 seconds.
-                return self.db.instance_update(context, instance_uuid, kwargs)
+                return self.conductor_api.instance_update(context,
+                                                          instance_uuid,
+                                                          **kwargs)
             except:
                 # We retry the database update up to 60 seconds. This gives
                 # us a decent window for avoiding database restarts, etc.
@@ -257,13 +263,12 @@ class CobaltManager(manager.SchedulerDependentManager):
                 else:
                     raise
 
-    def _instance_system_metadata(self, context, instance_uuid):
-        """ Looks up and returns the instance system_metadata """
-        return self.db.instance_system_metadata_get(context, instance_uuid)
-
-    def _instance_system_metadata_update(self, context, instance_uuid, system_metadata):
-        """ Updates the instance system_system_metadata """
-        return self.db.instance_system_metadata_update(context, instance_uuid, system_metadata, True)
+    def _system_metadata_get(self, instance_ref):
+        '''Returns {key:value} dict of system_metadata from instance_ref.'''
+        result = {}
+        for record in instance_ref.get('system_metadata', []):
+            result[record['key']] = record['value']
+        return result
 
     @manager.periodic_task
     def _clean(self, context):
@@ -277,7 +282,8 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         try:
             # Scan all instances and check for stalled operations.
-            db_instances = self.db.instance_get_all_by_host(context, self.host)
+            db_instances = self.conductor_api.\
+                instance_get_all_by_host(context, self.host)
             local_instances = self.compute_manager.driver.list_instances()
             for instance in db_instances:
 
@@ -294,7 +300,7 @@ class CobaltManager(manager.SchedulerDependentManager):
                     host = self.host
 
                     # Grab metadata.
-                    system_metadata = self._instance_system_metadata(context, instance['uuid'])
+                    system_metadata = self._system_metadata_get(instance)
                     src_host = system_metadata.get('gc_src_host', None)
                     dst_host = system_metadata.get('gc_dst_host', None)
 
@@ -371,18 +377,21 @@ class CobaltManager(manager.SchedulerDependentManager):
             return_list = []
         return return_list
 
-    def _extract_image_refs(self, system_metadata):
-        return self._extract_list(system_metadata, 'images')
+    def _extract_image_refs(self, instance_ref):
+        return self._extract_list(self._system_metadata_get(instance_ref),
+                                  'images')
 
-    def _extract_lvm_info(self, system_metadata):
-        lvms = self._extract_list(system_metadata, 'logical_volumes')
+    def _extract_lvm_info(self, instance_ref):
+        lvms = self._extract_list(self._system_metadata_get(instance_ref),
+                                  'logical_volumes')
         lvm_info = {}
         for key, value in map(lambda x: x.split(':'), lvms):
             lvm_info[key] = value
         return lvm_info
 
-    def _extract_requested_networks(self, metadata):
-        networks = self._extract_list(metadata, 'attached_networks')
+    def _extract_requested_networks(self, instance_ref):
+        networks = self._extract_list(self._system_metadata_get(instance_ref),
+                                      'attached_networks')
         if len(networks) == 0:
             return None
         if self._is_quantum_v2():
@@ -407,14 +416,14 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         return self.have_quantum
 
-    def _get_source_instance(self, context, instance_uuid):
+    def _get_source_instance(self, context, instance_ref):
         """
-        Returns a the instance reference for the source instance of instance_id. In other words:
-        if instance_id is a BLESSED instance, it returns the instance that was blessed
-        if instance_id is a LAUNCH instance, it returns the blessed instance.
-        if instance_id is neither, it returns NONE.
+        Returns an instance reference for the source instance of instance_ref. In other words:
+        if instance_ref is a BLESSED instance, it returns the instance that was blessed
+        if instance_ref is a LAUNCH instance, it returns the blessed instance.
+        if instance_ref is neither, it returns NONE.
         """
-        system_metadata = self._instance_system_metadata(context, instance_uuid)
+        system_metadata = self._system_metadata_get(instance_ref)
         if "launched_from" in system_metadata:
             source_instance_uuid = system_metadata["launched_from"]
         elif "blessed_from" in system_metadata:
@@ -423,7 +432,8 @@ class CobaltManager(manager.SchedulerDependentManager):
             source_instance_uuid = None
 
         if source_instance_uuid != None:
-            return self.db.instance_get_by_uuid(context, source_instance_uuid)
+            return self.conductor_api.instance_get_by_uuid(context,
+                                                           source_instance_uuid)
         return None
 
     def _notify(self, context, instance_ref, operation, network_info=None):
@@ -448,7 +458,8 @@ class CobaltManager(manager.SchedulerDependentManager):
         Creates a snaptshot of all of the attached volumes.
         """
 
-        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context, instance['uuid'])
+        block_device_mappings = self.conductor_api.\
+                block_device_mapping_get_all_by_instance(context, instance)
         root_device_name = source_instance['root_device_name']
         snapshots = []
 
@@ -473,15 +484,16 @@ class CobaltManager(manager.SchedulerDependentManager):
                 # Update the blessed device mapping to include the snapshot id.
                 # We also mark it for deletion and this will cascade to the
                 # volume booted when launching.
-                self.db.block_device_mapping_update(context.elevated(),
-                                                    bdm['id'],
-                                                    {'snapshot_id': snapshot['id'],
-                                                     'delete_on_termination': True,
-                                                     'volume_id': None})
+                self.conductor_api.\
+                    block_device_mapping_update(context.elevated(),
+                                                bdm['id'],
+                                                {'snapshot_id': snapshot['id'],
+                                                 'delete_on_termination': True,
+                                                 'volume_id': None})
 
     def _detach_volumes(self, context, instance):
-        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context,
-                                                                                 instance['uuid'])
+        block_device_mappings = self.conductor_api.\
+            block_device_mapping_get_all_by_instance(context, instance)
         for bdm in block_device_mappings:
             try:
                 volume = self.volume_api.get(context, bdm['volume_id'])
@@ -495,8 +507,8 @@ class CobaltManager(manager.SchedulerDependentManager):
 
     def _discard_blessed_snapshots(self, context, instance):
         """Removes the snapshots created for the blessed instance."""
-        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context,
-                                                                                 instance['uuid'])
+        block_device_mappings = self.conductor_api.\
+            block_device_mapping_get_all_by_instance(context, instance)
 
         for bdm in block_device_mappings:
             if bdm.no_device:
@@ -526,7 +538,8 @@ class CobaltManager(manager.SchedulerDependentManager):
         else:
             self._notify(context, instance_ref, "bless.start")
             # We require the parent instance.
-            source_instance_ref = self._get_source_instance(context, instance_uuid)
+            source_instance_ref = self._get_source_instance(context, instance_ref)
+            assert source_instance_ref is not None
             migration = False
 
         if not(migration):
@@ -540,9 +553,8 @@ class CobaltManager(manager.SchedulerDependentManager):
         try:
             # Lock the source instance if blessing
             if not(migration):
-                old_dis = source_instance_ref['disable_terminate']
                 self._instance_update(context, source_instance_ref['uuid'],
-                                      disable_terminate=True, task_state='blessing')
+                                      task_state='blessing')
                 LOG.debug("Locking source instance %s (fn:%s)" %
                                 (source_instance_ref['uuid'], "bless_instance"))
                 self.compute_manager.compute_api.lock(context, source_instance_ref)
@@ -572,7 +584,7 @@ class CobaltManager(manager.SchedulerDependentManager):
                     LOG.debug("Unlocked source instance %s (fn:%s)" %
                                    (source_instance_ref['uuid'], "bless_instance"))
                 self._instance_update(context, source_instance_ref['uuid'],
-                                      disable_terminate=old_dis is True, task_state=None)
+                                      task_state=None)
 
         try:
             # Extract the image references.
@@ -585,13 +597,13 @@ class CobaltManager(manager.SchedulerDependentManager):
                                     instance_ref,
                                     blessed_files,
                                     vms_policy_template=vms_policy_template)
+            LOG.debug("image_refs = %s" % image_refs)
 
             # Mark this new instance as being 'blessed'. If this fails,
             # we simply clean up all system_metadata and attempt to mark the VM
             # as in the ERROR state. This may fail also, but at least we
             # attempt to leave as little around as possible.
-            system_metadata = self._instance_system_metadata(context, instance_uuid)
-            LOG.debug("image_refs = %s" % image_refs)
+            system_metadata = self._system_metadata_get(instance_ref)
             system_metadata['images'] = ','.join(image_refs)
             system_metadata['logical_volumes'] = ','.join(lvms)
             if not(migration):
@@ -602,15 +614,16 @@ class CobaltManager(manager.SchedulerDependentManager):
                                                            True)
                 system_metadata['attached_networks'] = ','.join(
                                 [vif['network']['id'] for vif in network_info])
-            self._instance_system_metadata_update(context, instance_uuid, system_metadata)
 
             if not(migration):
                 self._notify(context, instance_ref, "bless.end")
                 self._instance_update(context, instance_uuid,
                                       vm_state="blessed", task_state=None,
                                       launched_at=timeutils.utcnow(),
-                                      disable_terminate=True)
+                                      system_metadata=system_metadata)
             else:
+                self._instance_update(context, instance_uuid,
+                                      system_metadata=system_metadata)
                 self._detach_volumes(context, instance_ref)
 
         except:
@@ -622,7 +635,9 @@ class CobaltManager(manager.SchedulerDependentManager):
                 # the block_device_info, which will reattach the volumes. Doing a double detach
                 # does not seem to create any issues.
                 self._detach_volumes(context, instance_ref)
-                bdms = self.db.block_device_mapping_get_all_by_instance(context, instance_uuid)
+                bdms = self.conductor_api.\
+                    block_device_mapping_get_all_by_instance(context,
+                                                             instance_ref)
                 block_device_info = self.compute_manager._setup_block_device_mapping(context,
                     instance_ref, bdms)
                 self.vms_conn.launch(context,
@@ -652,21 +667,6 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         # Return the memory URL (will be None for a normal bless).
         return migration_url
-
-    def _instance_floating_ips(self, context, instance):
-        # Returns a list of all the floating points for the instance.
-        floating_ips =[]
-        fixed_ips = self.db.fixed_ip_get_by_instance(context, instance['uuid'])
-        if fixed_ips:
-            for fixed_ip in fixed_ips:
-                network = self.db.network_get(context, fixed_ip['network_id'])
-                if network['multi_host']:
-                    floating = self.db.floating_ip_get_by_fixed_address(context,
-                                                                        fixed_ip['address'])
-                    if floating:
-                        floating_ips += [(fixed_ip['address'], ip) for ip in floating]
-
-        return floating_ips
 
     def _migrate_floating_ips(self, context, instance, src, dest):
 
@@ -710,10 +710,11 @@ class CobaltManager(manager.SchedulerDependentManager):
         network_info = self.network_api.get_instance_nw_info(context, instance_ref)
 
         # Update the system_metadata for migration.
-        system_metadata = self._instance_system_metadata(context, instance_uuid)
+        system_metadata = self._system_metadata_get(instance_ref)
         system_metadata['gc_src_host'] = self.host
         system_metadata['gc_dst_host'] = dest
-        self._instance_system_metadata_update(context, instance_uuid, system_metadata)
+        self._instance_update(context, instance_uuid,
+                              system_metadata=system_metadata)
 
         # Prepare the destination for live migration.
         # NOTE(dscannell): The instance's host needs to change for the pre_live_migration
@@ -821,8 +822,7 @@ class CobaltManager(manager.SchedulerDependentManager):
         # There is not much point in changing the state past here.
         # Or catching any thrown exceptions (after all, it is still
         # an error -- just not one that should kill the VM).
-        system_metadata = self._instance_system_metadata(context, instance_uuid)
-        image_refs = self._extract_image_refs(system_metadata)
+        image_refs = self._extract_image_refs(instance_ref)
 
         self.vms_conn.discard(context, instance_ref["name"], image_refs=image_refs)
 
@@ -832,13 +832,12 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         context = context.elevated()
         self._notify(context, instance_ref, "discard.start")
-        system_metadata = self._instance_system_metadata(context, instance_uuid)
-        image_refs = self._extract_image_refs(system_metadata)
 
         # Try to discard the created snapshots
         self._discard_blessed_snapshots(context, instance_ref)
         # Call discard in the backend.
-        self.vms_conn.discard(context, instance_ref['name'], image_refs=image_refs)
+        self.vms_conn.discard(context, instance_ref['name'],
+                              image_refs=self._extract_image_refs(instance_ref))
 
         # Remove the instance.
         self._instance_update(context,
@@ -846,7 +845,7 @@ class CobaltManager(manager.SchedulerDependentManager):
                               vm_state=vm_states.DELETED,
                               task_state=None,
                               terminated_at=timeutils.utcnow())
-        self.db.instance_destroy(context, instance_uuid)
+        self.conductor_api.instance_destroy(context, instance_ref)
         self._notify(context, instance_ref, "discard.end")
 
     @_retry_rpc
@@ -880,7 +879,7 @@ class CobaltManager(manager.SchedulerDependentManager):
                           host=self.host)
                 instance_ref['host'] = self.host
                 LOG.debug(_("Making call to network for launching instance=%s"), \
-                      instance_ref.name)
+                      instance_ref['name'])
                 # In a contested host, this function can block behind locks for
                 # a good while. Use our compute_timeout as an upper wait bound
                 try:
@@ -889,18 +888,18 @@ class CobaltManager(manager.SchedulerDependentManager):
                                     requested_networks=requested_networks)
                 except Timeout:
                     LOG.debug(_("Allocate network for instance=%s timed out"),
-                                instance_ref.name)
+                                instance_ref['name'])
                     network_info = self._retry_get_nw_info(context, instance_ref)
                 LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"),
-                      instance_ref.name, network_info)
+                      instance_ref['name'], network_info)
             except:
                 _log_error("network allocation")
 
         return network_info
 
     def _generate_vms_policy_template(self, context, instance):
-        instance_type = self.db.instance_type_get(context,
-                                                  instance['instance_type_id'])
+        instance_type = self.conductor_api.\
+            instance_type_get(context, instance['instance_type_id'])
         policy_attrs = (('blessed', instance['uuid']),
                         ('flavor', instance_type['name']),
                         ('tenant', '%(tenant)s'),
@@ -946,17 +945,16 @@ class CobaltManager(manager.SchedulerDependentManager):
             self._notify(context, instance_ref, "launch.start")
 
             # Create a new launched instance.
-            source_instance_ref = self._get_source_instance(context, instance_uuid)
-
-        # Extract out the image ids from the source instance's system_metadata.
-        system_metadata = self._instance_system_metadata(context, source_instance_ref['uuid'])
+            source_instance_ref = self._get_source_instance(context,
+                                                            instance_ref)
 
         try:
             # NOTE(dscannell): This will construct the block_device_info object
             # that gets passed to build/attached the volumes to the launched
             # instance. Note that this method will also create full volumes our
             # of any snapshot referenced by the instance's block_device_mapping.
-            bdms = self.db.block_device_mapping_get_all_by_instance(context, instance_uuid)
+            bdms = self.conductor_api.\
+                block_device_mapping_get_all_by_instance(context, instance_ref)
             block_device_info = self.compute_manager._setup_block_device_mapping(context,
                                                                                  instance_ref,
                                                                                  bdms)
@@ -970,9 +968,10 @@ class CobaltManager(manager.SchedulerDependentManager):
                                       task_state=None)
             raise
 
-        image_refs = self._extract_image_refs(system_metadata)
-        lvm_info = self._extract_lvm_info(system_metadata)
-        requested_networks = self._extract_requested_networks(system_metadata)
+        # Extract the image ids from the source instance.
+        image_refs = self._extract_image_refs(source_instance_ref)
+        lvm_info = self._extract_lvm_info(source_instance_ref)
+        requested_networks = self._extract_requested_networks(source_instance_ref)
 
         if migration_network_info != None:
             # (dscannell): Since this migration_network_info came over the wire we need
@@ -1074,12 +1073,9 @@ class CobaltManager(manager.SchedulerDependentManager):
         """
          Fills in the the image record with the blessed artifacts of the object
         """
-
-        system_metadata = self._instance_system_metadata(context, instance_uuid)
-        image_refs = self._extract_image_refs(system_metadata)
-
         # Basically just make a call out to vmsconn (proper version, etc) to fill in the image
-        self.vms_conn.export_instance(context, instance_ref, image_id, image_refs)
+        self.vms_conn.export_instance(context, instance_ref, image_id,
+                                      self._extract_image_refs(instance_ref))
 
     @_lock_call
     def import_instance(self, context, instance_uuid=None, instance_ref=None, image_id=None):
@@ -1092,11 +1088,10 @@ class CobaltManager(manager.SchedulerDependentManager):
         # using.
         image_ids = self.vms_conn.import_instance(context, instance_ref, image_id)
         image_ids_str = ','.join(image_ids)
-        system_metadata = self._instance_system_metadata(context, instance_uuid)
+        system_metadata = self._system_metadata_get(instance_ref)
         system_metadata['images'] = image_ids_str
-        self._instance_system_metadata_update(context, instance_uuid, system_metadata)
         self._instance_update(context, instance_uuid, vm_state='blessed',
-                disable_terminate=True)
+                              system_metadata=system_metadata)
 
     def install_policy(self, context, policy_ini_string=None):
         """

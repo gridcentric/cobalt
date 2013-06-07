@@ -38,6 +38,10 @@ class CobaltManagerTestCase(unittest.TestCase):
 
     def setUp(self):
         CONF.compute_driver = 'fake.FakeDriver'
+        CONF.conductor.use_local = True
+
+        # Mock out all of the policy enforcement (the tests don't have a defined policy)
+        utils.mock_policy()
 
         # Copy the clean database over
         shutil.copyfile(os.path.join(CONF.state_path, CONF.sqlite_clean_db),
@@ -50,9 +54,6 @@ class CobaltManagerTestCase(unittest.TestCase):
         self.cobalt._instance_network_info = utils.fake_networkinfo
 
         self.context = nova_context.RequestContext('fake', 'fake', True)
-
-        # Mock out all of the policy enforcement (the tests don't have a defined policy)
-        utils.mock_policy()
 
     def test_target_memory_string_conversion_case_insensitive(self):
 
@@ -131,6 +132,9 @@ class CobaltManagerTestCase(unittest.TestCase):
 
         blessed_uuid = utils.create_pre_blessed_instance(self.context)
 
+        blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
+        self.assertTrue(blessed_instance['disable_terminate'])
+
         migration_url = None
         try:
             migration_url = self.cobalt.bless_instance(self.context,
@@ -147,8 +151,7 @@ class CobaltManagerTestCase(unittest.TestCase):
         self.assertEquals(None, system_metadata.get('images', None))
         self.assertEquals(None, system_metadata.get('blessed', None))
         self.assertEquals(None, blessed_instance['launched_at'])
-
-        self.assertFalse(blessed_instance.get('disable_terminate', False))
+        self.assertTrue(blessed_instance['disable_terminate'])
 
     def test_bless_instance_not_found(self):
 

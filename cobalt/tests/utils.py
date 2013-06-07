@@ -269,6 +269,8 @@ def create_pre_blessed_instance(context, instance=None, source_uuid=None):
     if instance == None:
         instance = {}
 
+    instance['disable_terminate'] = True
+
     for key in ['metadata', 'system_metadata']:
         d = instance.get(key, {})
         d['blessed_from'] = source_uuid
@@ -281,6 +283,8 @@ def create_blessed_instance(context, instance=None, source_uuid=None):
         source_uuid = create_instance(context)
     if instance == None:
         instance = {}
+
+    instance['disable_terminate'] = True
     instance['vm_state'] = 'blessed'
     for key in ['metadata', 'system_metadata']:
         d = instance.get(key, {})

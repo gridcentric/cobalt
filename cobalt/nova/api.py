@@ -16,6 +16,7 @@
 
 """Handles all requests relating to Cobalt functionality."""
 import random
+import sys
 
 from nova import availability_zones
 from nova import context
@@ -225,6 +226,9 @@ class API(base.Base):
            'launch_index': launch_index,
            'root_device_name': instance_ref['root_device_name'],
            'power_state': power_state.NOSTATE,
+           # Set disable_terminate on bless so terminate in nova-api barfs on a
+           # blessed instance.
+           'disable_terminate': not launch,
         }
         new_instance_ref = self.db.instance_create(context, instance)
 
@@ -346,15 +350,18 @@ class API(base.Base):
             name = params.get('name')
             if name is None:
                 name = "%s-%s" % (instance['display_name'], str(clonenum))
-            new_instance = self._copy_instance(context, instance_uuid, name, launch=False)
+            new_instance = self._copy_instance(context, instance_uuid, name,
+                                               launch=False)
 
             LOG.debug(_("Casting cobalt message for bless_instance") % locals())
             self._cast_cobalt_message('bless_instance', context, new_instance['uuid'],
                                        host=instance['host'])
             self._commit_reservation(context, reservations)
         except:
+            ei = sys.exc_info()
             self._rollback_reservation(context, reservations)
-            raise
+            raise ei[0], ei[1], ei[2]
+
 
         # We reload the instance because the manager may have change its state (most likely it
         # did).
@@ -386,8 +393,9 @@ class API(base.Base):
             self._cast_cobalt_message('discard_instance', context, instance_uuid)
             self._commit_reservation(context, reservations)
         except:
+            ei = sys.exc_info()
             self._rollback_reservation(context, reservations)
-            raise
+            raise ei[0], ei[1], ei[2]
 
     def launch_instance(self, context, instance_uuid, params={}):
         pid = context.project_id
@@ -454,9 +462,10 @@ class API(base.Base):
                     { "params" : params })
 
             self._commit_reservation(context, reservations)
-        except Exception, e:
+        except:
+            ei = sys.exc_info()
             self._rollback_reservation(context, reservations)
-            raise e
+            raise ei[0], ei[1], ei[2]
 
         return self.get(context, launch_instances[0]['uuid'])
 
@@ -613,6 +622,7 @@ class API(base.Base):
         # we are essentially creating a new blessed instance into the system.
 
         fields = data['fields']
+        fields['disable_terminate'] = True
 
         if not context.is_admin:
             fields['project_id'] = context.project_id
