@@ -31,7 +31,8 @@ from nova import exception
 
 from nova.virt import images
 from nova.virt.libvirt import blockinfo
-from nova .virt.libvirt import imagebackend
+from nova.virt.libvirt import imagebackend
+from nova.virt.libvirt.imagecache import get_cache_fname
 from nova.virt.libvirt import utils as libvirt_utils
 from nova.compute import utils as compute_utils
 from nova.openstack.common import log as logging
@@ -475,15 +476,15 @@ class LibvirtConnection(VmsConnection):
                    image_refs=[],
                    lvm_info={}):
 
-        image_base_path = None
+        image_base_path = os.path.join(CONF.instances_path, CONF.base_dir_name)
+        if not os.path.exists(image_base_path):
+            LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
+            mkdir_as(image_base_path, self.openstack_uid)
+
         if not(skip_image_service) and CONF.cobalt_use_image_service:
             # We need to first download the descriptor and the disk files
             # from the image service.
             LOG.debug("Downloading images %s from the image service." % (image_refs))
-            image_base_path = os.path.join(CONF.instances_path, '_base')
-            if not os.path.exists(image_base_path):
-                LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
-                mkdir_as(image_base_path, self.openstack_uid)
 
             for image_ref in image_refs:
                 image = self.image_service.show(context, image_ref)
@@ -555,6 +556,21 @@ class LibvirtConnection(VmsConnection):
         for network_ref, mapping in network_info:
             network_ref['injected'] = False
 
+        # Stub out an image in the _base directory so libvirt_conn._create_image
+        # doesn't try to download the base image that the master was booted
+        # from, which isn't necessary because a clone's thin-provisioned disk is
+        # overlaid on a disk image accessible via VMS_DISK_URL. Note that we
+        # can't just touch the image's file in _base because master instances
+        # will need the real _base data. So we trick _create_image into using
+        # some bogus id for the image id that'll never be the id of a real
+        # image; the new instance's uuid suffices.
+        disk_images = {'image_id': new_instance_ref['uuid'],
+                       'kernel_id': new_instance_ref['kernel_id'],
+                       'ramdisk_id': new_instance_ref['ramdisk_id']}
+        touch_as(os.path.join(image_base_path,
+                              get_cache_fname(disk_images, 'image_id')),
+                 self.openstack_uid)
+
         # (dscannell) This was taken from the core nova project as part of the
         # boot path for normal instances. We basically want to mimic this
         # functionality.
@@ -568,12 +584,14 @@ class LibvirtConnection(VmsConnection):
             libvirt_conn._create_image(context, instance_dict, xml,
                                        disk_info['mapping'],
                                        network_info=network_info,
-                                       block_device_info=block_device_info)
+                                       block_device_info=block_device_info,
+                                       disk_images=disk_images)
         else:
             libvirt_conn._create_image(context, instance_dict,
                                        disk_info['mapping'],
                                        network_info=network_info,
-                                       block_device_info=block_device_info)
+                                       block_device_info=block_device_info,
+                                       disk_images=disk_images)
             xml = libvirt_conn.to_xml(instance_dict, network_info, disk_info,
                                       block_device_info=block_device_info,
                                       write_to_disk=True)
