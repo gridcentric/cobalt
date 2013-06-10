@@ -154,6 +154,7 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         self.vms_conn = kwargs.pop('vmsconn', None)
         self._init_vms()
+        self.nodename = self.vms_conn.get_hypervisor_hostname()
 
         # Use an eventlet green thread condition lock instead of the regular threading module. This
         # is required for eventlet threads because they essentially run on a single system thread.
@@ -1003,6 +1004,7 @@ class CobaltManager(manager.SchedulerDependentManager):
                                       instance_uuid,
                                       vm_state=vm_states.ERROR,
                                       host=self.host,
+                                      node=self.nodename,
                                       task_state=None)
             raise e
 
@@ -1012,6 +1014,7 @@ class CobaltManager(manager.SchedulerDependentManager):
             update_params = {'power_state': power_state,
                              'vm_state': vm_states.ACTIVE,
                              'host': self.host,
+                             'node': self.nodename,
                              'task_state': None}
             if not(migration_url):
                 update_params['launched_at'] = timeutils.utcnow()

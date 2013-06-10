@@ -302,6 +302,9 @@ class VmsConnection:
         """
         return self.vmsapi.install_policy(raw_ini_policy)
 
+    def get_hypervisor_hostname(self):
+        raise NotImplementedError()
+
 class DummyConnection(VmsConnection):
     def configure(self, virtapi):
         self.vmsapi.select_hypervisor('dummy')
@@ -719,3 +722,8 @@ class LibvirtConnection(VmsConnection):
                 # Simply ignore this error because the end result
                 # is that the image is no longer there.
                 LOG.debug("The image %s was not found in the image service when removing it." % (image_ref))
+
+    def get_hypervisor_hostname(self):
+        # (dscannell): Any of the libvirt connection can be used. There is
+        #              nothing special about the migration one.
+        return self.libvirt_connections['migration'].get_hypervisor_hostname()

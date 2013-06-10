@@ -197,6 +197,7 @@ class CobaltManagerTestCase(unittest.TestCase):
         self.assertTrue(pre_launch_time <= launched_instance['launched_at'])
         self.assertEquals(None, launched_instance['task_state'])
         self.assertEquals(self.cobalt.host, launched_instance['host'])
+        self.assertEquals(self.cobalt.nodename, launched_instance['node'])
 
         # Ensure the proper vms policy is passed into vmsconn
         self.assertEquals(';blessed=%s;;flavor=m1.tiny;;tenant=fake;;uuid=%s;'\
@@ -235,6 +236,7 @@ class CobaltManagerTestCase(unittest.TestCase):
         self.assertEquals(None, launched_instance['task_state'])
         self.assertEquals(None, launched_instance['launched_at'])
         self.assertEquals(self.cobalt.host, launched_instance['host'])
+        self.assertEquals(self.cobalt.nodename, launched_instance['node'])
 
     def test_launch_instance_migrate(self):
 
@@ -251,6 +253,7 @@ class CobaltManagerTestCase(unittest.TestCase):
         self.assertEquals(None, post_launch_instance['task_state'])
         self.assertEquals(pre_launch_instance['launched_at'], post_launch_instance['launched_at'])
         self.assertEquals(self.cobalt.host, post_launch_instance['host'])
+        self.assertEquals(self.cobalt.nodename, post_launch_instance['node'])
 
     def test_launch_instance_migrate_exception(self):
 
@@ -271,6 +274,7 @@ class CobaltManagerTestCase(unittest.TestCase):
         self.assertEquals(task_states.SPAWNING, launched_instance['task_state'])
         self.assertEquals(None, launched_instance['launched_at'])
         self.assertEquals(None, launched_instance['host'])
+        self.assertEquals(None, launched_instance['node'])
 
 
     def test_discard_a_blessed_instance(self):

@@ -190,6 +190,9 @@ class MockVmsConn(object):
         self.params_passed.append({'args': args, 'kwargs': kwargs})
         return self.pop_return_value("post_migration")
 
+    def get_hypervisor_hostname(self):
+        return "MockHypervisor"
+
 def create_uuid():
     return str(uuid.uuid4())
 
