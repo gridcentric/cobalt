@@ -47,15 +47,24 @@ def get_package():
             p = 'all'
     return p
 
+ROOT = os.path.dirname(os.path.realpath(__file__))
+PIP_REQUIRES = os.path.join(ROOT, 'pip-requires')
+TEST_REQUIRES = os.path.join(ROOT, 'test-requires')
+
+def read_file_list(filename):
+    with open(filename) as f:
+        return [line.strip() for line in f.readlines()
+                if len(line.strip()) > 0]
 
 PACKAGE = get_package()
 VERSION = get_version()
-
+INSTALL_REQUIRES = read_file_list(PIP_REQUIRES)
 
 COMMON = dict(
     author='GridCentric',
     author_email='support@gridcentric.com',
     namespace_packages=['gridcentric'],
+    test_requires = read_file_list(TEST_REQUIRES),
     url='http://www.gridcentric.com/',
     version=VERSION,
     classifiers = [
@@ -73,29 +82,29 @@ COMMON = dict(
 if PACKAGE == 'all' or PACKAGE == 'cobalt':
     setup(name='cobalt',
           description='Cobalt extension for OpenStack Compute.',
+          install_requires = INSTALL_REQUIRES,
           packages=['cobalt',
                     'cobalt.horizon',
                     'cobalt.nova',
                     'cobalt.nova.osapi',
                     'cobalt.nova.extension'],
-          install_requires=['setuptools'],
           **COMMON)
 
 if PACKAGE == 'all' or PACKAGE == 'cobalt-compute':
     setup(name='cobalt-compute',
           description='Cobalt extension for OpenStack Compute.',
-          install_requires=['setuptools', 'cobalt'],
+          install_requires = INSTALL_REQUIRES + ['cobalt'],
           scripts=['bin/cobalt-compute'],
           **COMMON)
 
 if PACKAGE == 'all' or PACKAGE == 'cobalt-api':
     setup(name='cobalt-api',
           description='Cobalt API extension.',
-          install_requires=['setuptools', 'cobalt'],
+          install_requires = INSTALL_REQUIRES + ['cobalt'],
           **COMMON)
 
 if PACKAGE == 'all' or PACKAGE == 'cobalt-horizon':
     setup(name='cobalt-horizon',
           description='Gridcentric plugin for OpenStack Dashboard',
-          install_requires=['setuptools', 'cobalt'],
+          install_requires = INSTALL_REQUIRES + ['cobalt'],
           **COMMON)
