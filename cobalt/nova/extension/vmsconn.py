@@ -51,17 +51,30 @@ vmsconn_opts = [
 
                cfg.StrOpt('openstack_user',
                default='',
-               help='The openstack user')]
+               help='The openstack user'),
+
+               cfg.BoolOpt('cobalt_clean_unused_symlinks',
+               default=True,
+               help='Cobalt should clean up symlinks that is creates and'
+                    'are discovered to be unused.')]
 CONF.register_opts(vmsconn_opts)
 
 import vms.utilities as utilities
 from . import vmsapi as vms_api
 
+def run_as(cmd, uid):
+    sudo_cmd = ['sudo', '-u', '#%d' % uid]
+    sudo_cmd += cmd
+    utilities.check_command(sudo_cmd)
+
 def mkdir_as(path, uid):
-    utilities.check_command(['sudo', '-u', '#%d' % uid, 'mkdir', '-p', path])
+    run_as([ 'mkdir', '-p', path], uid)
 
 def touch_as(path, uid):
-    utilities.check_command(['sudo', '-u', '#%d' % uid, 'touch', path])
+    run_as(['touch', path], uid)
+
+def symlink_as(target, link, uid):
+    run_as(['ln', '-s', target, link], uid)
 
 class AttribDictionary(dict):
     """ A subclass of the python Dictionary that will allow us to add attribute. """
@@ -305,6 +318,13 @@ class VmsConnection:
     def get_hypervisor_hostname(self):
         raise NotImplementedError()
 
+    def periodic_clean(self):
+        """
+        Performs a periodic cleanup of leftover on the system as a result
+        of using cobalt / vms.
+        """
+        pass
+
 class DummyConnection(VmsConnection):
     def configure(self, virtapi):
         self.vmsapi.select_hypervisor('dummy')
@@ -436,6 +456,19 @@ class LibvirtConnection(VmsConnection):
             self._stub_disk(nova_disk, size=lvm_size)
             stubbed_disks[disk_name] = nova_disk
 
+            if nova_disk.source_type == 'file' and \
+               CONF.libvirt_images_type == 'lvm':
+                # (dscannell): nova expects the instances to be back by lvm
+                #              instead of a qcow2 file. So when rebooting, etc
+                #              nova will recreate the instance libvrit.xml with
+                #              the lvm backing disk instead of this qcow2. We
+                #              basically create a symlink to the qcow2 to ensure
+                #              that rebooting, etc continue to work.
+                lvm_disk_file = imagebackend.Lvm(instance, disk_name)
+                symlink_as(str(nova_disk.path),
+                           str(lvm_disk_file.path),
+                           os.getuid())
+
         return stubbed_disks
 
     def _stub_disk(self, nova_disk, size=None):
@@ -444,7 +477,8 @@ class LibvirtConnection(VmsConnection):
 
         disk_dir = os.path.dirname(disk_file)
         if source_type == 'file':
-            # We need to make sure that the file & directory exists as the openstack user
+            # We need to make sure that the file & directory exists as the
+            # openstack user
             mkdir_as(disk_dir, self.openstack_uid)
             touch_as(disk_file, self.openstack_uid)
             os.chown(disk_file, self.openstack_uid, self.openstack_gid)
@@ -727,3 +761,39 @@ class LibvirtConnection(VmsConnection):
         # (dscannell): Any of the libvirt connection can be used. There is
         #              nothing special about the migration one.
         return self.libvirt_connections['migration'].get_hypervisor_hostname()
+
+
+    def _clean_lvm_symlinks(self):
+        # (dscannell): When launching an instance with LVM configured a symlink
+        #              is created in the lvm directory (e.g. /dev/nova/) that
+        #              points to the qcow2 file. This symlink does not get
+        #              deleted when the instance is destroyed. This cleans up
+        #              any broken symlinks.
+        vg_path = os.path.join('/dev', CONF.libvirt_images_volume_group)
+        LOG.debug("Starting to clean symlinks in %s" %(vg_path))
+        for filename in os.listdir(vg_path):
+            path = os.path.join(vg_path, filename)
+            try:
+                os.lstat(path)
+                try:
+                    os.stat(path)
+                    LOG.debug("Link is still active %s" %(path))
+                except:
+                    # (dscannell) This is a broken link.
+                    if CONF.cobalt_clean_unused_symlinks:
+                        LOG.debug("Unlinking broken link %s" %(path))
+                        os.unlink(path)
+                    else:
+                        LOG.debug("Broken link %s found but not removing "
+                                  "(set cobalt_clean_unused_symlinks to "
+                                  "remove)")
+            except:
+                LOG.debug("Failed to lstat path %s" %(path))
+
+    def periodic_clean(self):
+        """
+        Performs a periodic cleanup of leftover on the system as a result
+        of using cobalt / vms.
+        """
+        if CONF.libvirt_images_type == 'lvm':
+            self._clean_lvm_symlinks()

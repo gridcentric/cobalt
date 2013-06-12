@@ -244,6 +244,10 @@ class CobaltManager(manager.SchedulerDependentManager):
         return self.db.instance_system_metadata_update(context, instance_uuid, system_metadata, True)
 
     @manager.periodic_task
+    def _clean(self, context):
+        self.vms_conn.periodic_clean()
+
+    @manager.periodic_task
     def _refresh_host(self, context):
 
         # Grab the global lock and fetch all instances.
