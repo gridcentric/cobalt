@@ -518,7 +518,9 @@ class LibvirtConnection(VmsConnection):
             LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
             mkdir_as(image_base_path, self.openstack_uid)
 
+        artifact_path = None
         if not(skip_image_service) and CONF.cobalt_use_image_service:
+            artifact_path = image_base_path
             # We need to first download the descriptor and the disk files
             # from the image service.
             LOG.debug("Downloading images %s from the image service." % (image_refs))
@@ -651,7 +653,7 @@ class LibvirtConnection(VmsConnection):
         # Return the libvirt file, this will be passed in as the name. This
         # parameter is overloaded in the management interface as a libvirt
         # special case.
-        return (libvirt_file, image_base_path)
+        return (libvirt_file, artifact_path)
 
     @_log_call
     def post_launch(self, context,
