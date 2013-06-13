@@ -230,7 +230,8 @@ class VmsConnection:
                 pass
             else:
                 image = self.image_service.show(context, image_ref)
-                target = os.path.join(shared, image['name'])
+                # old usage of image['name'] included for backwards compatibility
+                target = os.path.join(shared, image['properties'].get('file_name', image['name']))
                 self.image_service.download(context, image_ref, target)
                 artifacts.append(target)
 
