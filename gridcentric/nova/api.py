@@ -524,7 +524,8 @@ class API(base.Base):
             'availability_zone',
             'os_type',
             'project_id',
-            'user_id'
+            'user_id',
+            'power_state'
         ])
 
         return {
