@@ -285,12 +285,32 @@ class VmsConnection:
 
         if FLAGS.gridcentric_use_image_service:
             for artifact in artifacts:
-                image_id = self.image_service.create(context, os.path.basename(artifact), instance_ref['uuid'])
-                self.image_service.upload(context, image_id, artifact)
+                _, image_id = self._friendly_upload(context, instance_ref, artifact)
                 image_ids.append(image_id)
                 os.unlink(artifact)
 
         return image_ids
+
+    # (rui-lin) instance-xxxxx is used by vms, and stored as file_name
+    # However to glance we want to use the user friendly display_name
+    # We also don't want to display the .gc file extension
+    def _friendly_upload(self, context, instance_ref, filename):
+        image_name = instance_ref['display_name']
+        image_type = "Image"
+        if filename.endswith(".gc"):
+            image_type = "Live-Image"
+        elif filename.endswith(".disk"):
+            image_name += "." + filename.split(".")[-2] + ".disk"
+
+        image_id = self.image_service.create(context, image_name, instance_uuid=instance_ref['uuid'])
+        self.image_service.upload(context, image_id, filename)
+
+        properties = self.image_service.show(context, image_id)['properties']
+        properties.update({'image_type': image_type,
+                           'file_name': os.path.basename(filename)})
+        self.image_service.update(context, image_id, {'properties': properties})
+
+        return image_name, image_id
 
     @_log_call
     def install_policy(self, raw_ini_policy):
@@ -491,7 +511,7 @@ class LibvirtConnection(VmsConnection):
                 # In previous versions name was the filename (*.gc, *.disk) so
                 # there was no file_name property. Now that name is more descriptive
                 # when uploaded to glance, file_name property is set; use if possible
-                target = os.path.join(image_base_path, 
+                target = os.path.join(image_base_path,
                                       image['properties'].get('file_name',image['name']))
 
                 if migration or not os.path.exists(target):
@@ -628,31 +648,13 @@ class LibvirtConnection(VmsConnection):
         descriptor_ref = None
         other_images = []
         for blessed_file in blessed_files:
-
-            # blessed_file's name was very unenlightening (instance-xxxxx)
-            # This fix uses the blessed instance's display name to provide more meaning
-            # before uploading to glance. The live image tag/vms provide better branding.
-            image_name = instance_ref['display_name']
-            image_type = "Image"
-            if blessed_file.endswith(".gc"):
-                image_type = "Live-Image"
-            elif blessed_file.endswith(".disk"):
-                image_name += "." + blessed_file.split(".")[-2] + ".disk"
-
-            image_id = self.image_service.create(context, image_name, instance_uuid=instance_ref['uuid'])
+            image_name, image_id = self._friendly_upload(context, instance_ref, blessed_file)
 
             if blessed_file.endswith(".gc"):
                 descriptor_ref = image_id
             else:
                 other_images.append((image_name, image_id))
             blessed_image_refs.append(image_id)
-
-            self.image_service.upload(context, image_id, blessed_file)
-
-            properties = self.image_service.show(context, image_id)['properties']
-            properties.update({'image_type': image_type,
-                               'file_name': os.path.basename(blessed_file)})
-            self.image_service.update(context, image_id, {'properties': properties})
 
         properties = self.image_service.show(context, descriptor_ref)['properties']
         properties.update({'live_image': True,
