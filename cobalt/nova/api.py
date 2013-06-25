@@ -86,6 +86,13 @@ class API(base.Base):
                 # state to 'no state'.
                 self.db.instance_update(elevated, instance['uuid'],
                                         {'power_state':power_state.NOSTATE})
+            # (rui-lin) Host or nova-gc process failure during bless can cause
+            # source instance to be undeletable and stuck in 'blessing' state,
+            # so we clear state to default and allow it to be deleted if needed
+            if instance['vm_state'] == vm_states.ACTIVE:
+                if instance['task_state'] == "blessing":
+                    self.db.instance_update(elevated, instance['uuid'],
+                        {'disable_terminate':False,'task_state':'None'})
 
 
     def get_info(self):
@@ -580,7 +587,8 @@ class API(base.Base):
             'availability_zone',
             'os_type',
             'project_id',
-            'user_id'
+            'user_id',
+            'power_state'
         ])
 
         return {
