@@ -18,11 +18,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import os
+import shutil
 import tempfile
 
 def setup():
-    import os
-    import shutil
 
     sqlite_db = "tests.sqlite"
     # Set COBALT_TESTS_TMPFS to a tmpfs mount for faster setup. The fsyncs that
@@ -52,3 +52,7 @@ def setup():
 
     cleandb = os.path.join(CONF.state_path, CONF.sqlite_clean_db)
     shutil.copyfile(testdb, cleandb)
+
+def teardown():
+    from oslo.config import cfg
+    shutil.rmtree(cfg.CONF.state_path)
