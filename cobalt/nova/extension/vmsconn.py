@@ -246,7 +246,8 @@ class VmsConnection:
                 pass
             else:
                 image = self.image_service.show(context, image_ref)
-                target = os.path.join(shared, image['name'])
+                # old usage of image['name'] included for backwards compatibility
+                target = os.path.join(shared, image['properties'].get('file_name', image['name']))
                 self.image_service.download(context, image_ref, target)
                 artifacts.append(target)
 
@@ -300,12 +301,32 @@ class VmsConnection:
 
         if CONF.cobalt_use_image_service:
             for artifact in artifacts:
-                image_id = self.image_service.create(context, os.path.basename(artifact), instance_ref['uuid'])
-                self.image_service.upload(context, image_id, artifact)
+                _, image_id = self._friendly_upload(context, instance_ref, artifact)
                 image_ids.append(image_id)
                 os.unlink(artifact)
 
         return image_ids
+
+    # (rui-lin) instance-xxxxx is used by vms, and stored as file_name
+    # However to glance we want to use the user friendly display_name
+    # We also don't want to display the .gc file extension
+    def _friendly_upload(self, context, instance_ref, filename):
+        image_name = instance_ref['display_name']
+        image_type = "Image"
+        if filename.endswith(".gc"):
+            image_type = "Live-Image"
+        elif filename.endswith(".disk"):
+            image_name += "." + filename.split(".")[-2] + ".disk"
+
+        image_id = self.image_service.create(context, image_name, instance_uuid=instance_ref['uuid'])
+        self.image_service.upload(context, image_id, filename)
+
+        properties = self.image_service.show(context, image_id)['properties']
+        properties.update({'image_type': image_type,
+                           'file_name': os.path.basename(filename)})
+        self.image_service.update(context, image_id, {'properties': properties})
+
+        return image_name, image_id
 
     @_log_call
     def install_policy(self, raw_ini_policy):
@@ -352,7 +373,10 @@ class LaunchImageBackend(imagebackend.Backend):
     """This is the image backend to use when launching instances."""
 
     def backend(self, image_type=None):
-        """ The backend for launched instances will always be qcow2 """
+        """ The backend for launched instances will always be
+            either qcow2 or raw (never lvm)"""
+        if image_type == 'raw':
+            return super(LaunchImageBackend, self).backend('raw')
         return super(LaunchImageBackend, self).backend('qcow2')
 
 class LibvirtConnection(VmsConnection):
@@ -530,7 +554,7 @@ class LibvirtConnection(VmsConnection):
                 # In previous versions name was the filename (*.gc, *.disk) so
                 # there was no file_name property. Now that name is more descriptive
                 # when uploaded to glance, file_name property is set; use if possible
-                target = os.path.join(image_base_path, 
+                target = os.path.join(image_base_path,
                                       image['properties'].get('file_name',image['name']))
 
                 if migration or not os.path.exists(target):
@@ -709,6 +733,7 @@ class LibvirtConnection(VmsConnection):
         descriptor_ref = None
         other_images = []
         for blessed_file in blessed_files:
+            image_name, image_id = self._friendly_upload(context, instance_ref, blessed_file)
 
             # blessed_file's name was very unenlightening (instance-xxxxx)
             # This fix uses the blessed instance's display name to provide more meaning
