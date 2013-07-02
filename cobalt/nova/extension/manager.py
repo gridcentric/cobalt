@@ -465,14 +465,14 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         paused = False
         for bdm in block_device_mappings:
-            if bdm.no_device:
+            if bdm['no_device']:
                 continue
 
             if not paused:
                 self.vms_conn.pause_instance(source_instance)
                 paused = True
 
-            volume_id = getattr(bdm, 'volume_id')
+            volume_id = bdm.get('volume_id')
             if volume_id:
                 # create snapshot based on volume_id
                 volume = self.volume_api.get(context, volume_id)
