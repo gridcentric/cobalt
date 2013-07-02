@@ -291,16 +291,22 @@ class VmsConnection:
 
         return image_ids
 
-    # (rui-lin) instance-xxxxx is used by vms, and stored as file_name
-    # However to glance we want to use the user friendly display_name
-    # We also don't want to display the .gc file extension
-    def _friendly_upload(self, context, instance_ref, filename):
+    def _get_glance_displayname_and_type(self, instance_ref, filename):
         image_name = instance_ref['display_name']
         image_type = "Image"
         if filename.endswith(".gc"):
             image_type = "Live-Image"
         elif filename.endswith(".disk"):
             image_name += "." + filename.split(".")[-2] + ".disk"
+        else:
+            image_name += os.path.splitext(filename)[1] # get file extension
+        return image_name, image_type
+
+    # (rui-lin) instance-xxxxx is used by vms, and stored as file_name
+    # However to glance we want to use the user friendly display_name
+    # We also don't want to display the .gc file extension
+    def _friendly_upload(self, context, instance_ref, filename):
+        image_name, image_type = self._get_glance_displayname_and_type(instance_ref, filename)
 
         image_id = self.image_service.create(context, image_name, instance_uuid=instance_ref['uuid'])
         self.image_service.upload(context, image_id, filename)
