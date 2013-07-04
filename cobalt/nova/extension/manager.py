@@ -511,10 +511,10 @@ class CobaltManager(manager.SchedulerDependentManager):
             block_device_mapping_get_all_by_instance(context, instance)
 
         for bdm in block_device_mappings:
-            if bdm.no_device:
+            if bdm['no_device']:
                 continue
 
-            snapshot_id = getattr(bdm, 'snapshot_id')
+            snapshot_id = bdm.get('snapshot_id')
             if snapshot_id:
                 # Remove the snapshot
                 try:
