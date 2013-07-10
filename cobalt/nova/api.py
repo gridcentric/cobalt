@@ -337,12 +337,11 @@ class API(base.Base):
         is_launched = self._is_instance_launched(context, instance_uuid)
         if is_blessed:
             # The instance is already blessed. We can't rebless it.
-            raise exception.NovaException(_(("Instance %s is already blessed. " +
-                                     "Cannot rebless an instance.") % instance_uuid))
+            raise exception.NovaException(_(("Instance %s is already a live image.") % instance_uuid))
         elif instance['vm_state'] != vm_states.ACTIVE:
             # The instance is not active. We cannot bless a non-active instance.
             raise exception.NovaException(_(("Instance %s is not active. " +
-                                      "Cannot bless a non-active instance.") % instance_uuid))
+                                      "Cannot create a live image from a non-active instance.") % instance_uuid))
 
         reservations = self._acquire_addition_reservation(context, instance)
         try:
@@ -373,8 +372,8 @@ class API(base.Base):
         instance = self.get(context, instance_uuid)
         if not self._is_instance_blessed(context, instance_uuid):
             # The instance is not blessed. We can't discard it.
-            raise exception.NovaException(_(("Instance %s is not blessed. " +
-                                     "Cannot discard an non-blessed instance.") % instance_uuid))
+            raise exception.NovaException(_(("Instance %s is not a live image. " +
+                                     "Cannot discard a regular instance.") % instance_uuid))
         elif len(self.list_launched_instances(context, instance_uuid)) > 0:
             # There are still launched instances based off of this one.
             raise exception.NovaException(_(("Instance %s still has launched instances. " +
@@ -405,8 +404,8 @@ class API(base.Base):
         if not(self._is_instance_blessed(context, instance_uuid)):
             # The instance is not blessed. We can't launch new instances from it.
             raise exception.NovaException(
-                  _(("Instance %s is not blessed. " +
-                     "Please bless the instance before launching from it.") % instance_uuid))
+                  _(("Instance %s is not a live image. " +
+                     "Please create a live image to launch from it.") % instance_uuid))
 
         # Set up security groups to be added - we are passed in names, but need ID's
         security_group_names = params.pop('security_groups', None)
@@ -554,7 +553,7 @@ class API(base.Base):
     def check_delete(self, context, instance_uuid):
         """ Raises an error if the instance uuid is blessed. """
         if self._is_instance_blessed(context, instance_uuid):
-            raise exception.NovaException("Cannot delete a blessed instance. Please discard it instead.")
+            raise exception.NovaException("Cannot delete a live image. Please discard it instead.")
         if self._is_instance_blessing(context, instance_uuid):
             raise exception.NovaException("Cannot delete while blessing. Please try again later.")
 
@@ -566,9 +565,9 @@ class API(base.Base):
         # Ensure that the instance_uuid is blessed
         instance = self.get(context, instance_uuid)
         if not(self._is_instance_blessed(context, instance_uuid)):
-            # The instance is not blessed. We can't launch new instances from it.
-            raise exception.NovaException(_("Instance %s is not blessed. " + \
-                  "Only blessed instances can be exported.") % instance_uuid)
+            # The instance is not blessed. Cannot export it.
+            raise exception.NovaException(_("Instance %s is not a live image. " + \
+                  "Only live images can be exported.") % instance_uuid)
 
         # Create an image record to store the blessed artifacts for this instance
         # and call to nova-gc to populate the record
