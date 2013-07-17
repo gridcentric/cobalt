@@ -19,13 +19,194 @@ import unittest
 import cobalt.nova.extension.vmsapi as vms_api
 
 
+class CapturedVmsCtl(object):
+    """
+    Instead of actually running the vmsctl command this will just capture
+    the command line.
+    """
+    def __init__(self, vmsctl):
+        self.vmsctl = vmsctl
+        self.captured_command = None
+
+    def run_command(self, cmd_list):
+
+        self.captured_command = self.vmsctl.vmsctl_command + cmd_list
+
+        action = cmd_list[0]
+        stdout = []
+        if action == 'bless':
+            # Return an appropriate response.
+            stdout.append('newname = captured-vms-ctl-name')
+            stdout.append('network = None')
+            # NOTE(dscannell): Currently vmsctl does not return a correctly
+            #                  formatted json for the artifacts output (i.e.
+            #                  it uses single quotes instead of double).
+            stdout.append("artifacts = {'files': []}")
+        return stdout
+
+
 class CobaltVmsApiTestCase(unittest.TestCase):
 
     def setUp(self):
-        self.vmsapi = vms_api.get_vmsapi()
-        self.vmsapi.select_hypervisor('dummy')
+        # TODO(dscannell): We will eventually want to parameterized this test
+        #                  to deal with all of the supported vms versions.
+        self.vmsapi = vms_api.get_vmsapi(version='2.6')
+        self.vmsapi.configure(platform='dummy')
+        # Capture the vmsctl output instead of actually running the command.
+        self.capture = CapturedVmsCtl(self.vmsapi.vmsctl)
+        self.vmsapi.vmsctl = self.capture
 
-    def test_config(self):
-        # Simply verify that we can push a value into the config Management
-        config = self.vmsapi.config()
-        config.MANAGEMENT['test-value'] = "testvalue"
+    def test_bless_nomem_nomigration(self):
+        bless_result =  self.vmsapi.bless("testbless", "new-testbless")
+
+        self.assertEquals(['vmsctl',
+                           '--use.names',
+                           '-p', 'dummy',
+                           'bless', 'testbless', 'new-testbless'],
+                          self.capture.captured_command)
+        self.assertEquals('captured-vms-ctl-name', bless_result.newname)
+        self.assertEquals(None, bless_result.network)
+        self.assertEquals([], bless_result.blessed_files)
+
+    def test_bless_mem_nomigration(self):
+        bless_result =  self.vmsapi.bless("testbless", "new-testbless",
+                                          mem_url="mem://url")
+
+        # NOTE(dscannell): The empty strings are needed because they
+        #                  represent the "empty" options for path and disk_url
+        self.assertEquals(['vmsctl',
+                           '--use.names',
+                           '-p', 'dummy',
+                           'bless', 'testbless', 'new-testbless', '', '',
+                                    'mem://url'],
+            self.capture.captured_command)
+
+    def test_bless_nomem_migration(self):
+        bless_result =  self.vmsapi.bless("testbless", "new-testbless",
+                                          migration=True)
+
+        # NOTE(dscannell): The spaces at the end are needed because they
+        #                  represent the "empty" options for path, disk_url
+        #                  and mem_url.
+        self.assertEquals(['vmsctl',
+                           '--use.names',
+                           '-p', 'dummy',
+                           'bless', 'testbless', 'new-testbless', '', '', '',
+                                    'True'],
+            self.capture.captured_command)
+
+    def test_bless_mem_migration(self):
+        bless_result =  self.vmsapi.bless("testbless", "new-testbless",
+                                          mem_url="mem://url", migration=True)
+
+        # NOTE(dscannell): The spaces at the end are needed because they
+        #                  represent the "empty" options for path and disk_url
+        self.assertEquals(['vmsctl',
+                           '--use.names',
+                           '-p', 'dummy',
+                           'bless', 'testbless', 'new-testbless', '', '',
+                                    'mem://url', 'True'],
+            self.capture.captured_command)
+
+    def test_launch_nomem_nomigration_noguest_nooptions(self):
+
+        self.vmsapi.launch('testlaunch', 'new-testlaunch', 1, "path")
+
+        self.assertEquals(['vmsctl',
+                           '--use.names',
+                           '-p', 'dummy',
+                           'launch', 'testlaunch', 'new-testlaunch', 'path'],
+                self.capture.captured_command)
+
+    def test_launch_mem_nomigration_noguest_nooptions(self):
+        self.vmsapi.launch('testlaunch', 'new-testlaunch', 1, "path",
+                           mem_url="mem://url")
+
+        # NOTE(dscannell): The spaces at the end are needed because they
+        #                  represent the "empty" options for disk_url
+        self.assertEquals(['vmsctl',
+                           '--use.names',
+                           '-p', 'dummy',
+                           'launch', 'testlaunch', 'new-testlaunch', 'path',
+                                     '', 'mem://url'],
+            self.capture.captured_command)
+
+
+    def test_launch_nomem_migration_noguest_nooptions(self):
+        self.vmsapi.launch('testlaunch', 'new-testlaunch', 1, "path",
+                           migration=True)
+
+        # NOTE(dscannell): The spaces at the end are needed because they
+        #                  represent the "empty" options for disk_url and
+        #                  mem_url
+        self.assertEquals(['vmsctl',
+                           '--use.names',
+                           '-p', 'dummy',
+                           'launch', 'testlaunch', 'new-testlaunch', 'path',
+                                      '',  '', 'True'],
+            self.capture.captured_command)
+
+    def test_launch_nomem_nomigration_guest_nooptions(self):
+        self.vmsapi.launch('testlaunch', 'new-testlaunch', 1, "path",
+            guest_params={'param1':'value1'})
+
+        self.assertEquals(['vmsctl',
+                           '--use.names',
+                           '-p', 'dummy',
+                           '-v', 'param1=value1',
+                           'launch', 'testlaunch', 'new-testlaunch', 'path'],
+            self.capture.captured_command)
+
+    def test_launch_nomem_nomigration_noguest_options(self):
+        self.vmsapi.launch('testlaunch', 'new-testlaunch', 1, "path",
+            vms_options={'option1':'value1'})
+
+        self.assertEquals(['vmsctl',
+                           '--use.names',
+                           '-p', 'dummy',
+                           '-o', 'option1=value1',
+                           'launch', 'testlaunch', 'new-testlaunch', 'path'],
+            self.capture.captured_command)
+
+    def test_launch_mem_migration_guest_options(self):
+        self.vmsapi.launch('testlaunch', 'new-testlaunch', 1, "path",
+            mem_url='mem://url', migration=True,
+            guest_params={'param1':'value1'}, vms_options={'option1':'value1'})
+
+        # NOTE(dscannell): The spaces at the end are needed because they
+        #                  represent the "empty" options for disk_url
+        self.assertEquals(['vmsctl',
+                           '--use.names',
+                           '-p', 'dummy',
+                           '-v', 'param1=value1',
+                           '-o', 'option1=value1',
+                           'launch', 'testlaunch', 'new-testlaunch', 'path',
+                                     '', 'mem://url', 'True'],
+            self.capture.captured_command)
+
+    def test_discard_nomem(self):
+
+        self.vmsapi.discard('testdiscard')
+        self.assertEquals(['vmsctl',
+                           '--use.names',
+                           '-p', 'dummy',
+                           'discard', 'testdiscard'],
+            self.capture.captured_command)
+
+    def test_discard_mem(self):
+        self.vmsapi.discard('testdiscard', mem_url='mem://url')
+        # NOTE(dscannell): The spaces at the end are needed because they
+        #                  represent the "empty" options for path and disk_url
+        self.assertEquals(['vmsctl',
+                           '--use.names',
+                           '-p', 'dummy',
+                           'discard', 'testdiscard', '', '', 'mem://url'],
+            self.capture.captured_command)
+
+    def test_pause(self):
+        self.vmsapi.pause('testpause')
+        self.assertEquals(['vmsctl',
+                           '--use.names',
+                           '-p', 'dummy',
+                           'pause', 'testpause'],
+            self.capture.captured_command)
