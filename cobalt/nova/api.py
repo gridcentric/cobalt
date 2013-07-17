@@ -670,8 +670,8 @@ class API(base.Base):
     def install_policy(self, context, policy_ini_string, wait):
         validated = False
         faults = []
-        for host in self._list_gridcentric_hosts(context):
-            queue = rpc.queue_get_for(context, FLAGS.gridcentric_topic, host)
+        for host in self._list_cobalt_hosts(context):
+            queue = rpc.queue_get_for(context, CONF.cobalt_topic, host)
             args = {
                 "method": "install_policy",
                 "args" : { "policy_ini_string": policy_ini_string },

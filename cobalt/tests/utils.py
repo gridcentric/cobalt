@@ -42,8 +42,7 @@ class MockRpc(object):
     """
 
     def __init__(self):
-        self.call_log = {}
-        self.cast_log = {}
+        self.reset()
 
     def __add_to_log(self, log, queue, kwargs):
         _instance = kwargs['args'].get('instance_uuid', 'unknown')
@@ -62,6 +61,10 @@ class MockRpc(object):
 
     def cast(self, context, queue, kwargs):
         self.__add_to_log(self.cast_log, queue, kwargs)
+
+    def reset(self):
+        self.call_log = {}
+        self.cast_log = {}
 
 mock_rpc = MockRpc()
 rpc.call = mock_rpc.call

@@ -43,6 +43,7 @@ class CobaltApiTestCase(unittest.TestCase):
                         os.path.join(CONF.state_path, CONF.sqlite_db))
 
         self.mock_rpc = utils.mock_rpc
+        self.mock_rpc.reset()
 
         # Mock out all of the policy enforcement (the tests don't have a defined policy)
         utils.mock_policy()
@@ -594,3 +595,32 @@ class CobaltApiTestCase(unittest.TestCase):
         gc_hosts.sort()
 
         self.assertEquals(hosts_in_zone, gc_hosts)
+
+    def test_install_policy_nowait(self):
+        # create five cobalt hosts
+        for i in range(5):
+            utils.create_cobalt_service(self.context)
+
+        self.cobalt_api.install_policy(self.context, "", False)
+
+        # This should result in six RPC calls (for the 5 created hosts and the
+        # default test host). It should be a single call and 5 casts.
+        self.assertTrue('install_policy' in self.mock_rpc.call_log)
+        self.assertEquals(1, len(self.mock_rpc.call_log['install_policy']))
+
+        self.assertTrue('install_policy' in self.mock_rpc.cast_log)
+        self.assertEquals(5, len(self.mock_rpc.cast_log['install_policy']))
+
+    def test_install_policy_wait(self):
+        # create five cobalt hosts
+        for i in range(5):
+            utils.create_cobalt_service(self.context)
+
+        self.cobalt_api.install_policy(self.context, "", True)
+
+        # This should result in six RPC calls (for the 5 created hosts and the
+        # default test host). Since we are waiting they should all be calls.
+        self.assertTrue('install_policy' in self.mock_rpc.call_log)
+        self.assertEquals(6, len(self.mock_rpc.call_log['install_policy']))
+
+        self.assertFalse('install_policy' in self.mock_rpc.cast_log)
