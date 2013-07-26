@@ -480,9 +480,23 @@ class API(base.Base):
                                                             instance['uuid'])
         security_groups = self.db.security_group_get_by_instance(context,
                                                             instance['id'])
+
+        # Remove or correctly serialize python objects from
+        # instance_properties. Some message buses (such as qpid) are incapable
+        # of serializing generic python objects.
+        instance_properties = dict(instance.iteritems())
+        del instance_properties['info_cache']
+        instance_properties['security_groups'] = \
+            [ sg.name for sg in instance_properties['security_groups'] ]
+        instance_properties['metadata'] = dict((entry.key, entry.value)
+                                for entry in instance_properties['metadata'])
+        instance_properties['system_metadata'] = dict((entry.key, entry.value)
+                                for entry in instance_properties['system_metadata'])
+        security_groups = [ sg.name for sg in security_groups ]
+
         return {
             'image': jsonutils.to_primitive(image),
-            'instance_properties': dict(instance.iteritems()),
+            'instance_properties': instance_properties,
             'instance_type': instance_type,
             'instance_uuids': [i['uuid'] for i in instances],
             'block_device_mapping': bdm,
