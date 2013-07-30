@@ -69,7 +69,13 @@ class BlessResult(object):
                              ['%s:%s' %(lv['name'],lv['size_bytes'])
                              for lv in logical_volumes]
 
-class Vmsctl(object):
+class VmsDriver(object):
+
+    def run_command(self, cmd_list):
+        pass
+
+
+class Vmsctl(VmsDriver):
     """
     A simple class that allows executing vmsctl commands.
     """
@@ -98,6 +104,24 @@ class Vmsctl(object):
             LOG.debug('vmctl stderr: %s', line)
         return stdout.split('\n')
 
+class XapiPlugin(Vmsctl):
+    def __init__(self, session, vms_platform=None, management_options=None):
+        super(XapiPlugin, self).__init__(vms_platform=vms_platform,
+                                         management_options=management_options)
+        self._session = session
+
+    def run_command(self, cmd_list):
+        # TODO(dscannell): need to figure out the plugin function and
+        #                  how the cmd_list will be serialized across.
+        vmsctl_options = self.vmsctl_command[1:]
+        args_list = vmsctl_options + cmd_list
+        LOG.debug(_('Executing vms command %s'), args_list)
+        stdout = self._session.call_plugin('vms', 'vmsctl',
+            {'args': json.dumps(args_list)})
+
+        LOG.debug("DRS DEBUG: result=%s", stdout)
+        return stdout.split('\n')
+
 class VmsApi(object):
     """
     The interface into the vms commands. This will be versioned whenever the
@@ -106,21 +130,25 @@ class VmsApi(object):
 
     def __init__(self, version='2.5'):
         self.version = version
-        self.vmsctl = None
+        self.vms_driver = None
 
-    def configure(self, platform=None, management_options=None):
-        self.vmsctl = Vmsctl(platform, management_options)
+    def configure(self, vms_driver):
+        self.vms_driver = vms_driver
 
     def bless(self, instance_name, new_instance_name, mem_url=None,
-              migration=False, **kwargs):
+              migration=False, path=None, **kwargs):
         result = BlessResult()
         # command: vmsctl bless <name> [newname] [path] [disk_url] [mem_url]
         #                      [migration]
         bless_command = ['bless', instance_name, new_instance_name]
+        if path != None:
+            bless_command.append(path)
+
         if mem_url != None or migration:
             # NOTE(dscannell): If we have either mem_url or migration that add
             # empty placeholders for the path and disk_url arguments.
-            bless_command.append('')
+            if path == None:
+                bless_command.append('')
             bless_command.append('')
         if mem_url != None:
             bless_command.append(mem_url)
@@ -132,7 +160,7 @@ class VmsApi(object):
             # it defaults to false, so only add it to the cmd line if
             # different than the default.
             bless_command.append(str(migration))
-        r = self.vmsctl.run_command(bless_command)
+        r = self.vms_driver.run_command(bless_command)
         result.unpack(r)
         return result
 
@@ -174,7 +202,7 @@ class VmsApi(object):
         if migration:
             launch_cmd.append(str(migration))
 
-        return self.vmsctl.run_command(launch_cmd)
+        return self.vms_driver.run_command(launch_cmd)
 
     def discard(self, instance_name, mem_url=None, **kwargs):
 
@@ -185,7 +213,7 @@ class VmsApi(object):
             #                  disk_url before adding the mem_url.
             discard_cmd += ['', '', mem_url]
 
-        return self.vmsctl.run_command(discard_cmd)
+        return self.vms_driver.run_command(discard_cmd)
 
     def kill_memservers(self, mem_url):
         # NOTE(dscannell): The command was only added to the vmsctl command
@@ -203,7 +231,7 @@ class VmsApi(object):
 
         # command: vmsctl pause <id>
         pause_cmd = ['pause', instance_name]
-        return self.vmsctl.run_command(pause_cmd)
+        return self.vms_driver.run_command(pause_cmd)
 
     def export(self, *args, **kwargs):
         raise exception.NovaException(
@@ -249,7 +277,7 @@ class VmsApi26(VmsApi):
             temp_policy_file.flush()
             # command: installpolicy <policy_path>
             install_policy_cmd = ['installpolicy', temp_policy_file.name]
-            return self.vmsctl.run_command(install_policy_cmd)
+            return self.vms_driver.run_command(install_policy_cmd)
 
 class VmsApi27(VmsApi26):
 
@@ -259,17 +287,17 @@ class VmsApi27(VmsApi26):
     def kill_memservers(self, mem_url):
         # command: vmsctl kill_memservers <url>
         kill_memservers_cmd = ['kill_memservers', mem_url]
-        return self.vmsctl.run_command(kill_memservers_cmd)
+        return self.vms_driver.run_command(kill_memservers_cmd)
 
     def export(self, instance_ref, archive, path):
         # command: vmsctl export <name> <archive> [path] [disk_url] [mem_url]
         export_cmd = ['export', instance_ref['name'], archive, path]
-        return self.vmsctl.run_command(export_cmd)
+        return self.vms_driver.run_command(export_cmd)
 
     def import_(self, instance_ref, archive):
         # command: vmsctl import_ <name> <archive> [path] [disk_url] [mem_url]
         import_cmd = ['import_', instance_ref['name'], archive]
-        return self.vmsctl.run_command(import_cmd)
+        return self.vms_driver.run_command(import_cmd)
 
 def get_vmsapi(version=None):
     if version == None:

@@ -51,10 +51,9 @@ class CobaltVmsApiTestCase(unittest.TestCase):
         # TODO(dscannell): We will eventually want to parameterized this test
         #                  to deal with all of the supported vms versions.
         self.vmsapi = vms_api.get_vmsapi(version='2.6')
-        self.vmsapi.configure(platform='dummy')
         # Capture the vmsctl output instead of actually running the command.
-        self.capture = CapturedVmsCtl(self.vmsapi.vmsctl)
-        self.vmsapi.vmsctl = self.capture
+        self.capture = CapturedVmsCtl(vms_api.Vmsctl(vms_platform='dummy'))
+        self.vmsapi.configure(self.capture)
 
     def test_bless_nomem_nomigration(self):
         bless_result =  self.vmsapi.bless("testbless", "new-testbless")

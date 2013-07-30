@@ -76,15 +76,28 @@ def touch_as(path, uid):
 def symlink_as(target, link, uid):
     run_as(['ln', '-s', target, link], uid)
 
-def get_vms_connection(connection_type):
+def get_vms_connection(virt_driver):
     # Configure the logger regardless of the type of connection that will be used.
+
+    drivers = {
+        'FakeDriver': 'fake',
+        'LibvirtDriver': 'libvirt',
+        'XenAPIDriver': 'xenapi',
+        'XenApiDriver': 'xenapi'
+    }
+    driver_name = virt_driver.__class__.__name__
+    connection_type = drivers.get(driver_name, None)
+    if connection_type == None:
+        raise exception.NovaException(
+            'Unsupported compute driver %s being used.' %(driver_name))
+
     vmsapi = vms_api.get_vmsapi()
     if connection_type == 'xenapi':
-        return XenApiConnection(vmsapi)
+        return XenApiConnection(vmsapi, virt_driver)
     elif connection_type == 'libvirt':
-        return LibvirtConnection(vmsapi)
+        return LibvirtConnection(vmsapi, virt_driver)
     elif connection_type == 'fake':
-        return DummyConnection(vmsapi)
+        return DummyConnection(vmsapi, virt_driver)
     else:
         raise exception.NovaException(_('Unsupported connection type "%s"' % connection_type))
 
@@ -105,8 +118,9 @@ def _log_call(fn):
 
 class VmsConnection:
 
-    def __init__(self, vmsapi, image_service=None):
+    def __init__(self, vmsapi,virt_driver, image_service=None):
         self.vmsapi = vmsapi
+        self.virt_driver = virt_driver
         self.image_service = image_service if image_service is not None \
                                                     else co_image.ImageService()
 
@@ -185,6 +199,10 @@ class VmsConnection:
 
         # Launch the new VM.
         vms_options = {'memory.policy':vms_policy}
+        for vif in network_info:
+            LOG.info("**** Launching instance with VIF address %s ****", vif['address'])
+        if len(network_info) > 0:
+            vms_options['xen_mac_addr'] = network_info[0]['address']
         result = self.vmsapi.launch(instance_name, new_name, target, path,
                                     mem_url=migration_url, migration=(migration_url and True),
                                     guest_params=params.get('guest',{}),
@@ -353,21 +371,63 @@ class XenApiConnection(VmsConnection):
     """
     VMS connection for XenAPI
     """
-
-    def __init__(self, vmsapi):
-        super(XenApiConnection, self).__init__(vmsapi)
-
     def configure(self, virtapi):
         # (dscannell) We need to import this to ensure that the xenapi
         # flags can be read in.
-        from nova.virt import xenapi_conn
+        from nova.virt.xenapi import driver
 
         self.vmsapi.configure(
-                platform='xcp',
+            vms_api.XapiPlugin(
+                self.virt_driver._session,
+                vms_platform='xcp',
                 management_options=
-                       {'connection_url': CONF.xenapi_connection_url,
-                        'connection_username': CONF.xenapi_connection_username,
-                        'connection_password': CONF.xenapi_connection_password})
+                      {'connection_url': CONF.xenapi_connection_url,
+                       'connection_username': CONF.xenapi_connection_username,
+                       'connection_password': CONF.xenapi_connection_password}))
+
+    def get_hypervisor_hostname(self):
+        return self.virt_driver._hypervisor_hostname
+
+    @_log_call
+    def bless(self, context, instance_name, new_instance_ref,
+              migration_url=None):
+        """
+        Create a new blessed VM from the instance with name instance_name and
+        gives the blessed instance the name new_instance_name.
+        """
+        new_instance_name = new_instance_ref['name']
+        result = self.virt_driver.bless(context, self.vmsapi, instance_name,
+                                        new_instance_ref, migration_url)
+
+        return (result.newname, result.network, result.blessed_files,
+                result.logical_volumes)
+
+    @_log_call
+    def launch(self, context, instance_name, new_instance,
+               network_info, skip_image_service=False, target=0,
+               migration_url=None, image_refs=[], params={}, vms_policy='',
+               block_device_info=None,lvm_info={}):
+        """
+        Launch a blessed instance
+        """
+
+        # Launch the new VM.
+        vms_options = {'memory.policy':vms_policy}
+
+        if len(network_info) > 0:
+            vms_options['xen_mac_addr'] = network_info[0]['address']
+        result = self.virt_driver.launch(context,
+                                         self.vmsapi,
+                                         instance_name,
+                                         new_instance,
+                                         target,
+                                         None,
+                                         mem_url=migration_url,
+                                         migration=(migration_url and True),
+                                         guest_params=params.get('guest',{}),
+                                         vms_options=vms_options)
+
+        return result
 
 class LaunchImageBackend(imagebackend.Backend):
     """This is the image backend to use when launching instances."""
@@ -407,8 +467,8 @@ class LibvirtConnection(VmsConnection):
 
         libvirt_uri = launch_libvirt_conn.uri()
         self.vmsapi.configure(
-                platform='libvirt',
-                management_options={'connection_url': libvirt_uri})
+                vms_api.Vmsctl(vms_platform='libvirt',
+                            management_options={'connection_url': libvirt_uri}))
 
     @_log_call
     def determine_openstack_user(self):
