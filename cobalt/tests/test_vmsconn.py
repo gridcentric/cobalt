@@ -16,7 +16,7 @@
 import unittest
 import gridcentric.nova.extension.vmsconn as vms_conn
 
-class GridCentricVmsConnTestCase(unittest.TestCase):
+class CobaltVmsConnTestCase(unittest.TestCase):
 
     def setUp(self):
         self.vmsconn = vms_conn.get_vms_connection('fake')
