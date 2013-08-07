@@ -617,13 +617,16 @@ class CobaltManager(manager.SchedulerDependentManager):
 
             if not(migration):
                 self._notify(context, instance_ref, "bless.end")
-                self._instance_update(context, instance_uuid,
-                                      vm_state="blessed", task_state=None,
-                                      launched_at=timeutils.utcnow(),
-                                      system_metadata=system_metadata)
+                instance_ref = self._instance_update(
+                                            context, instance_uuid,
+                                            vm_state="blessed",
+                                            task_state=None,
+                                            launched_at=timeutils.utcnow(),
+                                            system_metadata=system_metadata)
             else:
-                self._instance_update(context, instance_uuid,
-                                      system_metadata=system_metadata)
+                instance_ref = self._instance_update(
+                                            context, instance_uuid,
+                                            system_metadata=system_metadata)
                 self._detach_volumes(context, instance_ref)
 
         except:
@@ -665,8 +668,9 @@ class CobaltManager(manager.SchedulerDependentManager):
         except:
             _log_error("bless cleanup")
 
-        # Return the memory URL (will be None for a normal bless).
-        return migration_url
+        # Return the memory URL (will be None for a normal bless) and the
+        # updated instance_ref.
+        return migration_url, instance_ref
 
     def _migrate_floating_ips(self, context, instance, src, dest):
 
@@ -733,7 +737,7 @@ class CobaltManager(manager.SchedulerDependentManager):
         instance_ref['host'] = self.host
 
         # Bless this instance for migration.
-        migration_url = self.bless_instance(context,
+        migration_url, instance_ref = self.bless_instance(context,
                                             instance_ref=instance_ref,
                                             migration_url="mcdist://%s" % migration_address,
                                             migration_network_info=network_info)

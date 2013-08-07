@@ -114,8 +114,10 @@ class CobaltManagerTestCase(unittest.TestCase):
 
         pre_bless_time = datetime.utcnow()
         blessed_uuid = utils.create_pre_blessed_instance(self.context)
-        migration_url = self.cobalt.bless_instance(self.context, instance_uuid=blessed_uuid,
-                                                        migration_url=None)
+        migration_url, instance_ref = self.cobalt.bless_instance(
+                                                    self.context,
+                                                    instance_uuid=blessed_uuid,
+                                                    migration_url=None)
 
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         self.assertEquals("blessed", blessed_instance['vm_state'])
@@ -135,18 +137,16 @@ class CobaltManagerTestCase(unittest.TestCase):
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         self.assertTrue(blessed_instance['disable_terminate'])
 
-        migration_url = None
         try:
-            migration_url = self.cobalt.bless_instance(self.context,
-                                                            instance_uuid=blessed_uuid,
-                                                            migration_url=None)
+            self.cobalt.bless_instance(self.context,
+                                       instance_uuid=blessed_uuid,
+                                       migration_url=None)
             self.fail("The bless error should have been re-raised up.")
         except utils.TestInducedException:
             pass
 
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         self.assertEquals(vm_states.ERROR, blessed_instance['vm_state'])
-        self.assertEquals(None, migration_url)
         system_metadata = db.instance_system_metadata_get(self.context, blessed_uuid)
         self.assertEquals(None, system_metadata.get('images', None))
         self.assertEquals(None, system_metadata.get('blessed', None))
@@ -172,8 +172,10 @@ class CobaltManagerTestCase(unittest.TestCase):
 
         blessed_uuid = utils.create_instance(self.context)
         pre_bless_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
-        migration_url = self.cobalt.bless_instance(self.context, instance_uuid=blessed_uuid,
-                                                        migration_url="mcdist://migrate_addr")
+        migration_url, instance_ref = self.cobalt.bless_instance(
+                                          self.context,
+                                          instance_uuid=blessed_uuid,
+                                          migration_url="mcdist://migrate_addr")
         post_bless_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
 
         self.assertEquals(pre_bless_instance['vm_state'], post_bless_instance['vm_state'])
