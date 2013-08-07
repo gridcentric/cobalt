@@ -79,6 +79,7 @@ def symlink_as(target, link, uid):
 def get_vms_connection(connection_type):
     # Configure the logger regardless of the type of connection that will be used.
     vmsapi = vms_api.get_vmsapi()
+    vmsapi.configure_logger()
     if connection_type == 'xenapi':
         return XenApiConnection(vmsapi)
     elif connection_type == 'libvirt':
@@ -347,7 +348,7 @@ class VmsConnection:
 
 class DummyConnection(VmsConnection):
     def configure(self, virtapi):
-        self.vmsapi.configure('dummy')
+        self.vmsapi.select_hypervisor('dummy')
 
 class XenApiConnection(VmsConnection):
     """
@@ -362,12 +363,11 @@ class XenApiConnection(VmsConnection):
         # flags can be read in.
         from nova.virt import xenapi_conn
 
-        self.vmsapi.configure(
-                platform='xcp',
-                management_options=
-                       {'connection_url': CONF.xenapi_connection_url,
-                        'connection_username': CONF.xenapi_connection_username,
-                        'connection_password': CONF.xenapi_connection_password})
+        vms_config = self.vmsapi.config()
+        vms_config.MANAGEMENT['connection_url'] = CONF.xenapi_connection_url
+        vms_config.MANAGEMENT['connection_username'] = CONF.xenapi_connection_username
+        vms_config.MANAGEMENT['connection_password'] = CONF.xenapi_connection_password
+        self.vmsapi.select_hypervisor('xcp')
 
 class LaunchImageBackend(imagebackend.Backend):
     """This is the image backend to use when launching instances."""
@@ -405,10 +405,11 @@ class LibvirtConnection(VmsConnection):
         self.libvirt_connections = {'migration': LibvirtDriver(virtapi, read_only=False),
                                     'launch': launch_libvirt_conn}
 
-        libvirt_uri = launch_libvirt_conn.uri()
-        self.vmsapi.configure(
-                platform='libvirt',
-                management_options={'connection_url': libvirt_uri})
+        vms_config = self.vmsapi.config()
+        # It doesn't matter which libvirt connection we use because the uri
+        # should be the same in either case.
+        vms_config.MANAGEMENT['connection_url'] = launch_libvirt_conn.uri()
+        self.vmsapi.select_hypervisor('libvirt')
 
     @_log_call
     def determine_openstack_user(self):
