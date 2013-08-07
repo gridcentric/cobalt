@@ -89,3 +89,13 @@ Project Contents
 
     cobalt
         Contains the source for the manager and extensions.
+
+Running Unit Tests
+==================
+
+To run the unit tests, make sure you have vms and nova on your PYTHONPATH and
+run tox. Cobalt uses py.test to drive its tests, so you can pass standard
+py.test options to tox after the `--` option. For example, if vms and nova are
+directories in $HOME and you want to run 8 tests in parallel,
+
+    $ env PYTHONPATH=$HOME/vms/src/python:$HOME/nova tox -- -n 8
