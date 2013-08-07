@@ -566,10 +566,20 @@ class API(base.Base):
 
     def check_delete(self, context, instance_uuid):
         """ Raises an error if the instance uuid is blessed. """
-        if self._is_instance_blessed(context, instance_uuid):
-            raise exception.NovaException("Cannot delete a live image. Please discard it instead.")
-        if self._is_instance_blessing(context, instance_uuid):
-            raise exception.NovaException("Cannot delete while blessing. Please try again later.")
+        try:
+            if self._is_instance_blessed(context, instance_uuid):
+                raise exception.NovaException("Cannot delete a live image. "
+                                              "Please discard it instead.")
+            if self._is_instance_blessing(context, instance_uuid):
+                raise exception.NovaException("Cannot delete while blessing. "
+                                              "Please try again later.")
+        except exception.InstanceNotFound:
+            # NOTE(dscannell): Ignore this error because this can race with
+            #                  actual deletion of the instance. If the instance
+            #                  can no longer be found then it is deleted and
+            #                  there is no need to alert the user by raising
+            #                  an exception.
+            pass
 
     def export_blessed_instance(self, context, instance_uuid):
         """

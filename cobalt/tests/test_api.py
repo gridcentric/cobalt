@@ -483,6 +483,14 @@ class CobaltApiTestCase(unittest.TestCase):
         except exception.NovaException:
             pass
 
+    def test_check_delete_already_deleted(self):
+        instance_uuid = utils.create_instance(self.context, {'deleted': True})
+
+        # This should not fail for an instance that is already deleted because
+        # there is a race were the instance can be deleted by nova-compute
+        # before nova-api call this part of the extension.
+        self.cobalt_api.check_delete(self.context, instance_uuid)
+
     def test_launch_with_security_groups(self):
         instance_uuid = utils.create_instance(self.context)
         blessed_instance = self.cobalt_api.bless_instance(self.context,
