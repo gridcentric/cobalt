@@ -770,9 +770,12 @@ class CobaltManager(manager.SchedulerDependentManager):
                               'migration_network_info': network_info}},
                     timeout=1800)
             changed_hosts = True
+            rollback_error = False
 
         except:
             _log_error("remote launch")
+            changed_hosts = False
+            rollback_error = False
 
             # Try relaunching on the local host. Everything should still be setup
             # for this to happen smoothly, and the _launch_instance function will
@@ -780,17 +783,20 @@ class CobaltManager(manager.SchedulerDependentManager):
             # it is possible that is what caused the failure of launch_instance()
             # remotely... that would be bad. But that VM wouldn't really have any
             # network connectivity).
-            self.launch_instance(context,
-                                 instance_ref=instance_ref,
-                                 migration_url=migration_url,
-                                 migration_network_info=network_info)
+            try:
+                self.launch_instance(context,
+                                     instance_ref=instance_ref,
+                                     migration_url=migration_url,
+                                     migration_network_info=network_info)
+            except:
+                _log_error("migration rollback launch")
+                rollback_error = True
 
             # Try two re-assign the floating ips back to the source host.
             try:
                 self._migrate_floating_ips(context, instance_ref, dest, self.host)
             except:
-                _log_error("undo migration of floating ips")
-            changed_hosts = False
+                _log_error("migration of floating ips failed, no undo")
 
         # Teardown any specific migration state on this host.
         # If this does not succeed, we may be left with some
@@ -821,15 +827,29 @@ class CobaltManager(manager.SchedulerDependentManager):
             except:
                 _log_error("post migration cleanup")
 
-        # Discard the migration artifacts.
-        # Note that if this fails, we may leave around bits of data
-        # (descriptor in glance) but at least we had a functional VM.
-        # There is not much point in changing the state past here.
-        # Or catching any thrown exceptions (after all, it is still
-        # an error -- just not one that should kill the VM).
-        image_refs = self._extract_image_refs(instance_ref)
+        try:
+            # Discard the migration artifacts.
+            # Note that if this fails, we may leave around bits of data
+            # (descriptor in glance) but at least we had a functional VM.
+            # There is not much point in changing the state past here.
+            # Or catching any thrown exceptions (after all, it is still
+            # an error -- just not one that should kill the VM).
+            image_refs = self._extract_image_refs(instance_ref)
 
-        self.vms_conn.discard(context, instance_ref["name"], image_refs=image_refs)
+            self.vms_conn.discard(context, instance_ref["name"], image_refs=image_refs)
+        except:
+            _log_error("discard of migration bless artifacts")
+
+        if rollback_error:
+            # Since the rollback failed, the instance isn't running
+            # anywhere. So we put it in ERROR state. Note that we only do
+            # this _after_ we've cleaned up the migration artifacts because
+            # we want to leave the instance in the MIGRATING state as long
+            # as we're doing migration-related work.
+            self._instance_update(context,
+                                  instance_uuid,
+                                  vm_state=vm_states.ERROR,
+                                  task_state=None)
 
     @_lock_call
     def discard_instance(self, context, instance_uuid=None, instance_ref=None):
