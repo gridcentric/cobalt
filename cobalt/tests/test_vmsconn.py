@@ -14,7 +14,7 @@
 #    under the License.
 
 import unittest
-import gridcentric.nova.extension.vmsconn as vms_conn
+import cobalt.nova.extension.vmsconn as vms_conn
 
 class CobaltVmsConnTestCase(unittest.TestCase):
 
