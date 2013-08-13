@@ -16,7 +16,6 @@
 import os
 
 from distutils.core import setup
-from StringIO import StringIO
 from subprocess import Popen, PIPE
 
 try:
