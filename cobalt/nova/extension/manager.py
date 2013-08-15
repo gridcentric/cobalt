@@ -677,7 +677,17 @@ class CobaltManager(manager.SchedulerDependentManager):
         migration = {'source_compute': src,
                      'dest_compute': dest}
         self.network_api.migrate_instance_start(context, instance, migration)
+        # NOTE: We update the host temporarily on the instance object.
+        # This is because the migrate_instance_finish() method seems to
+        # disregard the migration specification passed in, and instead
+        # looks at the host associated with the instance object.
+        # Since we have a slightly different workflow (we update the
+        # host only at the very end of the migration), we do a temporary
+        # switcheroo.
+        orig_host = instance['host']
+        instance['host'] = dest
         self.network_api.migrate_instance_finish(context, instance, migration)
+        instance['host'] = orig_host
 
     @_lock_call
     def migrate_instance(self, context, instance_uuid=None, instance_ref=None, dest=None):
