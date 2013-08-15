@@ -173,7 +173,7 @@ class VmsApi27(VmsApi26):
                                 path=path)
 
     def import_(self, instance_ref, archive):
-        return tpool.execute(commands.import_,
+        return tpool.execute(getattr(commands,"import"),
                                instance_ref['name'],
                                archive)
 
