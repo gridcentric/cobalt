@@ -20,6 +20,7 @@ from eventlet import tpool
 
 from nova import exception
 from nova.openstack.common import log as logging
+from nova.openstack.common.gettextutils import _
 
 import tempfile
 import vms

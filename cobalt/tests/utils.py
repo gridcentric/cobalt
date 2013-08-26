@@ -19,7 +19,7 @@ from nova import db
 from nova import quota
 from nova import policy
 from nova.openstack.common import rpc
-from nova.compute import instance_types
+from nova.compute import flavors
 from nova.compute import vm_states
 from nova.compute import power_state
 from nova.network import model as network_model
@@ -206,14 +206,14 @@ def create_flavor(flavor=None):
     if flavor == None:
         flavor = {}
 
-    return instance_types.create(flavor.get('name', create_uuid()),
+    return flavors.create(flavor.get('name', create_uuid()),
                                  flavor.get('memory', 512),
                                  flavor.get('vcpus', 1),
                                  flavor.get('root_gb',0),
                                  flavor.get('ephemeral_gb',0),
                                  flavor.get('flavorid', None),
-                                 flavor.get('swap', None),
-                                 flavor.get('rxtx_factor',None))
+                                 flavor.get('swap', 0),
+                                 flavor.get('rxtx_factor',1))
 
 def create_instance(context, instance=None, driver=None):
     """Create a test instance"""
@@ -222,8 +222,8 @@ def create_instance(context, instance=None, driver=None):
         instance = {}
 
     system_metadata = instance.get('system_metadata', {})
-    instance_type = instance_types.get_instance_type_by_name('m1.tiny')
-    system_metadata.update(instance_types.save_instance_type_info(dict(), instance_type))
+    instance_type = flavors.get_flavor_by_name('m1.tiny')
+    system_metadata.update(flavors.save_flavor_info(dict(), instance_type))
 
     instance.setdefault('user_id', context.user_id)
     instance.setdefault('project_id', context.project_id)

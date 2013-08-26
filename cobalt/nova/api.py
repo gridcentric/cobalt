@@ -25,7 +25,7 @@ from nova import exception
 from nova import policy
 from nova import quota
 from nova import utils
-from nova.compute import instance_types
+from nova.compute import flavors
 from nova.compute import task_states
 from nova.compute import vm_states
 from nova.compute import power_state
@@ -35,6 +35,7 @@ from nova.openstack.common import jsonutils
 from nova.openstack.common import log as logging
 from nova.openstack.common import rpc
 from nova.openstack.common import timeutils
+from nova.openstack.common.gettextutils import _
 from nova.scheduler import rpcapi as scheduler_rpcapi
 
 from oslo.config import cfg
@@ -130,7 +131,7 @@ class API(base.Base):
 
     def _acquire_addition_reservation(self, context, instance, num_requested=1):
         # Check the quota to see if we can launch a new instance.
-        instance_type = instance_types.extract_instance_type(instance)
+        instance_type = flavors.extract_flavor(instance)
 
         # check against metadata
         metadata = self.db.instance_metadata_get(context, instance['uuid'])
@@ -238,7 +239,7 @@ class API(base.Base):
 
         elevated = context.elevated()
         if security_groups == None:
-            security_groups = self.db.security_group_get_by_instance(context, instance_ref['id'])
+            security_groups = self.db.security_group_get_by_instance(context, instance_ref['uuid'])
         for security_group in security_groups:
             self.db.instance_add_security_group(elevated,
                                                 new_instance_ref['uuid'],
@@ -429,7 +430,7 @@ class API(base.Base):
             launch_instances = []
             # We are handling num_instances in this (odd) way because this is how
             # standard nova handles it.
-            availability_zone, forced_host = \
+            availability_zone, forced_host, forced_node = \
                     self.compute_api._handle_availability_zone(
                                                 params.get('availability_zone'))
             filter_properties = { 'scheduler_hints' :

@@ -42,10 +42,14 @@ def setup():
 
     CONF = cfg.CONF
     CONF.register_opts(test_opts)
+    CONF.import_opt('connection', 'nova.openstack.common.db.sqlalchemy.session',
+                    group='database')
 
     CONF.sqlite_db = sqlite_db
     CONF.state_path = state_path
     CONF.sql_connection = 'sqlite:///%s' % testdb
+    CONF.set_override('connection', CONF.sql_connection, group='database')
+    CONF.database.connection = CONF.sql_connection
 
     print CONF.sqlite_clean_db
     migration.db_sync()

@@ -34,9 +34,11 @@ from nova import conductor
 from nova import context as nova_context
 from nova import block_device
 from nova import exception
+from nova.objects import instance as instance_obj
 from nova.openstack.common import log as logging
 from nova.openstack.common import timeutils
 from nova.openstack.common import importutils
+from nova.openstack.common.gettextutils import _
 from nova.openstack.common.rpc.common import Timeout
 from oslo.config import cfg
 LOG = logging.getLogger('nova.cobalt.manager')
@@ -79,7 +81,7 @@ from nova.compute import task_states
 from nova.compute import vm_states
 from nova.compute import utils as compute_utils
 from nova.compute import manager as compute_manager
-
+from nova.openstack.common import periodic_task
 from nova.openstack.common.notifier import api as notifier
 from nova import notifications
 
@@ -99,8 +101,8 @@ def _lock_call(fn):
 
         # Ensure we've got exactly one of uuid or ref.
         if instance_uuid and not(instance_ref):
-            instance_ref = self.conductor_api.\
-                instance_get_by_uuid(context, instance_uuid)
+            instance_ref = instance_obj.Instance.get_by_uuid(context,
+                                                             instance_uuid)
             kwargs['instance_ref'] = instance_ref
             assert instance_ref is not None
         elif instance_ref and not(instance_uuid):
@@ -263,18 +265,15 @@ class CobaltManager(manager.SchedulerDependentManager):
                 else:
                     raise
 
-    def _system_metadata_get(self, instance_ref):
+    def _system_metadata_get(self, instance):
         '''Returns {key:value} dict of system_metadata from instance_ref.'''
-        result = {}
-        for record in instance_ref.get('system_metadata', []):
-            result[record['key']] = record['value']
-        return result
+        return instance.system_metadata
 
-    @manager.periodic_task
+    @periodic_task.periodic_task
     def _clean(self, context):
         self.vms_conn.periodic_clean()
 
-    @manager.periodic_task
+    @periodic_task.periodic_task
     def _refresh_host(self, context):
 
         # Grab the global lock and fetch all instances.
@@ -282,8 +281,8 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         try:
             # Scan all instances and check for stalled operations.
-            db_instances = self.conductor_api.\
-                instance_get_all_by_host(context, self.host)
+            db_instances = instance_obj.InstanceList.get_by_host(context,
+                                                                 self.host)
             local_instances = self.compute_manager.driver.list_instances()
             for instance in db_instances:
 
@@ -432,8 +431,8 @@ class CobaltManager(manager.SchedulerDependentManager):
             source_instance_uuid = None
 
         if source_instance_uuid != None:
-            return self.conductor_api.instance_get_by_uuid(context,
-                                                           source_instance_uuid)
+            return instance_obj.Instance.get_by_uuid(context,
+                                                     source_instance_uuid)
         return None
 
     def _notify(self, context, instance_ref, operation, network_info=None):
@@ -955,9 +954,9 @@ class CobaltManager(manager.SchedulerDependentManager):
             # of any snapshot referenced by the instance's block_device_mapping.
             bdms = self.conductor_api.\
                 block_device_mapping_get_all_by_instance(context, instance_ref)
-            block_device_info = self.compute_manager._setup_block_device_mapping(context,
-                                                                                 instance_ref,
-                                                                                 bdms)
+            block_device_info = self.compute_manager._prep_block_device(context,
+                                                                        instance_ref,
+                                                                        bdms)
         except:
             # Since this creates volumes there are host of issues that can go wrong
             # (e.g. cinder is down, quotas have been reached, snapshot deleted, etc).
