@@ -29,6 +29,7 @@ import subprocess
 
 import greenlet
 from eventlet.green import threading as gthreading
+from eventlet import greenthread
 
 from nova import conductor
 from nova import context as nova_context
@@ -36,6 +37,7 @@ from nova import block_device
 from nova import exception
 from nova.openstack.common import log as logging
 from nova.openstack.common import timeutils
+from nova.openstack.common import jsonutils
 from nova.openstack.common import importutils
 from nova.openstack.common.rpc.common import Timeout
 from oslo.config import cfg
@@ -477,7 +479,7 @@ class CobaltManager(manager.SchedulerDependentManager):
                 # create snapshot based on volume_id
                 volume = self.volume_api.get(context, volume_id)
 
-                name = _('snapshot for %s') % instance['name']
+                name = _('snapshot for %s') % instance['display_name']
                 snapshot = self.volume_api.create_snapshot_force(
                     context, volume, name, volume['display_description'])
 
@@ -927,6 +929,88 @@ class CobaltManager(manager.SchedulerDependentManager):
         return template %({'uuid': instance['uuid'],
                            'tenant':instance['project_id']})
 
+
+    def _setup_block_device_mapping(self, context, instance, bdms):
+        """setup volumes for block device mapping."""
+        block_device_mapping = []
+        swap = None
+        ephemerals = []
+        for bdm in bdms:
+            LOG.debug(_('Setting up bdm %s'), bdm, instance=instance)
+
+            if bdm['no_device']:
+                continue
+            if bdm['virtual_name']:
+                virtual_name = bdm['virtual_name']
+                device_name = bdm['device_name']
+                assert block_device.is_swap_or_ephemeral(virtual_name)
+                if virtual_name == 'swap':
+                    swap = {'device_name': device_name,
+                            'swap_size': bdm['volume_size']}
+                elif block_device.is_ephemeral(virtual_name):
+                    eph = {'num': block_device.ephemeral_num(virtual_name),
+                           'virtual_name': virtual_name,
+                           'device_name': device_name,
+                           'size': bdm['volume_size']}
+                    ephemerals.append(eph)
+                continue
+
+            if ((bdm['snapshot_id'] is not None) and
+                (bdm['volume_id'] is None)):
+                snapshot = self.volume_api.get_snapshot(context,
+                                                        bdm['snapshot_id'])
+
+                from_vol = self.volume_api.get(context,
+                                               snapshot['volume_id'])
+                new_volume_name = (_('%s@%s') % \
+                    (from_vol['display_name'], bdm['snapshot_id']))
+                new_volume_description = from_vol.get('display_description', '')
+
+                vol = self.volume_api.create(context,
+                                             bdm['volume_size'],
+                                             new_volume_name,
+                                             new_volume_description,
+                                             snapshot)
+
+                # TODO(yamahata): creating volume simultaneously
+                #                 reduces creation time?
+                # TODO(yamahata): eliminate dumb polling
+                while True:
+                    volume = self.volume_api.get(context, vol['id'])
+                    if volume['status'] != 'creating':
+                        break
+                    greenthread.sleep(1)
+                self.conductor_api.block_device_mapping_update(
+                    context, bdm['id'], {'volume_id': vol['id']})
+                bdm['volume_id'] = vol['id']
+
+            if bdm['volume_id'] is not None:
+                volume = self.volume_api.get(context, bdm['volume_id'])
+                self.volume_api.check_attach(context, volume,
+                                                      instance=instance)
+                cinfo = self.compute_manager._attach_volume_boot(context,
+                                                                 instance,
+                                                                 volume,
+                                                                 bdm['device_name'])
+                if 'serial' not in cinfo:
+                    cinfo['serial'] = bdm['volume_id']
+                self.conductor_api.block_device_mapping_update(
+                        context, bdm['id'],
+                        {'connection_info': jsonutils.dumps(cinfo)})
+                bdmap = {'connection_info': cinfo,
+                         'mount_device': bdm['device_name'],
+                         'delete_on_termination': bdm['delete_on_termination']}
+                block_device_mapping.append(bdmap)
+
+        block_device_info = {
+            'root_device_name': instance['root_device_name'],
+            'swap': swap,
+            'ephemerals': ephemerals,
+            'block_device_mapping': block_device_mapping
+        }
+
+        return block_device_info
+
     @_lock_call
     def launch_instance(self, context, instance_uuid=None, instance_ref=None,
                         params=None, migration_url=None, migration_network_info=None):
@@ -969,9 +1053,9 @@ class CobaltManager(manager.SchedulerDependentManager):
             # of any snapshot referenced by the instance's block_device_mapping.
             bdms = self.conductor_api.\
                 block_device_mapping_get_all_by_instance(context, instance_ref)
-            block_device_info = self.compute_manager._setup_block_device_mapping(context,
-                                                                                 instance_ref,
-                                                                                 bdms)
+            block_device_info = self._setup_block_device_mapping(context,
+                                                                 instance_ref,
+                                                                 bdms)
         except:
             # Since this creates volumes there are host of issues that can go wrong
             # (e.g. cinder is down, quotas have been reached, snapshot deleted, etc).
