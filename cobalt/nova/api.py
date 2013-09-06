@@ -232,6 +232,9 @@ class API(base.Base):
            'disable_terminate': not launch,
         }
         new_instance_ref = self.db.instance_create(context, instance)
+        nw_info = instance_ref['info_cache'].get('network_info')
+        self.db.instance_info_cache_update(context, new_instance_ref['uuid'],
+                                           {'network_info': nw_info})
 
         # (dscannell) We need to reload the instance_ref in order for it to be associated with
         # the database session of lazy-loading.

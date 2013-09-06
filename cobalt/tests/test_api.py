@@ -84,6 +84,11 @@ class CobaltApiTestCase(unittest.TestCase):
             "The instance should have the blessed_from system_metadata set to true after being blessed. "\
             + "(value=%s)" % (system_metadata['blessed_from']))
 
+        db_blessed_instance = db.instance_get_by_uuid(self.context,
+                                                      blessed_instance['uuid'])
+        self.assertTrue(db_blessed_instance['info_cache'])
+        self.assertIsNotNone(db_blessed_instance['info_cache']['network_info'])
+
     def test_bless_instance_with_name(self):
         instance_uuid = utils.create_instance(self.context)
         blessed_instance = self.cobalt_api.bless_instance(self.context,

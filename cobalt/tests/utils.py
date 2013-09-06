@@ -13,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import json
 import uuid
 
 from nova import db
@@ -240,6 +241,7 @@ def create_instance(context, instance=None, driver=None):
     instance.setdefault('ephemeral_gb', 10)
     instance.setdefault('memory_mb', 512)
     instance.setdefault('vcpus', 1)
+    instance.setdefault('info_cache', {'network_info':json.dumps({})})
 
         # We should record in the quotas information about this instance.
     reservations = quota.QUOTAS.reserve(context, instances=1,
