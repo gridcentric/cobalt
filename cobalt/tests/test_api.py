@@ -21,7 +21,7 @@ from nova import db
 from nova import context as nova_context
 from nova import exception
 
-from nova.compute import vm_states, task_states
+from nova.compute import vm_states, task_states, power_state
 from nova.db.sqlalchemy import api as sqlalchemy_db
 
 from oslo.config import cfg
@@ -54,6 +54,93 @@ class CobaltApiTestCase(unittest.TestCase):
         utils.mock_scheduler_rpcapi(self.cobalt_api.scheduler_rpcapi)
         self.context = nova_context.RequestContext('fake', 'fake', True)
         self.cobalt_service = utils.create_cobalt_service(self.context)
+
+    def test_copy_instance(self):
+        instance_uuid = utils.create_instance(self.context)
+        original_instance = db.instance_get_by_uuid(self.context, instance_uuid)
+
+        copy_instance_name = 'copy_instance'
+        copy_instance = self.cobalt_api._copy_instance(self.context,
+                                                       instance_uuid,
+                                                       copy_instance_name)
+
+        self.assertNotEqual(original_instance['reservation_id'],
+                            copy_instance['reservation_id'])
+        self.assertEquals(original_instance['image_ref'],
+                          copy_instance['image_ref'])
+        self.assertEquals(original_instance['ramdisk_id'],
+                         copy_instance['ramdisk_id'])
+        self.assertEquals(original_instance['kernel_id'],
+                          copy_instance['kernel_id'])
+        self.assertEquals(vm_states.BUILDING, copy_instance['vm_state'])
+        self.assertEquals(self.context.user_id, copy_instance['user_id'])
+        self.assertEquals(self.context.project_id, copy_instance['project_id'])
+        self.assertEquals(None, copy_instance['launched_at'])
+        self.assertEquals(original_instance['instance_type_id'],
+                          copy_instance['instance_type_id'])
+        self.assertEquals(original_instance['memory_mb'],
+                         copy_instance['memory_mb'])
+        self.assertEquals(original_instance['vcpus'],
+                          copy_instance['vcpus'])
+        self.assertEquals(original_instance['root_gb'],
+                          copy_instance['root_gb'])
+        self.assertEquals(original_instance['ephemeral_gb'],
+                          copy_instance['ephemeral_gb'])
+        self.assertEquals(copy_instance_name, copy_instance['display_name'])
+        self.assertEquals('copy-instance', copy_instance['hostname'])
+        self.assertEquals(original_instance['display_description'],
+                          copy_instance['display_description'])
+        self.assertEquals('', copy_instance['user_data'])
+        self.assertEquals(original_instance['key_name'],
+                          copy_instance['key_name'])
+        self.assertEquals(original_instance['availability_zone'],
+                          copy_instance['availability_zone'])
+        self.assertEquals(original_instance['os_type'],
+                          copy_instance['os_type'])
+        self.assertEquals(None, copy_instance['host'])
+        self.assertEquals(0, copy_instance['launch_index'])
+        self.assertEquals(original_instance['root_device_name'],
+                          copy_instance['root_device_name'])
+        self.assertEquals(power_state.NOSTATE, copy_instance['power_state'])
+        self.assertEquals(True, copy_instance['disable_terminate'])
+
+        def _dictify_metadata(metadata):
+            return dict( ( i['key'], i['value']) for i in metadata )
+
+        self.assertEquals(
+                _dictify_metadata(original_instance['system_metadata'] +
+                                  [{'key': 'blessed_from',
+                                    'value': original_instance['uuid']}]),
+                _dictify_metadata(copy_instance['system_metadata']))
+
+        self.assertEquals({'blessed_from': original_instance['uuid']},
+                          dict(( i['key'], i['value'])
+                              for i in copy_instance['metadata']))
+
+        self.assertEquals(original_instance['security_groups'],
+                          copy_instance['security_groups'])
+
+        def _assertSimilarBlockDeviceMapping(original, copy):
+            original_bdms = \
+                    db.block_device_mapping_get_all_by_instance(self.context,
+                                                            original['uuid'])
+            copy_bdms =\
+                    db.block_device_mapping_get_all_by_instance(self.context,
+                                                            copy['uuid'])
+            original_bdms = [dict(i.iteritems()) for i in original_bdms]
+            copy_bdms = [dict(i.iteritems()) for i in copy_bdms]
+
+            # Remove fields that we do not care about for comparison
+            for bdm in original_bdms + copy_bdms:
+                del bdm['instance_uuid']
+                del bdm['created_at']
+                del bdm['deleted_at']
+                del bdm['id']
+
+            self.assertEquals(original_bdms, copy_bdms)
+
+
+        _assertSimilarBlockDeviceMapping(original_instance, copy_instance)
 
     def test_bless_instance(self):
         instance_uuid = utils.create_instance(self.context)

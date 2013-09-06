@@ -254,8 +254,15 @@ class API(base.Base):
             values = {
                 'instance_uuid': new_instance_ref['uuid'],
                 'device_name': mapping['device_name'],
-                'delete_on_termination': mapping.get('delete_on_termination', True),
-                'virtual_name': mapping.get('virtual_name', None),
+                'delete_on_termination':
+                        mapping.get('delete_on_termination', True),
+                'source_type': mapping.get('source_type'),
+                'destination_type': mapping.get('destination_type'),
+                'guest_format': mapping.get('guest_format'),
+                'device_type': mapping.get('device_type'),
+                'disk_bus': mapping.get('disk_bus'),
+                'boot_index': mapping.get('boot_index'),
+                'image_id': mapping.get('image_id'),
                 # The snapshot id / volume id will be re-written once the bless / launch completes.
                 # For now we just copy over the data from the source instance.
                 'snapshot_id': mapping.get('snapshot_id', None),
@@ -264,7 +271,7 @@ class API(base.Base):
                 'no_device': mapping.get('no_device', None),
                 'connection_info': mapping.get('connection_info', None)
             }
-            self.db.block_device_mapping_create(elevated, values)
+            self.db.block_device_mapping_create(elevated, values, legacy=False)
 
         return new_instance_ref
 

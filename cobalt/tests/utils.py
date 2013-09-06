@@ -250,6 +250,14 @@ def create_instance(context, instance=None, driver=None):
 
     context.elevated()
     instance_ref = db.instance_create(context, instance)
+    db.block_device_mapping_create(context,
+            {'source_type': 'image',
+             'destination_type': 'local',
+             'device_type': 'disk',
+             'image_id': 1,
+             'boot_index': 0,
+             'instance_uuid': instance_ref['uuid']},
+             legacy=False)
 
     if driver:
         # Add this instance to the driver
