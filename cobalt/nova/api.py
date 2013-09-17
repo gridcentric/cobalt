@@ -104,7 +104,7 @@ class API(base.Base):
         rv = self.db.instance_get_by_uuid(context, instance_uuid)
         return dict(rv.iteritems())
 
-    def _cast_cobalt_message(self, method, context, instance_uuid, host=None,
+    def _cast_cobalt_message(self, method, context, instance, host=None,
                               params=None):
         """Generic handler for RPC casts to cobalt topic. This does not block for a response.
 
@@ -116,7 +116,6 @@ class API(base.Base):
         if not params:
             params = {}
         if not host:
-            instance = self.get(context, instance_uuid)
             host = instance['host']
         if not host:
 
@@ -124,7 +123,7 @@ class API(base.Base):
         else:
             queue = rpc.queue_get_for(context, CONF.cobalt_topic, host)
 
-        params['instance_uuid'] = instance_uuid
+        params['instance_uuid'] = instance['uuid']
         kwargs = {'method': method, 'args': params}
         rpc.cast(context, queue, kwargs)
 
@@ -152,22 +151,21 @@ class API(base.Base):
     def _rollback_reservation(self, context, reservations):
         quota.QUOTAS.rollback(context, reservations)
 
-    def _copy_instance(self, context, instance_uuid, new_name, launch=False,
+    def _copy_instance(self, context, instance, new_name, launch=False,
                        new_user_data=None, security_groups=None, key_name=None,
                        launch_index=0, availability_zone=None):
-        # (dscannell): Basically we want to copy all of the information from
-        # instance with id=instance_uuid into a new instance. This is because we
-        # are basically "cloning" the vm as far as all the properties are
+        # (OmgLag): Basically we want to copy all of the information from
+        # instance with provided instance into a new instance. This is because
+        # we are basically "cloning" the vm as far as all the properties are
         # concerned.
 
-        instance_ref = self.db.instance_get_by_uuid(context, instance_uuid)
-        image_ref = instance_ref.get('image_ref', '')
+        image_ref = instance.get('image_ref', '')
         if image_ref == '':
-            image_ref = instance_ref.get('image_id', '')
+            image_ref = instance.get('image_id', '')
 
 
         system_metadata = {}
-        for data in instance_ref.get('system_metadata', []):
+        for data in instance.get('system_metadata', []):
             # (dscannell) Do not copy over the system metadata that we setup
             # on an instance. This is important when doing clone-of-clones.
             if data['key'] not in ['blessed_from', 'launched_from']:
@@ -180,75 +178,75 @@ class API(base.Base):
         # and list-launched operations. It needs to be in the system
         # metadata so that the manager can access it.
         if launch:
-            metadata['launched_from'] = '%s' % (instance_ref['uuid'])
-            system_metadata['launched_from'] = '%s' % (instance_ref['uuid'])
+            metadata['launched_from'] = '%s' % (instance['uuid'])
+            system_metadata['launched_from'] = '%s' % (instance['uuid'])
         else:
-            metadata['blessed_from'] = '%s' % (instance_ref['uuid'])
-            system_metadata['blessed_from'] = '%s' % (instance_ref['uuid'])
+            metadata['blessed_from'] = '%s' % (instance['uuid'])
+            system_metadata['blessed_from'] = '%s' % (instance['uuid'])
 
         if key_name is None:
-            key_name = instance_ref.get('key_name', '')
-            key_data = instance_ref.get('key_data', '')
+            key_name = instance.get('key_name', '')
+            key_data = instance.get('key_data', '')
         else:
             key_pair = self.db.key_pair_get(context, context.user_id, key_name)
             key_data = key_pair['public_key']
 
         if availability_zone is None:
-            availability_zone = instance_ref['availability_zone']
+            availability_zone = instance['availability_zone']
 
-        instance = {
+        instance_params = {
            'reservation_id': utils.generate_uid('r'),
            'image_ref': image_ref,
-           'ramdisk_id': instance_ref.get('ramdisk_id', ''),
-           'kernel_id': instance_ref.get('kernel_id', ''),
+           'ramdisk_id': instance.get('ramdisk_id', ''),
+           'kernel_id': instance.get('kernel_id', ''),
            'vm_state': vm_states.BUILDING,
            'state_description': 'halted',
            'user_id': context.user_id,
            'project_id': context.project_id,
            'launch_time': '',
-           'instance_type_id': instance_ref['instance_type_id'],
-           'memory_mb': instance_ref['memory_mb'],
-           'vcpus': instance_ref['vcpus'],
-           'root_gb': instance_ref['root_gb'],
-           'ephemeral_gb': instance_ref['ephemeral_gb'],
+           'instance_type_id': instance['instance_type_id'],
+           'memory_mb': instance['memory_mb'],
+           'vcpus': instance['vcpus'],
+           'root_gb': instance['root_gb'],
+           'ephemeral_gb': instance['ephemeral_gb'],
            'display_name': new_name,
            'hostname': utils.sanitize_hostname(new_name),
-           'display_description': instance_ref['display_description'],
+           'display_description': instance['display_description'],
            'user_data': new_user_data or '',
            'key_name': key_name,
            'key_data': key_data,
            'locked': False,
            'metadata': metadata,
            'availability_zone': availability_zone,
-           'os_type': instance_ref['os_type'],
+           'os_type': instance['os_type'],
            'host': None,
            'system_metadata': system_metadata,
            'launch_index': launch_index,
-           'root_device_name': instance_ref['root_device_name'],
+           'root_device_name': instance['root_device_name'],
            'power_state': power_state.NOSTATE,
            # Set disable_terminate on bless so terminate in nova-api barfs on a
            # blessed instance.
            'disable_terminate': not launch,
         }
-        new_instance_ref = self.db.instance_create(context, instance)
+        new_instance = self.db.instance_create(context, instance_params)
 
-        # (dscannell) We need to reload the instance_ref in order for it to be associated with
+        # (dscannell) We need to reload the instance reference in order for it to be associated with
         # the database session of lazy-loading.
-        new_instance_ref = self.db.instance_get(context, new_instance_ref.id)
+        new_instance = self.db.instance_get(context, new_instance.id)
 
         elevated = context.elevated()
         if security_groups == None:
-            security_groups = self.db.security_group_get_by_instance(context, instance_ref['id'])
+            security_groups = self.db.security_group_get_by_instance(context, instance['id'])
         for security_group in security_groups:
             self.db.instance_add_security_group(elevated,
-                                                new_instance_ref['uuid'],
+                                                new_instance['uuid'],
                                                 security_group['id'])
 
         # Create a copy of all the block device mappings
-        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context, instance_ref['uuid'])
+        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context, instance['uuid'])
         for mapping in block_device_mappings:
             values = {
-                'instance_uuid': new_instance_ref['uuid'],
+                'instance_uuid': new_instance['uuid'],
                 'device_name': mapping['device_name'],
                 'delete_on_termination': mapping.get('delete_on_termination', True),
                 'virtual_name': mapping.get('virtual_name', None),
@@ -262,42 +260,45 @@ class API(base.Base):
             }
             self.db.block_device_mapping_create(elevated, values)
 
-        return new_instance_ref
+        return new_instance
 
-    def _instance_metadata(self, context, instance_uuid):
-        """ Looks up and returns the instance metadata """
+    def _instance_metadata(self, context, instance):
+        """ Returns the instance metadata as a {key:value} dict """
 
-        return self.db.instance_metadata_get(context, instance_uuid)
+        result = {}
+        for record in instance.get('metadata', []):
+            # record is of type nova.db.models.InstanceMetadata
+            result[record.key] = record.value
+        return result
 
     def _instance_metadata_update(self, context, instance_uuid, metadata):
         """ Updates the instance metadata """
 
         return self.db.instance_metadata_update(context, instance_uuid, metadata, True)
 
-    def _next_clone_num(self, context, instance_uuid):
-        """ Returns the next clone number for the instance_uuid """
+    def _next_clone_num(self, context, instance):
+        """ Returns the next clone number for the instance """
 
-        metadata = self._instance_metadata(context, instance_uuid)
+        metadata = self._instance_metadata(context, instance)
         clone_num = int(metadata.get('last_clone_num', -1)) + 1
         metadata['last_clone_num'] = clone_num
-        self._instance_metadata_update(context, instance_uuid, metadata)
+        self._instance_metadata_update(context, instance['uuid'], metadata)
 
-        LOG.debug(_("Instance %s has new clone num=%s"), instance_uuid, clone_num)
+        LOG.debug(_("Instance %s has new clone num=%s"), instance['uuid'], clone_num)
         return clone_num
 
-    def _is_instance_blessed(self, context, instance_uuid):
+    def _is_instance_blessed(self, context, instance):
         """ Returns True if this instance is blessed, False otherwise. """
-        metadata = self._instance_metadata(context, instance_uuid)
+        metadata = self._instance_metadata(context, instance)
         return 'blessed_from' in metadata
 
-    def _is_instance_blessing(self, context, instance_uuid):
+    def _is_instance_blessing(self, context, instance):
         """ Returns True if this instance is being blessed, False otherwise. """
-        instance = self.get(context, instance_uuid)
         return instance['task_state'] == 'blessing'
 
-    def _is_instance_launched(self, context, instance_uuid):
+    def _is_instance_launched(self, context, instance):
         """ Returns True if this instance is launched, False otherwise """
-        metadata = self._instance_metadata(context, instance_uuid)
+        metadata = self._instance_metadata(context, instance)
         return "launched_from" in metadata
 
     def _list_cobalt_hosts(self, context, availability_zone=None):
@@ -333,8 +334,8 @@ class API(base.Base):
         # Setup the DB representation for the new VM.
         instance = self.get(context, instance_uuid)
 
-        is_blessed = self._is_instance_blessed(context, instance_uuid)
-        is_launched = self._is_instance_launched(context, instance_uuid)
+        is_blessed = self._is_instance_blessed(context, instance)
+        is_launched = self._is_instance_launched(context, instance)
         if is_blessed:
             # The instance is already blessed. We can't rebless it.
             raise exception.NovaException(_(("Instance %s is already a live image.") % instance_uuid))
@@ -345,15 +346,15 @@ class API(base.Base):
 
         reservations = self._acquire_addition_reservation(context, instance)
         try:
-            clonenum = self._next_clone_num(context, instance_uuid)
+            clonenum = self._next_clone_num(context, instance)
             name = params.get('name')
             if name is None:
                 name = "%s-%s" % (instance['display_name'], str(clonenum))
-            new_instance = self._copy_instance(context, instance_uuid, name,
+            new_instance = self._copy_instance(context, instance, name,
                                                launch=False)
 
             LOG.debug(_("Casting cobalt message for bless_instance") % locals())
-            self._cast_cobalt_message('bless_instance', context, new_instance['uuid'],
+            self._cast_cobalt_message('bless_instance', context, new_instance,
                                        host=instance['host'])
             self._commit_reservation(context, reservations)
         except:
@@ -370,7 +371,7 @@ class API(base.Base):
         LOG.debug(_("Casting cobalt message for discard_instance") % locals())
 
         instance = self.get(context, instance_uuid)
-        if not self._is_instance_blessed(context, instance_uuid):
+        if not self._is_instance_blessed(context, instance):
             # The instance is not blessed. We can't discard it.
             raise exception.NovaException(_(("Instance %s is not a live image. " +
                                      "Cannot discard a regular instance.") % instance_uuid))
@@ -389,7 +390,7 @@ class API(base.Base):
             # otherwise we can skip it.
             reservations = self._acquire_subtraction_reservation(context, instance)
         try:
-            self._cast_cobalt_message('discard_instance', context, instance_uuid)
+            self._cast_cobalt_message('discard_instance', context, instance)
             self._commit_reservation(context, reservations)
         except:
             ei = sys.exc_info()
@@ -401,7 +402,7 @@ class API(base.Base):
         uid = context.user_id
 
         instance = self.get(context, instance_uuid)
-        if not(self._is_instance_blessed(context, instance_uuid)):
+        if not(self._is_instance_blessed(context, instance)):
             # The instance is not blessed. We can't launch new instances from it.
             raise exception.NovaException(
                   _(("Instance %s is not a live image. " +
@@ -441,7 +442,7 @@ class API(base.Base):
             for i in xrange(num_instances):
                 instance_params = params.copy()
                 # Create a new launched instance.
-                launch_instances.append(self._copy_instance(context, instance_uuid,
+                launch_instances.append(self._copy_instance(context, instance,
                     instance_params.get('name', "%s-%s" %\
                                         (instance['display_name'], "clone")),
                     launch=True,
@@ -457,7 +458,7 @@ class API(base.Base):
 
             for host, launch_instance in zip(hosts, launch_instances):
                 self._cast_cobalt_message('launch_instance', context,
-                    launch_instance['uuid'], host,
+                    launch_instance, host,
                     { "params" : params })
 
             self._commit_reservation(context, reservations)
@@ -527,21 +528,21 @@ class API(base.Base):
 
     def migrate_instance(self, context, instance_uuid, dest):
         # Grab the DB representation for the VM.
-        instance_ref = self.get(context, instance_uuid)
+        instance = self.get(context, instance_uuid)
 
-        if instance_ref['task_state'] == task_states.MIGRATING:
+        if instance['task_state'] == task_states.MIGRATING:
             raise exception.NovaException(
                               _("Unable to migrate instance %s because it is already migrating.") %
                               instance_uuid)
-        elif instance_ref['vm_state'] != vm_states.ACTIVE:
+        elif instance['vm_state'] != vm_states.ACTIVE:
             raise exception.NovaException(_("Unable to migrate instance %s because it is not active") %
                                   instance_uuid)
-        dest = self._find_migration_target(context, instance_ref['host'], dest)
+        dest = self._find_migration_target(context, instance['host'], dest)
 
-        self.db.instance_update(context, instance_ref['uuid'], {'task_state':task_states.MIGRATING})
+        self.db.instance_update(context, instance['uuid'], {'task_state':task_states.MIGRATING})
         LOG.debug(_("Casting cobalt message for migrate_instance") % locals())
         self._cast_cobalt_message('migrate_instance', context,
-                                       instance_ref['uuid'], host=instance_ref['host'],
+                                       instance, host=instance['host'],
                                        params={"dest" : dest})
 
     def list_launched_instances(self, context, instance_uuid):
@@ -567,10 +568,11 @@ class API(base.Base):
     def check_delete(self, context, instance_uuid):
         """ Raises an error if the instance uuid is blessed. """
         try:
-            if self._is_instance_blessed(context, instance_uuid):
+            instance = self.get(context, instance_uuid)
+            if self._is_instance_blessed(context, instance):
                 raise exception.NovaException("Cannot delete a live image. "
                                               "Please discard it instead.")
-            if self._is_instance_blessing(context, instance_uuid):
+            if self._is_instance_blessing(context, instance):
                 raise exception.NovaException("Cannot delete while blessing. "
                                               "Please try again later.")
         except exception.InstanceNotFound:
@@ -588,7 +590,7 @@ class API(base.Base):
         """
         # Ensure that the instance_uuid is blessed
         instance = self.get(context, instance_uuid)
-        if not(self._is_instance_blessed(context, instance_uuid)):
+        if not(self._is_instance_blessed(context, instance)):
             # The instance is not blessed. Cannot export it.
             raise exception.NovaException(_("Instance %s is not a live image. " + \
                   "Only live images can be exported.") % instance_uuid)
@@ -600,7 +602,7 @@ class API(base.Base):
         image_name = '%s-export' % instance['display_name']
         image_id = self.image_service.create(context, image_name)
 
-        self._cast_cobalt_message("export_instance", context, instance_uuid, params={'image_id': image_id})
+        self._cast_cobalt_message("export_instance", context, instance, params={'image_id': image_id})
 
         # Copy these fields directly
         fields = set([
@@ -687,7 +689,7 @@ class API(base.Base):
                                                   instance['uuid'], secgroup_id)
 
         self._cast_cobalt_message('import_instance', context,
-                 instance['uuid'], params={'image_id': data['export_image_id']})
+                 instance, params={'image_id': data['export_image_id']})
 
         return self.get(context, instance['uuid'])
 
