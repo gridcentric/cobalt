@@ -517,7 +517,16 @@ class CobaltApiTestCase(unittest.TestCase):
         inst = self.cobalt_api.launch_instance(self.context,
                                                     blessed_instance_uuid,
                                                     params={})
-        self.assertEqual(inst['security_groups'][0].id, sg.id)
+        self.assertEqual(len(inst['security_groups']), 1)
+        # Ensure that with not security group provided, the existing one is not
+        # inherited, but the 'default' security group is applied to the
+        # instance.
+        self.assertNotEqual(inst['security_groups'][0].id, sg.id)
+        default_sg = db.security_group_get_by_name(self.context,
+                                                   self.context.project_id,
+                                                   'default')
+        self.assertEqual(inst['security_groups'][0].id, default_sg.id)
+
 
     def test_launch_with_key(self):
         instance_uuid = utils.create_instance(self.context)

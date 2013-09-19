@@ -31,6 +31,7 @@ from nova.compute import vm_states
 from nova.compute import power_state
 from nova import exception
 from nova.db import base
+from nova.network.security_group import openstack_driver as sg_driver
 from nova.openstack.common import jsonutils
 from nova.openstack.common import log as logging
 from nova.openstack.common import rpc
@@ -75,6 +76,7 @@ class API(base.Base):
         self.image_service = image_service if image_service is not None else image.ImageService()
         self.scheduler_rpcapi = scheduler_rpcapi.SchedulerAPI()
         self.CAPABILITIES = CAPABILITIES
+        self.sg_api = sg_driver.get_openstack_security_group_driver()
 
         # Fixup an power-states related to blessed instances.
         elevated = context.get_admin_context()
@@ -235,6 +237,10 @@ class API(base.Base):
            # blessed instance.
            'disable_terminate': not launch,
         }
+
+        if security_groups != None:
+            self.sg_api.populate_security_groups(instance_params,
+                                                 security_groups)
         new_instance = self.db.instance_create(context, instance_params)
 
         # (dscannell) We need to reload the instance reference in order for it to be associated with
@@ -242,12 +248,6 @@ class API(base.Base):
         new_instance = self.db.instance_get(context, new_instance.id)
 
         elevated = context.elevated()
-        if security_groups == None:
-            security_groups = self.db.security_group_get_by_instance(context, instance['id'])
-        for security_group in security_groups:
-            self.db.instance_add_security_group(elevated,
-                                                new_instance['uuid'],
-                                                security_group['id'])
 
         # Create a copy of all the block device mappings
         block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context, instance['uuid'])
@@ -416,12 +416,10 @@ class API(base.Base):
                      "Please create a live image to launch from it.") % instance_uuid))
 
         # Set up security groups to be added - we are passed in names, but need ID's
-        security_group_names = params.pop('security_groups', None)
-        if security_group_names != None:
-            security_groups = [self.db.security_group_get_by_name(context,
-                context.project_id, sg) for sg in security_group_names]
-        else:
-            security_groups = None
+        security_groups = params.pop('security_groups', None)
+        if security_groups is None or len(security_groups) == 0:
+            security_groups = ['default']
+        self.compute_api._check_requested_secgroups(context, security_groups)
 
         num_instances = params.pop('num_instances', 1)
 
@@ -460,8 +458,10 @@ class API(base.Base):
                     # Note this is after groking by handle_az above
                     availability_zone=availability_zone))
 
-            request_spec = self._create_request_spec(context, launch_instances)
-            hosts = self.scheduler_rpcapi.select_hosts(context,request_spec,filter_properties)
+            request_spec = self._create_request_spec(context, launch_instances,
+                                                    security_groups)
+            hosts = self.scheduler_rpcapi.select_hosts(context,request_spec,
+                                                       filter_properties)
 
             for host, launch_instance in zip(hosts, launch_instances):
                 self._cast_cobalt_message('launch_instance', context,
@@ -476,7 +476,7 @@ class API(base.Base):
 
         return self.get(context, launch_instances[0]['uuid'])
 
-    def _create_request_spec(self, context, instances):
+    def _create_request_spec(self, context, instances, security_groups):
         """ Creates a scheduler request spec for the launch instances."""
         # Use the first instance as a representation for the entire group of
         # instances in the request.
@@ -486,21 +486,17 @@ class API(base.Base):
         image = self.image_service.show(context, instance['image_ref'])
         bdm = self.db.block_device_mapping_get_all_by_instance(context,
                                                             instance['uuid'])
-        security_groups = self.db.security_group_get_by_instance(context,
-                                                            instance['id'])
 
         # Remove or correctly serialize python objects from
         # instance_properties. Some message buses (such as qpid) are incapable
         # of serializing generic python objects.
         instance_properties = dict(instance.iteritems())
         del instance_properties['info_cache']
-        instance_properties['security_groups'] = \
-            [ sg.name for sg in instance_properties['security_groups'] ]
+        instance_properties['security_groups'] = security_groups
         instance_properties['metadata'] = dict((entry.key, entry.value)
-                                for entry in instance_properties['metadata'])
+                            for entry in instance_properties['metadata'])
         instance_properties['system_metadata'] = dict((entry.key, entry.value)
-                                for entry in instance_properties['system_metadata'])
-        security_groups = [ sg.name for sg in security_groups ]
+                            for entry in instance_properties['system_metadata'])
 
         return {
             'image': jsonutils.to_primitive(image),
@@ -633,13 +629,12 @@ class API(base.Base):
         ])
 
         return {
-            'fields': dict((field, instance[field]) for field in fields if (field in instance)),
+            'fields': dict((field, instance[field]) for field in fields
+                                                    if (field in instance)),
             'metadata': dict((entry.key, entry.value)
                                 for entry in instance['metadata']),
             'system_metadata': dict((entry.key, entry.value)
                                 for entry in instance['system_metadata']),
-            'security_group_names': [secgroup.name for secgroup
-                                                in instance['security_groups']],
             'flavor_name': self.compute_api.db.instance_type_get(context,
                                           instance['instance_type_id'])['name'],
             'export_image_id': image_id,
@@ -671,17 +666,6 @@ class API(base.Base):
 
         fields['instance_type_id'] = inst_type['id']
 
-        secgroup_ids = []
-
-        for secgroup_name in data['security_group_names']:
-            try:
-                secgroup = self.db.security_group_get_by_name(context,
-                                              context.project_id, secgroup_name)
-            except exception.SecurityGroupNotFoundForProject:
-                raise exception.NovaException(_('Security group could not be found: %s'\
-                                                               % secgroup_name))
-            secgroup_ids.append(secgroup['id'])
-
         instance = self.db.instance_create(context, data['fields'])
         LOG.debug(_("Imported new instance %s" % (instance)))
         self._instance_metadata_update(context, instance['uuid'],
@@ -689,11 +673,6 @@ class API(base.Base):
         self.db.instance_update(context, instance['uuid'],
                                 {'vm_state':vm_states.BUILDING,
                                  'system_metadata': data['system_metadata']})
-
-        # Apply the security groups
-        for secgroup_id in secgroup_ids:
-                self.db.instance_add_security_group(context.elevated(),
-                                                  instance['uuid'], secgroup_id)
 
         self._cast_cobalt_message('import_instance', context,
                  instance, params={'image_id': data['export_image_id']})
