@@ -62,6 +62,7 @@ cobalt_opts = [
                      'for nova-compute to process its request. By default this is set to '
                      'one hour.')]
 CONF.register_opts(cobalt_opts)
+CONF.import_opt('cobalt_topic', 'cobalt.nova.api')
 
 from nova import manager
 from nova import utils
