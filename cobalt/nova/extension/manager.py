@@ -667,8 +667,10 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         migration = {'source_compute': src,
                      'dest_compute': dest}
-        self.network_api.migrate_instance_start(context, instance, migration)
-        self.network_api.migrate_instance_finish(context, instance, migration)
+        self.conductor_api.network_migrate_instance_start(context, instance,
+                                                          migration)
+        self.conductor_api.network_migrate_instance_finish(context, instance,
+                                                           migration)
 
     @_lock_call
     def migrate_instance(self, context, instance_uuid=None, instance_ref=None, dest=None):
