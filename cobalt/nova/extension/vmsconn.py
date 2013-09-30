@@ -575,8 +575,20 @@ class LibvirtConnection(VmsConnection):
                     except:
                         os.unlink(temp_target)
                         raise
-        libvirt_conn_type = 'migration' if migration else 'launch'
+
+        # (dscannell): Determine which libvirt_conn to use. If this is for
+        #              migration, and there exists some lvm information, then
+        #              use the migration libvirt_conn (that will use the
+        #              configured image backend). Otherwise, default to launch
+        #              libvirt_conn that will always use a qcow2 backend. It is
+        #              safer to use the launch libvirt_conn for a migration if
+        #              no lvm_info is given.
+        if migration and len(lvm_info) > 0:
+            libvirt_conn_type = 'migration'
+        else:
+            libvirt_conn_type = 'launch'
         libvirt_conn = self.libvirt_connections[libvirt_conn_type]
+
         # (dscannell) Check to see if we need to convert the network_info
         # object into the legacy format.
         if hasattr(network_info, 'legacy') and libvirt_conn.legacy_nwinfo():
