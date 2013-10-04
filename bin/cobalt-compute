@@ -82,6 +82,7 @@ if __name__ == '__main__':
     cfg.CONF.register_opts(cobalt_opts)
 
     logging.setup('nova')
-    server = service.Service.create(binary='cobalt')
+    server = service.Service.create(binary='cobalt',
+                                    db_allowed=False)
     service.serve(server)
     service.wait()

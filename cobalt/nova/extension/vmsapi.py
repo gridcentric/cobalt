@@ -296,7 +296,7 @@ class VmsApi27(VmsApi26):
 
     def import_(self, instance_ref, archive):
         # command: vmsctl import_ <name> <archive> [path] [disk_url] [mem_url]
-        import_cmd = ['import_', instance_ref['name'], archive]
+        import_cmd = ['import', instance_ref['name'], archive]
         return self.vms_driver.run_command(import_cmd)
 
 def get_vmsapi(version=None):

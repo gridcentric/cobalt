@@ -634,8 +634,20 @@ class LibvirtConnection(VmsConnection):
                     except:
                         os.unlink(temp_target)
                         raise
-        libvirt_conn_type = 'migration' if migration else 'launch'
+
+        # (dscannell): Determine which libvirt_conn to use. If this is for
+        #              migration, and there exists some lvm information, then
+        #              use the migration libvirt_conn (that will use the
+        #              configured image backend). Otherwise, default to launch
+        #              libvirt_conn that will always use a qcow2 backend. It is
+        #              safer to use the launch libvirt_conn for a migration if
+        #              no lvm_info is given.
+        if migration and len(lvm_info) > 0:
+            libvirt_conn_type = 'migration'
+        else:
+            libvirt_conn_type = 'launch'
         libvirt_conn = self.libvirt_connections[libvirt_conn_type]
+
         # (dscannell) Check to see if we need to convert the network_info
         # object into the legacy format.
         if hasattr(network_info, 'legacy') and libvirt_conn.legacy_nwinfo():
@@ -792,30 +804,11 @@ class LibvirtConnection(VmsConnection):
         for blessed_file in blessed_files:
             image_name, image_id = self._friendly_upload(context, instance_ref, blessed_file)
 
-            # blessed_file's name was very unenlightening (instance-xxxxx)
-            # This fix uses the blessed instance's display name to provide more meaning
-            # before uploading to glance. The live image tag/vms provide better branding.
-            image_name = instance_ref['display_name']
-            image_type = "Image"
-            if blessed_file.endswith(".gc"):
-                image_type = "Live-Image"
-            elif blessed_file.endswith(".disk"):
-                image_name += "." + blessed_file.split(".")[-2] + ".disk"
-
-            image_id = self.image_service.create(context, image_name, instance_uuid=instance_ref['uuid'])
-
             if blessed_file.endswith(".gc"):
                 descriptor_ref = image_id
             else:
                 other_images.append((image_name, image_id))
             blessed_image_refs.append(image_id)
-
-            self.image_service.upload(context, image_id, blessed_file)
-
-            properties = self.image_service.show(context, image_id)['properties']
-            properties.update({'image_type': image_type,
-                               'file_name': os.path.basename(blessed_file)})
-            self.image_service.update(context, image_id, {'properties': properties})
 
         properties = self.image_service.show(context, descriptor_ref)['properties']
         properties.update({'live_image': True,

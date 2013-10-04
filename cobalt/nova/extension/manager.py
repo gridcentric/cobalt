@@ -64,6 +64,7 @@ cobalt_opts = [
                      'for nova-compute to process its request. By default this is set to '
                      'one hour.')]
 CONF.register_opts(cobalt_opts)
+CONF.import_opt('cobalt_topic', 'cobalt.nova.api')
 
 from nova import manager
 from nova import utils
@@ -85,7 +86,6 @@ from nova.compute import manager as compute_manager
 from nova.openstack.common.notifier import api as notifier
 from nova import notifications
 
-from cobalt.nova.api import API
 import cobalt.nova.extension.vmsconn as vmsconn
 
 def _lock_call(fn):
@@ -175,7 +175,6 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         self.quantum_attempted = False
         self.network_api = network.API()
-        self.cobalt_api = API()
         self.compute_manager = compute_manager.ComputeManager()
         self.volume_api = volume.API()
         self.conductor_api = conductor.API()
@@ -547,10 +546,6 @@ class CobaltManager(manager.SchedulerDependentManager):
             if not(migration):
                 self._instance_update(context, source_instance_ref['uuid'],
                                       task_state='blessing')
-                LOG.debug("Locking source instance %s (fn:%s)" %
-                                (source_instance_ref['uuid'], "bless_instance"))
-                self.compute_manager.compute_api.lock(context, source_instance_ref)
-                source_locked = True
 
             # Create a new 'blessed' VM with the given name.
             # NOTE: If this is a migration, then a successful bless will mean that
@@ -571,10 +566,6 @@ class CobaltManager(manager.SchedulerDependentManager):
         finally:
             # Unlock source instance
             if not(migration):
-                if source_locked:
-                    self.compute_manager.compute_api.unlock(context, source_instance_ref)
-                    LOG.debug("Unlocked source instance %s (fn:%s)" %
-                                   (source_instance_ref['uuid'], "bless_instance"))
                 self._instance_update(context, source_instance_ref['uuid'],
                                       task_state=None)
 
@@ -668,7 +659,9 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         migration = {'source_compute': src,
                      'dest_compute': dest}
-        self.network_api.migrate_instance_start(context, instance, migration)
+
+        self.conductor_api.network_migrate_instance_start(context, instance,
+                                                          migration)
         # NOTE: We update the host temporarily on the instance object.
         # This is because the migrate_instance_finish() method seems to
         # disregard the migration specification passed in, and instead
@@ -678,7 +671,8 @@ class CobaltManager(manager.SchedulerDependentManager):
         # switcheroo.
         orig_host = instance['host']
         instance['host'] = dest
-        self.network_api.migrate_instance_finish(context, instance, migration)
+        self.conductor_api.network_migrate_instance_finish(context, instance,
+                                                           migration)
         instance['host'] = orig_host
 
     @_lock_call
@@ -713,7 +707,8 @@ class CobaltManager(manager.SchedulerDependentManager):
         migration_address = self._get_migration_address(dest)
 
         # Grab the network info.
-        network_info = self.network_api.get_instance_nw_info(context, instance_ref)
+        network_info = self.network_api.get_instance_nw_info(context,
+                instance_ref, conductor_api=self.conductor_api)
 
         # Update the system_metadata for migration.
         system_metadata = self._system_metadata_get(instance_ref)
@@ -856,7 +851,8 @@ class CobaltManager(manager.SchedulerDependentManager):
 
     @_retry_rpc
     def _retry_get_nw_info(self, context, instance_ref):
-        return self.network_api.get_instance_nw_info(context, instance_ref)
+        return self.network_api.get_instance_nw_info(context, instance_ref,
+                conductor_api=self.conductor_api)
 
     def _instance_network_info(self, context, instance_ref, already_allocated, requested_networks=None):
         """
@@ -868,7 +864,8 @@ class CobaltManager(manager.SchedulerDependentManager):
         network_info = None
 
         if already_allocated:
-            network_info = self.network_api.get_instance_nw_info(context, instance_ref)
+            network_info = self.network_api.get_instance_nw_info(context,
+                    instance_ref, conductor_api=self.conductor_api)
 
         else:
             # We need to allocate a new network info for the instance.
@@ -891,7 +888,8 @@ class CobaltManager(manager.SchedulerDependentManager):
                 try:
                     network_info = self.network_api.allocate_for_instance(
                                     context, instance_ref, vpn=is_vpn,
-                                    requested_networks=requested_networks)
+                                    requested_networks=requested_networks,
+                                    conductor_api=self.conductor_api)
                 except Timeout:
                     LOG.debug(_("Allocate network for instance=%s timed out"),
                                 instance_ref['name'])
