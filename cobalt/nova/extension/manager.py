@@ -444,7 +444,8 @@ class CobaltManager(manager.SchedulerDependentManager):
             # for their missing notification.
             _log_error("notify %s" % operation)
 
-    def _snapshot_attached_volumes(self, context,  source_instance, instance):
+    def _snapshot_attached_volumes(self, context,  source_instance, instance,
+                                   is_paused=False):
         """
         Creates a snaptshot of all of the attached volumes.
         """
@@ -454,7 +455,7 @@ class CobaltManager(manager.SchedulerDependentManager):
         root_device_name = source_instance['root_device_name']
         snapshots = []
 
-        paused = False
+        paused = is_paused
         for bdm in block_device_mappings:
             if bdm['no_device']:
                 continue
@@ -533,9 +534,16 @@ class CobaltManager(manager.SchedulerDependentManager):
             assert source_instance_ref is not None
             migration = False
 
+        # (dscannell) Determine if the instance is already paused.
+        instance_info = self.vms_conn.get_instance_info(source_instance_ref)
+        is_paused = instance_info['state'] == power_state.PAUSED
+
         if not(migration):
             try:
-                self._snapshot_attached_volumes(context, source_instance_ref, instance_ref)
+                self._snapshot_attached_volumes(context,
+                                                source_instance_ref,
+                                                instance_ref,
+                                                is_paused=is_paused)
             except:
                 _log_error("snapshot volumes")
                 raise
@@ -557,7 +565,12 @@ class CobaltManager(manager.SchedulerDependentManager):
                                                 migration_url=migration_url)
         except Exception, e:
             _log_error("bless")
-
+            if not is_paused:
+                # (dscannell): The instance was unpaused before the blessed
+                #              command was called. Depending on how bless failed
+                #              the instance may remain in a paused state. It
+                #              needs to return back to an unpaused state.
+                self.vms_conn.unpause_instance(source_instance_ref)
             if not(migration):
                 self._instance_update(context, instance_uuid,
                                       vm_state=vm_states.ERROR, task_state=None)

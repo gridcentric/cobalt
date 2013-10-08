@@ -233,6 +233,12 @@ class VmsApi(object):
         pause_cmd = ['pause', instance_name]
         return self.vms_driver.run_command(pause_cmd)
 
+    def unpause(self, instance_name):
+
+        # command: vmsctl unpause <id>
+        unpause_command = ['unpause', instance_name]
+        return self.vms_driver.run_command(unpause_command)
+
     def export(self, *args, **kwargs):
         raise exception.NovaException(
             'Export is not supported on this version of VMS')

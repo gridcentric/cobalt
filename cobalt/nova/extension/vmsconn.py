@@ -246,6 +246,10 @@ class VmsConnection:
     def pause_instance(self, instance_ref):
         self.vmsapi.pause(instance_ref['name'])
 
+    @_log_call
+    def unpause_instance(self, instance):
+        self.vmsapi.unpause(instance['name'])
+
     def pre_export(self, context, instance_ref, image_refs=[]):
         config = self.vmsapi.config()
         shared = config.SHARED
@@ -363,6 +367,10 @@ class VmsConnection:
         """
         pass
 
+    def get_instance_info(self, instance):
+        raise NotImplementedError()
+
+
 class DummyConnection(VmsConnection):
     def configure(self, virtapi):
         self.vmsapi.configure('dummy')
@@ -428,6 +436,10 @@ class XenApiConnection(VmsConnection):
                                          vms_options=vms_options)
 
         return result
+
+    @_log_call
+    def get_instance_info(self, instance):
+        return self.virt_driver.get_info(instance)
 
 class LaunchImageBackend(imagebackend.Backend):
     """This is the image backend to use when launching instances."""
@@ -874,3 +886,10 @@ class LibvirtConnection(VmsConnection):
         """
         if CONF.libvirt_images_type == 'lvm':
             self._clean_lvm_symlinks()
+
+    @_log_call
+    def get_instance_info(self, instance):
+        # (dscannell): Any of the libvirt connection can be used. There is
+        #              nothing special about the migration one.
+        virt_driver = self.libvirt_connections['migration']
+        return virt_driver.get_info(instance)

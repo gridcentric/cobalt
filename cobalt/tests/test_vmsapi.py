@@ -209,3 +209,11 @@ class CobaltVmsApiTestCase(unittest.TestCase):
                            '-p', 'dummy',
                            'pause', 'testpause'],
             self.capture.captured_command)
+
+    def test_unpause(self):
+        self.vmsapi.unpause('testunpause')
+        self.assertEquals(['vmsctl',
+                           '--use.names',
+                           '-p', 'dummy',
+                           'unpause', 'testunpause'],
+            self.capture.captured_command)

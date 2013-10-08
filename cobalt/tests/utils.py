@@ -196,6 +196,18 @@ class MockVmsConn(object):
     def get_hypervisor_hostname(self):
         return "MockHypervisor"
 
+    def get_instance_info(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
+        return self.pop_return_value("get_instance_info")
+
+    def pause_instance(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
+        return self.pop_return_value("pause_instance")
+
+    def unpause_instance(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
+        return self.pop_return_value("unpause_instance")
+
 def create_uuid():
     return str(uuid.uuid4())
 
