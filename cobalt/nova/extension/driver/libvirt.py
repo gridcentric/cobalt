@@ -21,6 +21,8 @@ from nova.virt.libvirt import driver
 from cobalt.nova.extension import vmsconn
 from cobalt.nova.extension import vmsapi
 
+from nova.openstack.common.gettextutils import _
+
 LOG = logging.getLogger('nova.cobalt.driver.libvirt')
 
 class LibvirtDriver(driver.LibvirtDriver):

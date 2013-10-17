@@ -40,6 +40,8 @@ from oslo.config import cfg
 
 from .. import image as co_image
 
+from nova.openstack.common.gettextutils import _
+
 LOG = logging.getLogger('nova.cobalt.vmsconn')
 CONF = cfg.CONF
 

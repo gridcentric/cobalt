@@ -30,6 +30,8 @@ import vms.logger as logger
 import vms.virt as virt
 import vms.vmsrun as vmsrun
 
+from nova.openstack.common.gettextutils import _
+
 LOG = logging.getLogger('nova.cobalt.vmsapi')
 
 commands.USE_NAMES = True
