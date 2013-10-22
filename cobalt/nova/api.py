@@ -483,7 +483,11 @@ class API(base.Base):
         instance = instances[0]
         instance_type = self.db.instance_type_get(context,
                                                   instance['instance_type_id'])
-        image = self.image_service.show(context, instance['image_ref'])
+        image_ref = instance['image_ref']
+        if image_ref:
+            image = self.image_service.show(context, instance['image_ref'])
+        else:
+            image = {}
         bdm = self.db.block_device_mapping_get_all_by_instance(context,
                                                             instance['uuid'])
 
