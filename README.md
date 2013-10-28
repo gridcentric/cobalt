@@ -93,9 +93,15 @@ Project Contents
 Running Unit Tests
 ==================
 
-To run the unit tests, make sure you have vms and nova on your PYTHONPATH and
-run tox. Cobalt uses py.test to drive its tests, so you can pass standard
-py.test options to tox after the `--` option. For example, if vms and nova are
-directories in $HOME and you want to run 8 tests in parallel,
+To run the unit tests, make sure you have `VMS_DIR` pointing to your vms code
+and `NOVA_DIR` pointing to your nova code and run tox. Cobalt uses py.test to
+drive its tests, so you can pass standard py.test options to tox after the `--`
+option. For example, if vms and nova are directories in $HOME and you want to
+run 8 tests in parallel,
 
-    $ env PYTHONPATH=$HOME/vms/src/python:$HOME/nova tox -- -n 8
+    $ env VMS_DIR=$HOME/vms NOVA_DIR=$HOME/nova tox -- -n 8
+
+To run tests against in-tree source code (i.e., to avoid package installation),
+use the py26-dev and py27-dev environments:
+
+    $ env VMS_DIR=$HOME/vms NOVA_DIR=$HOME/nova tox -e py26-dev,py27-dev -- -n 8
