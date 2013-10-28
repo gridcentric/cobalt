@@ -26,6 +26,8 @@ from nova.openstack.common import log as logging
 import vms
 from vms import control
 
+from nova.openstack.common.gettextutils import _
+
 LOG = logging.getLogger('nova.cobalt.vmsapi')
 
 class BlessResult(object):

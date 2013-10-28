@@ -41,6 +41,9 @@ from nova.openstack.common import jsonutils
 from nova.openstack.common import importutils
 from nova.openstack.common.rpc.common import Timeout
 from oslo.config import cfg
+
+from nova.openstack.common.gettextutils import _
+
 LOG = logging.getLogger('nova.cobalt.manager')
 CONF = cfg.CONF
 

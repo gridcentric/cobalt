@@ -13,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from django.utils.translation import ugettext_lazy as _
 from .workflows import bless_instance_workflow, launch_blessed_workflow, MigrateWorkflow
 from horizon import workflows
 from openstack_dashboard.dashboards.project.instances import views as proj_views

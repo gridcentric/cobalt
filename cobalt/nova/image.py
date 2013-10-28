@@ -19,6 +19,8 @@ import os
 from nova.image import glance
 from nova.openstack.common import log as logging
 
+from nova.openstack.common.gettextutils import _
+
 LOG = logging.getLogger('nova.cobalt.image')
 
 class ImageService(object):

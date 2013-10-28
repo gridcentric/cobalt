@@ -42,6 +42,8 @@ from oslo.config import cfg
 
 from . import image
 
+from nova.openstack.common.gettextutils import _
+
 # New API capabilities should be added here
 
 CAPABILITIES = ['user-data',

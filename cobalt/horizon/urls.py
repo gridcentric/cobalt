@@ -13,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from django.utils.translation import ugettext_lazy as _
 from django.conf.urls.defaults import patterns, url
 from openstack_dashboard.dashboards.project.instances.urls import urlpatterns as proj_urls, VIEW_MOD as PROJ_VIEW_MOD, INSTANCES as PROJ_INSTANCES
 from openstack_dashboard.dashboards.admin.instances.urls import urlpatterns as adm_urls, INSTANCES as ADM_INSTANCES
