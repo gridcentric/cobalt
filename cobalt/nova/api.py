@@ -442,6 +442,7 @@ class API(base.Base):
             # standard nova handles it.
             availability_zone, forced_host, forced_node = \
                     self.compute_api._handle_availability_zone(
+                                                context,
                                                 params.get('availability_zone'))
             filter_properties = { 'scheduler_hints' :
                                     params.pop('scheduler_hints', {}) }
@@ -484,8 +485,8 @@ class API(base.Base):
         # Use the first instance as a representation for the entire group of
         # instances in the request.
         instance = instances[0]
-        instance_type = self.db.instance_type_get(context,
-                                                  instance['instance_type_id'])
+        instance_type = self.db.flavor_get(context,
+                                           instance['instance_type_id'])
         image = self.image_service.show(context, instance['image_ref'])
         bdm = self.db.block_device_mapping_get_all_by_instance(context,
                                                             instance['uuid'])
@@ -618,7 +619,7 @@ class API(base.Base):
                                 for entry in instance['system_metadata']),
             'security_group_names': [secgroup.name for secgroup
                                                 in instance['security_groups']],
-            'flavor_name': self.compute_api.db.instance_type_get(context,
+            'flavor_name': self.compute_api.db.flavor_get(context,
                                           instance['instance_type_id'])['name'],
             'export_image_id': image_id,
         }
@@ -642,7 +643,7 @@ class API(base.Base):
 
         try:
             inst_type = self.compute_api.db.\
-                                 instance_type_get_by_name(context, flavor_name)
+                                 flavor_get_by_name(context, flavor_name)
         except exception.InstanceTypeNotFoundByName:
             raise exception.NovaException(_('Flavor could not be found: %s' \
                                                                  % flavor_name))
