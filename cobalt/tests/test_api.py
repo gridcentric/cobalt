@@ -288,6 +288,14 @@ class CobaltApiTestCase(unittest.TestCase):
             "The instance should have the 'launched from' system_metadata set to blessed instanced id after being launched. "\
             + "(value=%s)" % (system_metadata['launched_from']))
 
+    def test_launch_instance_with_volume(self):
+        instance_uuid = utils.create_instance(self.context)
+        utils.add_block_dev(self.context, instance_uuid, 'vbd')
+        blessed_instance = self.cobalt_api.bless_instance(self.context, instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        launched_instance = self.cobalt_api.launch_instance(self.context, blessed_instance_uuid)
+        # all assertions in mocked scheduler
+
     def test_launch_instance_host_az(self):
         instance_uuid = utils.create_instance(self.context)
         blessed_instance = self.cobalt_api.bless_instance(self.context, instance_uuid)

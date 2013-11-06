@@ -155,6 +155,25 @@ class API(base.Base):
     def _rollback_reservation(self, context, reservations):
         quota.QUOTAS.rollback(context, reservations)
 
+    def _parse_block_device_mapping(self, block_device_mappings):
+        """Translate bdm into list of dicts for the benefit of the scheduler
+           rpc api on the server side."""
+        bdm = []
+        for mapping in block_device_mappings:
+            bdm.append({
+                'device_name': mapping['device_name'],
+                'delete_on_termination': mapping.get('delete_on_termination', True),
+                'virtual_name': mapping.get('virtual_name', None),
+                # The snapshot id / volume id will be re-written once the bless / launch completes.
+                # For now we just copy over the data from the source instance.
+                'snapshot_id': mapping.get('snapshot_id', None),
+                'volume_id': mapping.get('volume_id', None),
+                'volume_size': mapping.get('volume_size', None),
+                'no_device': mapping.get('no_device', None),
+                'connection_info': mapping.get('connection_info', None)
+            })
+        return bdm
+
     def _copy_instance(self, context, instance, new_name, launch=False,
                        new_user_data=None, security_groups=None, key_name=None,
                        launch_index=0, availability_zone=None):
@@ -252,22 +271,14 @@ class API(base.Base):
         elevated = context.elevated()
 
         # Create a copy of all the block device mappings
-        block_device_mappings = self.db.block_device_mapping_get_all_by_instance(context, instance['uuid'])
-        for mapping in block_device_mappings:
-            values = {
-                'instance_uuid': new_instance['uuid'],
-                'device_name': mapping['device_name'],
-                'delete_on_termination': mapping.get('delete_on_termination', True),
-                'virtual_name': mapping.get('virtual_name', None),
-                # The snapshot id / volume id will be re-written once the bless / launch completes.
-                # For now we just copy over the data from the source instance.
-                'snapshot_id': mapping.get('snapshot_id', None),
-                'volume_id': mapping.get('volume_id', None),
-                'volume_size': mapping.get('volume_size', None),
-                'no_device': mapping.get('no_device', None),
-                'connection_info': mapping.get('connection_info', None)
-            }
-            self.db.block_device_mapping_create(elevated, values)
+        block_device_mappings =\
+            self.db.block_device_mapping_get_all_by_instance(context,
+                                                             instance['uuid'])
+        block_device_mappings =\
+            self._parse_block_device_mapping(block_device_mappings)
+        for bdev in block_device_mappings:
+            bdev['instance_uuid'] = new_instance['uuid']
+            self.db.block_device_mapping_create(elevated, bdev)
 
         return new_instance
 
@@ -461,7 +472,7 @@ class API(base.Base):
                     availability_zone=availability_zone))
 
             request_spec = self._create_request_spec(context, launch_instances,
-                                                    security_groups)
+                                                     security_groups)
             hosts = self.scheduler_rpcapi.select_hosts(context,request_spec,
                                                        filter_properties)
 
@@ -492,6 +503,7 @@ class API(base.Base):
             image = {}
         bdm = self.db.block_device_mapping_get_all_by_instance(context,
                                                             instance['uuid'])
+        bdm = self._parse_block_device_mapping(bdm)
 
         # Remove or correctly serialize python objects from
         # instance_properties. Some message buses (such as qpid) are incapable
