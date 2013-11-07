@@ -48,7 +48,6 @@ from nova.openstack.common.gettextutils import _
 
 CAPABILITIES = ['user-data',
                 'launch-name',
-                'security-groups',
                 'availability-zone',
                 'num-instances',
                 'bless-name',
