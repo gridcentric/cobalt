@@ -2,4 +2,4 @@
 host=reviews.gridcentric.ca
 port=29418
 project=cobalt
-defaultbranch=grizzly/1.4
+defaultbranch=grizzly/1.5
