@@ -28,6 +28,8 @@ from nova.api.openstack.compute import servers
 from nova.api.openstack.compute.views import servers as views_servers
 import nova.api.openstack.common as common
 
+from nova.openstack.common.gettextutils import _
+
 from cobalt.nova.api import API
 
 LOG = logging.getLogger("nova.api.extensions.cobalt")

@@ -43,8 +43,7 @@ class MockRpc(object):
     """
 
     def __init__(self):
-        self.call_log = {}
-        self.cast_log = {}
+        self.reset()
 
     def __add_to_log(self, log, queue, kwargs):
         _instance = kwargs['args'].get('instance_uuid', 'unknown')
@@ -63,6 +62,10 @@ class MockRpc(object):
 
     def cast(self, context, queue, kwargs):
         self.__add_to_log(self.cast_log, queue, kwargs)
+
+    def reset(self):
+        self.call_log = {}
+        self.cast_log = {}
 
 mock_rpc = MockRpc()
 rpc.call = mock_rpc.call
@@ -112,12 +115,47 @@ def mock_quota():
 
 stored_hints = {}
 
+class BDMSchedulerException(Exception):
+    pass
+
 def mock_scheduler_rpcapi(scheduler_rpcapi, hosts=None):
     if hosts == None:
         hosts = [create_uuid()]
 
-    def mock_select_hosts(context,request_spec,filter_properties):
+    def mock_select_hosts(context, request_spec, filter_properties):
         force_host = filter_properties.get('force_hosts', None)
+
+        # Enforce BDM properties in request spec
+        bdm = request_spec['block_device_mapping']
+        if type(bdm) != list:
+            raise BDMSchedulerException("BDM should be list of dicts")
+        for d in bdm:
+            if type(d) != dict:
+                raise BDMSchedulerException("BDM should be list of dicts")
+                for key in [ 'device_name', 'delete_on_termination',
+                             'virtual_name', 'snapshot_id', 'volume_id',
+                             'volume_size', 'no_device', 'connection_info']:
+                    if not d.has_key(key):
+                        raise BDMSchedulerException(
+                                "BDM entry %s incomplete" % str(d))
+        # We only pass data in a specific test
+        if len(bdm) > 1:
+            if len(bdm) != 2:
+                raise BDMSchedulerException("Unexpected BDM %s" % str(bdm))
+            bdev = bdm[1]
+            try:
+                import uuid #WHY?!?!
+                uuid.UUID(bdev['volume_id'])
+            except ValueError:
+                raise BDMSchedulerException("Invalid instance UUID %s in "
+                            "block device spec." % str(bdev['volume_id']))
+            if not bdev['delete_on_termination']:
+                raise BDMSchedulerException("Unexpected delete on term "
+                            "in block device spec.")
+            if bdev['device_name'] != 'vbd':
+                raise BDMSchedulerException("Unexpected device name %s "
+                            "in block device spec." % bdev['device_name'])
+
         az = request_spec['instance_properties']['availability_zone']
         if az is not None:
             # Overload for the sake of testing
@@ -194,6 +232,18 @@ class MockVmsConn(object):
     def get_hypervisor_hostname(self):
         return "MockHypervisor"
 
+    def get_instance_info(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
+        return self.pop_return_value("get_instance_info")
+
+    def pause_instance(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
+        return self.pop_return_value("pause_instance")
+
+    def unpause_instance(self, *args, **kwargs):
+        self.params_passed.append({'args': args, 'kwargs': kwargs})
+        return self.pop_return_value("unpause_instance")
+
 def create_uuid():
     return str(uuid.uuid4())
 
@@ -202,6 +252,16 @@ def create_security_group(context, values):
     values['user_id'] = context.user_id
     values['project_id'] = context.project_id
     return db.security_group_create(context, values)
+
+def add_block_dev(context, instance_uuid, device_id):
+    bdev = {
+                'instance_uuid' : instance_uuid,
+                'volume_id'     : create_uuid(),
+                'device_name'   : device_id,
+                'delete_on_termination' : True,
+                'volume_size'   : ''
+            }
+    db.block_device_mapping_create(context, bdev)
 
 def create_flavor(flavor=None):
     if flavor == None:

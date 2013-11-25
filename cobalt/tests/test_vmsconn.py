@@ -14,12 +14,14 @@
 #    under the License.
 
 import unittest
-import gridcentric.nova.extension.vmsconn as vms_conn
+from nova.virt import fake
+import cobalt.nova.extension.vmsconn as vms_conn
 
-class GridCentricVmsConnTestCase(unittest.TestCase):
+class CobaltVmsConnTestCase(unittest.TestCase):
 
     def setUp(self):
-        self.vmsconn = vms_conn.get_vms_connection('fake')
+        fake_driver = fake.FakeDriver(None)
+        self.vmsconn = vms_conn.get_vms_connection(fake_driver)
 
     def test_glance_appearance(self):
         expected_results = {('hello','instance-00000001.gc') : ('hello','Live-Image'),

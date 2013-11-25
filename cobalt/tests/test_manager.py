@@ -25,6 +25,7 @@ from nova import exception
 
 from nova.compute import vm_states
 from nova.compute import task_states
+from nova.compute import power_state
 
 from oslo.config import cfg
 
@@ -111,11 +112,15 @@ class CobaltManagerTestCase(unittest.TestCase):
                                     ("newname", "migration_url", ["file1", "file2", "file3"],[]))
         self.vmsconn.set_return_val("post_bless", ["file1_ref", "file2_ref", "file3_ref"])
         self.vmsconn.set_return_val("bless_cleanup", None)
+        self.vmsconn.set_return_val("get_instance_info",
+                                    {'state': power_state.RUNNING})
 
         pre_bless_time = datetime.utcnow()
         blessed_uuid = utils.create_pre_blessed_instance(self.context)
-        migration_url = self.cobalt.bless_instance(self.context, instance_uuid=blessed_uuid,
-                                                        migration_url=None)
+        migration_url, instance_ref = self.cobalt.bless_instance(
+                                                    self.context,
+                                                    instance_uuid=blessed_uuid,
+                                                    migration_url=None)
 
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         self.assertEquals("blessed", blessed_instance['vm_state'])
@@ -129,24 +134,25 @@ class CobaltManagerTestCase(unittest.TestCase):
 
     def test_bless_instance_exception(self):
         self.vmsconn.set_return_val("bless", utils.TestInducedException())
+        self.vmsconn.set_return_val("get_instance_info",
+            {'state': power_state.RUNNING})
+        self.vmsconn.set_return_val("unpause_instance", None)
 
         blessed_uuid = utils.create_pre_blessed_instance(self.context)
 
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         self.assertTrue(blessed_instance['disable_terminate'])
 
-        migration_url = None
         try:
-            migration_url = self.cobalt.bless_instance(self.context,
-                                                            instance_uuid=blessed_uuid,
-                                                            migration_url=None)
+            self.cobalt.bless_instance(self.context,
+                                       instance_uuid=blessed_uuid,
+                                       migration_url=None)
             self.fail("The bless error should have been re-raised up.")
         except utils.TestInducedException:
             pass
 
         blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
         self.assertEquals(vm_states.ERROR, blessed_instance['vm_state'])
-        self.assertEquals(None, migration_url)
         system_metadata = db.instance_system_metadata_get(self.context, blessed_uuid)
         self.assertEquals(None, system_metadata.get('images', None))
         self.assertEquals(None, system_metadata.get('blessed', None))
@@ -169,11 +175,15 @@ class CobaltManagerTestCase(unittest.TestCase):
                                     ("newname", "migration_url", ["file1", "file2", "file3"], []))
         self.vmsconn.set_return_val("post_bless", ["file1_ref", "file2_ref", "file3_ref"])
         self.vmsconn.set_return_val("bless_cleanup", None)
+        self.vmsconn.set_return_val("get_instance_info",
+            {'state': power_state.RUNNING})
 
         blessed_uuid = utils.create_instance(self.context)
         pre_bless_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
-        migration_url = self.cobalt.bless_instance(self.context, instance_uuid=blessed_uuid,
-                                                        migration_url="mcdist://migrate_addr")
+        migration_url, instance_ref = self.cobalt.bless_instance(
+                                          self.context,
+                                          instance_uuid=blessed_uuid,
+                                          migration_url="mcdist://migrate_addr")
         post_bless_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
 
         self.assertEquals(pre_bless_instance['vm_state'], post_bless_instance['vm_state'])

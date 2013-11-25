@@ -21,13 +21,23 @@
 import os
 import shutil
 import tempfile
+import stat
+
+def tmpfs_tmp_dir():
+    path = '/dev/shm/'
+    if os.path.isdir(path) and \
+       stat.S_IMODE(os.stat(path).st_mode) == 01777:
+        return path
+    else:
+        return tempfile.tmpdir
 
 def setup():
 
     sqlite_db = "tests.sqlite"
     # Set COBALT_TESTS_TMPFS to a tmpfs mount for faster setup. The fsyncs that
     # sqlite does nops :-)
-    state_path = tempfile.mkdtemp(dir=os.environ.get('COBALT_TESTS_TMPFS'))
+
+    state_path = tempfile.mkdtemp(dir=tmpfs_tmp_dir(), prefix='cobalt.tests.')
     testdb = os.path.join(state_path, sqlite_db)
     if os.path.exists(testdb):
         os.unlink(testdb)

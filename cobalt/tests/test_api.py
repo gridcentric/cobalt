@@ -43,6 +43,7 @@ class CobaltApiTestCase(unittest.TestCase):
                         os.path.join(CONF.state_path, CONF.sqlite_db))
 
         self.mock_rpc = utils.mock_rpc
+        self.mock_rpc.reset()
 
         # Mock out all of the policy enforcement (the tests don't have a defined policy)
         utils.mock_policy()
@@ -61,7 +62,7 @@ class CobaltApiTestCase(unittest.TestCase):
 
         copy_instance_name = 'copy_instance'
         copy_instance = self.cobalt_api._copy_instance(self.context,
-                                                       instance_uuid,
+                                                       original_instance,
                                                        copy_instance_name)
 
         self.assertNotEqual(original_instance['reservation_id'],
@@ -379,6 +380,14 @@ class CobaltApiTestCase(unittest.TestCase):
             "The instance should have the 'launched from' system_metadata set to blessed instanced id after being launched. "\
             + "(value=%s)" % (system_metadata['launched_from']))
 
+    def test_launch_instance_with_volume(self):
+        instance_uuid = utils.create_instance(self.context)
+        utils.add_block_dev(self.context, instance_uuid, 'vbd')
+        blessed_instance = self.cobalt_api.bless_instance(self.context, instance_uuid)
+        blessed_instance_uuid = blessed_instance['uuid']
+        launched_instance = self.cobalt_api.launch_instance(self.context, blessed_instance_uuid)
+        # all assertions in mocked scheduler
+
     def test_launch_instance_host_az(self):
         instance_uuid = utils.create_instance(self.context)
         blessed_instance = self.cobalt_api.bless_instance(self.context, instance_uuid)
@@ -574,6 +583,14 @@ class CobaltApiTestCase(unittest.TestCase):
         except exception.NovaException:
             pass
 
+    def test_check_delete_already_deleted(self):
+        instance_uuid = utils.create_instance(self.context, {'deleted': True})
+
+        # This should not fail for an instance that is already deleted because
+        # there is a race were the instance can be deleted by nova-compute
+        # before nova-api call this part of the extension.
+        self.cobalt_api.check_delete(self.context, instance_uuid)
+
     def test_launch_with_security_groups(self):
         instance_uuid = utils.create_instance(self.context)
         blessed_instance = self.cobalt_api.bless_instance(self.context,
@@ -600,7 +617,16 @@ class CobaltApiTestCase(unittest.TestCase):
         inst = self.cobalt_api.launch_instance(self.context,
                                                     blessed_instance_uuid,
                                                     params={})
-        self.assertEqual(inst['security_groups'][0].id, sg.id)
+        self.assertEqual(len(inst['security_groups']), 1)
+        # Ensure that with not security group provided, the existing one is not
+        # inherited, but the 'default' security group is applied to the
+        # instance.
+        self.assertNotEqual(inst['security_groups'][0].id, sg.id)
+        default_sg = db.security_group_get_by_name(self.context,
+                                                   self.context.project_id,
+                                                   'default')
+        self.assertEqual(inst['security_groups'][0].id, default_sg.id)
+
 
     def test_launch_with_key(self):
         instance_uuid = utils.create_instance(self.context)
@@ -686,3 +712,32 @@ class CobaltApiTestCase(unittest.TestCase):
         gc_hosts.sort()
 
         self.assertEquals(hosts_in_zone, gc_hosts)
+
+    def test_install_policy_nowait(self):
+        # create five cobalt hosts
+        for i in range(5):
+            utils.create_cobalt_service(self.context)
+
+        self.cobalt_api.install_policy(self.context, "", False)
+
+        # This should result in six RPC calls (for the 5 created hosts and the
+        # default test host). It should be a single call and 5 casts.
+        self.assertTrue('install_policy' in self.mock_rpc.call_log)
+        self.assertEquals(1, len(self.mock_rpc.call_log['install_policy']))
+
+        self.assertTrue('install_policy' in self.mock_rpc.cast_log)
+        self.assertEquals(5, len(self.mock_rpc.cast_log['install_policy']))
+
+    def test_install_policy_wait(self):
+        # create five cobalt hosts
+        for i in range(5):
+            utils.create_cobalt_service(self.context)
+
+        self.cobalt_api.install_policy(self.context, "", True)
+
+        # This should result in six RPC calls (for the 5 created hosts and the
+        # default test host). Since we are waiting they should all be calls.
+        self.assertTrue('install_policy' in self.mock_rpc.call_log)
+        self.assertEquals(6, len(self.mock_rpc.call_log['install_policy']))
+
+        self.assertFalse('install_policy' in self.mock_rpc.cast_log)

@@ -29,6 +29,7 @@ import subprocess
 
 import greenlet
 from eventlet.green import threading as gthreading
+from eventlet import greenthread
 
 from nova import conductor
 from nova import context as nova_context
@@ -37,10 +38,14 @@ from nova import exception
 from nova.objects import instance as instance_obj
 from nova.openstack.common import log as logging
 from nova.openstack.common import timeutils
+from nova.openstack.common import jsonutils
 from nova.openstack.common import importutils
 from nova.openstack.common.gettextutils import _
 from nova.openstack.common.rpc.common import Timeout
 from oslo.config import cfg
+
+from nova.openstack.common.gettextutils import _
+
 LOG = logging.getLogger('nova.cobalt.manager')
 CONF = cfg.CONF
 
@@ -64,6 +69,7 @@ cobalt_opts = [
                      'for nova-compute to process its request. By default this is set to '
                      'one hour.')]
 CONF.register_opts(cobalt_opts)
+CONF.import_opt('cobalt_topic', 'cobalt.nova.api')
 
 from nova import manager
 from nova import utils
@@ -85,7 +91,6 @@ from nova.openstack.common import periodic_task
 from nova.openstack.common.notifier import api as notifier
 from nova import notifications
 
-from cobalt.nova.api import API
 import cobalt.nova.extension.vmsconn as vmsconn
 
 def _lock_call(fn):
@@ -175,7 +180,6 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         self.quantum_attempted = False
         self.network_api = network.API()
-        self.cobalt_api = API()
         self.compute_manager = compute_manager.ComputeManager()
         self.volume_api = volume.API()
         self.conductor_api = conductor.API()
@@ -195,20 +199,10 @@ class CobaltManager(manager.SchedulerDependentManager):
     def _init_vms(self):
         """ Initializes the hypervisor options depending on the openstack connection type. """
         if self.vms_conn == None:
-            drivers = {
-                'FakeDriver': 'fake',
-                'LibvirtDriver': 'libvirt',
-                'XenAPIDriver': 'xenapi',
-            }
-
             compute_driver = self.compute_manager.driver
-            compute_driver = compute_driver.__class__.__name__
-            connection_type = drivers.get(compute_driver, None)
-            if connection_type == None:
-                raise exception.NovaException('Unsupported compute driver %s being used.' %(compute_driver))
-
-            self.vms_conn = vmsconn.get_vms_connection(connection_type)
-            self.vms_conn.configure(compute_manager.ComputeVirtAPI(self.compute_manager))
+            self.vms_conn = vmsconn.get_vms_connection(compute_driver)
+            self.vms_conn.configure(
+                    compute_manager.ComputeVirtAPI(self.compute_manager))
 
     def _lock_instance(self, instance_uuid):
         self.cond.acquire()
@@ -452,7 +446,8 @@ class CobaltManager(manager.SchedulerDependentManager):
             # for their missing notification.
             _log_error("notify %s" % operation)
 
-    def _snapshot_attached_volumes(self, context,  source_instance, instance):
+    def _snapshot_attached_volumes(self, context,  source_instance, instance,
+                                   is_paused=False):
         """
         Creates a snaptshot of all of the attached volumes.
         """
@@ -462,7 +457,7 @@ class CobaltManager(manager.SchedulerDependentManager):
         root_device_name = source_instance['root_device_name']
         snapshots = []
 
-        paused = False
+        paused = is_paused
         for bdm in block_device_mappings:
             if bdm['no_device']:
                 continue
@@ -476,7 +471,7 @@ class CobaltManager(manager.SchedulerDependentManager):
                 # create snapshot based on volume_id
                 volume = self.volume_api.get(context, volume_id)
 
-                name = _('snapshot for %s') % instance['name']
+                name = _('snapshot for %s') % instance['display_name']
                 snapshot = self.volume_api.create_snapshot_force(
                     context, volume, name, volume['display_description'])
 
@@ -541,9 +536,16 @@ class CobaltManager(manager.SchedulerDependentManager):
             assert source_instance_ref is not None
             migration = False
 
+        # (dscannell) Determine if the instance is already paused.
+        instance_info = self.vms_conn.get_instance_info(source_instance_ref)
+        is_paused = instance_info['state'] == power_state.PAUSED
+
         if not(migration):
             try:
-                self._snapshot_attached_volumes(context, source_instance_ref, instance_ref)
+                self._snapshot_attached_volumes(context,
+                                                source_instance_ref,
+                                                instance_ref,
+                                                is_paused=is_paused)
             except:
                 _log_error("snapshot volumes")
                 raise
@@ -554,10 +556,6 @@ class CobaltManager(manager.SchedulerDependentManager):
             if not(migration):
                 self._instance_update(context, source_instance_ref['uuid'],
                                       task_state='blessing')
-                LOG.debug("Locking source instance %s (fn:%s)" %
-                                (source_instance_ref['uuid'], "bless_instance"))
-                self.compute_manager.compute_api.lock(context, source_instance_ref)
-                source_locked = True
 
             # Create a new 'blessed' VM with the given name.
             # NOTE: If this is a migration, then a successful bless will mean that
@@ -569,7 +567,12 @@ class CobaltManager(manager.SchedulerDependentManager):
                                                 migration_url=migration_url)
         except Exception, e:
             _log_error("bless")
-
+            if not is_paused:
+                # (dscannell): The instance was unpaused before the blessed
+                #              command was called. Depending on how bless failed
+                #              the instance may remain in a paused state. It
+                #              needs to return back to an unpaused state.
+                self.vms_conn.unpause_instance(source_instance_ref)
             if not(migration):
                 self._instance_update(context, instance_uuid,
                                       vm_state=vm_states.ERROR, task_state=None)
@@ -578,10 +581,6 @@ class CobaltManager(manager.SchedulerDependentManager):
         finally:
             # Unlock source instance
             if not(migration):
-                if source_locked:
-                    self.compute_manager.compute_api.unlock(context, source_instance_ref)
-                    LOG.debug("Unlocked source instance %s (fn:%s)" %
-                                   (source_instance_ref['uuid'], "bless_instance"))
                 self._instance_update(context, source_instance_ref['uuid'],
                                       task_state=None)
 
@@ -616,13 +615,16 @@ class CobaltManager(manager.SchedulerDependentManager):
 
             if not(migration):
                 self._notify(context, instance_ref, "bless.end")
-                self._instance_update(context, instance_uuid,
-                                      vm_state="blessed", task_state=None,
-                                      launched_at=timeutils.utcnow(),
-                                      system_metadata=system_metadata)
+                instance_ref = self._instance_update(
+                                            context, instance_uuid,
+                                            vm_state="blessed",
+                                            task_state=None,
+                                            launched_at=timeutils.utcnow(),
+                                            system_metadata=system_metadata)
             else:
-                self._instance_update(context, instance_uuid,
-                                      system_metadata=system_metadata)
+                instance_ref = self._instance_update(
+                                            context, instance_uuid,
+                                            system_metadata=system_metadata)
                 self._detach_volumes(context, instance_ref)
 
         except:
@@ -664,15 +666,29 @@ class CobaltManager(manager.SchedulerDependentManager):
         except:
             _log_error("bless cleanup")
 
-        # Return the memory URL (will be None for a normal bless).
-        return migration_url
+        # Return the memory URL (will be None for a normal bless) and the
+        # updated instance_ref.
+        return migration_url, instance_ref
 
     def _migrate_floating_ips(self, context, instance, src, dest):
 
         migration = {'source_compute': src,
                      'dest_compute': dest}
-        self.network_api.migrate_instance_start(context, instance, migration)
-        self.network_api.migrate_instance_finish(context, instance, migration)
+
+        self.conductor_api.network_migrate_instance_start(context, instance,
+                                                          migration)
+        # NOTE: We update the host temporarily on the instance object.
+        # This is because the migrate_instance_finish() method seems to
+        # disregard the migration specification passed in, and instead
+        # looks at the host associated with the instance object.
+        # Since we have a slightly different workflow (we update the
+        # host only at the very end of the migration), we do a temporary
+        # switcheroo.
+        orig_host = instance['host']
+        instance['host'] = dest
+        self.conductor_api.network_migrate_instance_finish(context, instance,
+                                                           migration)
+        instance['host'] = orig_host
 
     @_lock_call
     def migrate_instance(self, context, instance_uuid=None, instance_ref=None, dest=None):
@@ -706,7 +722,8 @@ class CobaltManager(manager.SchedulerDependentManager):
         migration_address = self._get_migration_address(dest)
 
         # Grab the network info.
-        network_info = self.network_api.get_instance_nw_info(context, instance_ref)
+        network_info = self.network_api.get_instance_nw_info(context,
+                instance_ref, conductor_api=self.conductor_api)
 
         # Update the system_metadata for migration.
         system_metadata = self._system_metadata_get(instance_ref)
@@ -732,7 +749,7 @@ class CobaltManager(manager.SchedulerDependentManager):
         instance_ref['host'] = self.host
 
         # Bless this instance for migration.
-        migration_url = self.bless_instance(context,
+        migration_url, instance_ref = self.bless_instance(context,
                                             instance_ref=instance_ref,
                                             migration_url="mcdist://%s" % migration_address,
                                             migration_network_info=network_info)
@@ -849,7 +866,8 @@ class CobaltManager(manager.SchedulerDependentManager):
 
     @_retry_rpc
     def _retry_get_nw_info(self, context, instance_ref):
-        return self.network_api.get_instance_nw_info(context, instance_ref)
+        return self.network_api.get_instance_nw_info(context, instance_ref,
+                conductor_api=self.conductor_api)
 
     def _instance_network_info(self, context, instance_ref, already_allocated, requested_networks=None):
         """
@@ -861,7 +879,8 @@ class CobaltManager(manager.SchedulerDependentManager):
         network_info = None
 
         if already_allocated:
-            network_info = self.network_api.get_instance_nw_info(context, instance_ref)
+            network_info = self.network_api.get_instance_nw_info(context,
+                    instance_ref, conductor_api=self.conductor_api)
 
         else:
             # We need to allocate a new network info for the instance.
@@ -884,7 +903,8 @@ class CobaltManager(manager.SchedulerDependentManager):
                 try:
                     network_info = self.network_api.allocate_for_instance(
                                     context, instance_ref, vpn=is_vpn,
-                                    requested_networks=requested_networks)
+                                    requested_networks=requested_networks,
+                                    conductor_api=self.conductor_api)
                 except Timeout:
                     LOG.debug(_("Allocate network for instance=%s timed out"),
                                 instance_ref['name'])
@@ -911,6 +931,88 @@ class CobaltManager(manager.SchedulerDependentManager):
         template = self._generate_vms_policy_template(context, source_instance)
         return template %({'uuid': instance['uuid'],
                            'tenant':instance['project_id']})
+
+
+    def _setup_block_device_mapping(self, context, instance, bdms):
+        """setup volumes for block device mapping."""
+        block_device_mapping = []
+        swap = None
+        ephemerals = []
+        for bdm in bdms:
+            LOG.debug(_('Setting up bdm %s'), bdm, instance=instance)
+
+            if bdm['no_device']:
+                continue
+            if bdm['virtual_name']:
+                virtual_name = bdm['virtual_name']
+                device_name = bdm['device_name']
+                assert block_device.is_swap_or_ephemeral(virtual_name)
+                if virtual_name == 'swap':
+                    swap = {'device_name': device_name,
+                            'swap_size': bdm['volume_size']}
+                elif block_device.is_ephemeral(virtual_name):
+                    eph = {'num': block_device.ephemeral_num(virtual_name),
+                           'virtual_name': virtual_name,
+                           'device_name': device_name,
+                           'size': bdm['volume_size']}
+                    ephemerals.append(eph)
+                continue
+
+            if ((bdm['snapshot_id'] is not None) and
+                (bdm['volume_id'] is None)):
+                snapshot = self.volume_api.get_snapshot(context,
+                                                        bdm['snapshot_id'])
+
+                from_vol = self.volume_api.get(context,
+                                               snapshot['volume_id'])
+                new_volume_name = (_('%s@%s') % \
+                    (from_vol['display_name'], bdm['snapshot_id']))
+                new_volume_description = from_vol.get('display_description', '')
+
+                vol = self.volume_api.create(context,
+                                             bdm['volume_size'],
+                                             new_volume_name,
+                                             new_volume_description,
+                                             snapshot)
+
+                # TODO(yamahata): creating volume simultaneously
+                #                 reduces creation time?
+                # TODO(yamahata): eliminate dumb polling
+                while True:
+                    volume = self.volume_api.get(context, vol['id'])
+                    if volume['status'] != 'creating':
+                        break
+                    greenthread.sleep(1)
+                self.conductor_api.block_device_mapping_update(
+                    context, bdm['id'], {'volume_id': vol['id']})
+                bdm['volume_id'] = vol['id']
+
+            if bdm['volume_id'] is not None:
+                volume = self.volume_api.get(context, bdm['volume_id'])
+                self.volume_api.check_attach(context, volume,
+                                                      instance=instance)
+                cinfo = self.compute_manager._attach_volume_boot(context,
+                                                                 instance,
+                                                                 volume,
+                                                                 bdm['device_name'])
+                if 'serial' not in cinfo:
+                    cinfo['serial'] = bdm['volume_id']
+                self.conductor_api.block_device_mapping_update(
+                        context, bdm['id'],
+                        {'connection_info': jsonutils.dumps(cinfo)})
+                bdmap = {'connection_info': cinfo,
+                         'mount_device': bdm['device_name'],
+                         'delete_on_termination': bdm['delete_on_termination']}
+                block_device_mapping.append(bdmap)
+
+        block_device_info = {
+            'root_device_name': instance['root_device_name'],
+            'swap': swap,
+            'ephemerals': ephemerals,
+            'block_device_mapping': block_device_mapping
+        }
+
+        return block_device_info
 
     @_lock_call
     def launch_instance(self, context, instance_uuid=None, instance_ref=None,
