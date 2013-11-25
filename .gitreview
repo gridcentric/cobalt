@@ -2,4 +2,4 @@
 host=reviews.gridcentric.ca
 port=29418
 project=cobalt
-defaultbranch=master
+defaultbranch=havana/1.4
