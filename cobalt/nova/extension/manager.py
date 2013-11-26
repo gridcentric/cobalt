@@ -723,7 +723,7 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         # Grab the network info.
         network_info = self.network_api.get_instance_nw_info(context,
-                instance_ref, conductor_api=self.conductor_api)
+                instance_ref)
 
         # Update the system_metadata for migration.
         system_metadata = self._system_metadata_get(instance_ref)
@@ -866,8 +866,7 @@ class CobaltManager(manager.SchedulerDependentManager):
 
     @_retry_rpc
     def _retry_get_nw_info(self, context, instance_ref):
-        return self.network_api.get_instance_nw_info(context, instance_ref,
-                conductor_api=self.conductor_api)
+        return self.network_api.get_instance_nw_info(context, instance_ref)
 
     def _instance_network_info(self, context, instance_ref, already_allocated, requested_networks=None):
         """
@@ -880,7 +879,7 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         if already_allocated:
             network_info = self.network_api.get_instance_nw_info(context,
-                    instance_ref, conductor_api=self.conductor_api)
+                    instance_ref)
 
         else:
             # We need to allocate a new network info for the instance.
