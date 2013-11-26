@@ -700,8 +700,6 @@ class LibvirtConnection(VmsConnection):
         # of the attributes.
         instance_dict['key_data'] = None
         instance_dict['metadata'] = []
-        for network_ref, mapping in network_info:
-            network_ref['injected'] = False
 
         # Stub out an image in the _base directory so libvirt_conn._create_image
         # doesn't try to download the base image that the master was booted
