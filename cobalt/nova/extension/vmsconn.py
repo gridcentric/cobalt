@@ -17,27 +17,25 @@
 Interfaces that configure vms and perform hypervisor specific operations.
 """
 
-import hashlib
+import inspect
 import os
 import pwd
 import tempfile
-import uuid
-import inspect
 
 from glanceclient.exc import HTTPForbidden
 
-import nova
 from nova import exception
-
-from nova.virt import images
 from nova.virt.libvirt import blockinfo
 from nova.virt.libvirt import imagebackend
-from nova.virt.libvirt.imagecache import get_cache_fname
+from nova.virt.libvirt import imagecache
 from nova.virt.libvirt import utils as libvirt_utils
-from nova.compute import utils as compute_utils
 from nova.openstack.common import log as logging
+
 from oslo.config import cfg
 
+import vms.utilities as utilities
+
+from . import vmsapi as vms_api
 from .. import image as co_image
 
 from nova.openstack.common.gettextutils import _
@@ -60,9 +58,6 @@ vmsconn_opts = [
                help='Cobalt should clean up symlinks that is creates and'
                     'are discovered to be unused.')]
 CONF.register_opts(vmsconn_opts)
-
-import vms.utilities as utilities
-from . import vmsapi as vms_api
 
 def run_as(cmd, uid):
     sudo_cmd = ['sudo', '-u', '#%d' % uid]
@@ -713,7 +708,7 @@ class LibvirtConnection(VmsConnection):
                        'kernel_id': new_instance_ref['kernel_id'],
                        'ramdisk_id': new_instance_ref['ramdisk_id']}
         touch_as(os.path.join(image_base_path,
-                              get_cache_fname(disk_images, 'image_id')),
+                        imagecache.get_cache_fname(disk_images, 'image_id')),
                  self.openstack_uid)
 
         # (dscannell) This was taken from the core nova project as part of the

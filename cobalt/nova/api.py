@@ -19,17 +19,16 @@ import random
 import sys
 
 from nova import availability_zones
-from nova import context
-from nova import compute
 from nova import exception
+from nova import compute
+from nova import context
 from nova import policy
 from nova import quota
 from nova import utils
 from nova.compute import flavors
+from nova.compute import power_state
 from nova.compute import task_states
 from nova.compute import vm_states
-from nova.compute import power_state
-from nova import exception
 from nova.db import base
 from nova.network.security_group import openstack_driver as sg_driver
 from nova.objects import instance as instance_obj

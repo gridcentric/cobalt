@@ -13,20 +13,18 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import functools
 import json
 import webob
 from webob import exc
-import functools
 
 from nova import exception as novaexc
-from nova.openstack.common import log as logging
-
+from nova.api.openstack import common
 from nova.api.openstack import extensions
-
 from nova.api.openstack import wsgi
 from nova.api.openstack.compute import servers
 from nova.api.openstack.compute.views import servers as views_servers
-import nova.api.openstack.common as common
+from nova.openstack.common import log as logging
 
 from nova.openstack.common.gettextutils import _
 

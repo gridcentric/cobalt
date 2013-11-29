@@ -18,8 +18,8 @@ from nova.image import glance
 from nova.openstack.common import log as logging
 from nova.virt.libvirt import driver
 
-from cobalt.nova.extension import vmsconn
 from cobalt.nova.extension import vmsapi
+from cobalt.nova.extension import vmsconn
 
 from nova.openstack.common.gettextutils import _
 

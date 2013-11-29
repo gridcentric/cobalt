@@ -20,31 +20,45 @@ The :py:class:`CobaltManager` class is a :py:class:`nova.manager.Manager` that
 handles RPC calls relating to Cobalt functionality creating instances.
 """
 
-import time
-import traceback
-import os
 import re
 import socket
 import subprocess
+import time
 
 import greenlet
-from eventlet.green import threading as gthreading
 from eventlet import greenthread
+from eventlet.green import threading as gthreading
 
-from nova import conductor
-from nova import context as nova_context
 from nova import block_device
+from nova import conductor
 from nova import exception
+from nova import manager
+from nova import network
+from nova import notifications
+from nova import volume
+from nova.compute import manager as compute_manager
+from nova.compute import power_state
+from nova.compute import task_states
+from nova.compute import vm_states
+# We need to import this module because other nova modules use the flags that
+# it defines (without actually importing this module). So we need to ensure
+# this module is loaded so that we can have access to those flags.
+from nova.network import manager as network_manager
+from nova.network import model as network_model
 from nova.objects import instance as instance_obj
-from nova.openstack.common import log as logging
-from nova.openstack.common import timeutils
-from nova.openstack.common import jsonutils
 from nova.openstack.common import importutils
+from nova.openstack.common import jsonutils
+from nova.openstack.common import log as logging
+from nova.openstack.common import periodic_task
+from nova.openstack.common import rpc
+from nova.openstack.common import timeutils
 from nova.openstack.common.gettextutils import _
-from nova.openstack.common.rpc.common import Timeout
+from nova.openstack.common.notifier import api as notifier
+from nova.openstack.common.rpc import common as rpc_common
+
 from oslo.config import cfg
 
-from nova.openstack.common.gettextutils import _
+from cobalt.nova.extension import vmsconn
 
 LOG = logging.getLogger('nova.cobalt.manager')
 CONF = cfg.CONF
@@ -70,28 +84,6 @@ cobalt_opts = [
                      'one hour.')]
 CONF.register_opts(cobalt_opts)
 CONF.import_opt('cobalt_topic', 'cobalt.nova.api')
-
-from nova import manager
-from nova import utils
-from nova.openstack.common import rpc
-from nova import network
-from nova import volume
-
-# We need to import this module because other nova modules use the flags that
-# it defines (without actually importing this module). So we need to ensure
-# this module is loaded so that we can have access to those flags.
-from nova.network import manager as network_manager
-from nova.network import model as network_model
-from nova.compute import power_state
-from nova.compute import task_states
-from nova.compute import vm_states
-from nova.compute import utils as compute_utils
-from nova.compute import manager as compute_manager
-from nova.openstack.common import periodic_task
-from nova.openstack.common.notifier import api as notifier
-from nova import notifications
-
-import cobalt.nova.extension.vmsconn as vmsconn
 
 def _lock_call(fn):
     """
@@ -161,7 +153,7 @@ def _retry_rpc(fn):
         while True:
             try:
                 return fn(*args, **kwargs)
-            except Timeout:
+            except rpc_common.Timeout:
                 elapsed = time.time() - start
                 if elapsed > timeout:
                     raise
@@ -904,7 +896,7 @@ class CobaltManager(manager.SchedulerDependentManager):
                                     context, instance_ref, vpn=is_vpn,
                                     requested_networks=requested_networks,
                                     conductor_api=self.conductor_api)
-                except Timeout:
+                except rpc_common.Timeout:
                     LOG.debug(_("Allocate network for instance=%s timed out"),
                                 instance_ref['name'])
                     network_info = self._retry_get_nw_info(context, instance_ref)
