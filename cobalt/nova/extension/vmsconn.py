@@ -527,12 +527,12 @@ class LibvirtConnection(VmsConnection):
             # replaced with LaunchImageBackend
             nova_disk = libvirt_conn.image_backend.image(instance,
                                                          disk_name,
-                                                         CONF.libvirt_images_type)
+                                                         CONF.libvirt.images_type)
             self._stub_disk(nova_disk, size=lvm_size)
             stubbed_disks[disk_name] = nova_disk
 
             if nova_disk.source_type == 'file' and \
-               CONF.libvirt_images_type == 'lvm':
+               CONF.libvirt.images_type == 'lvm':
                 # (dscannell): nova expects the instances to be back by lvm
                 #              instead of a qcow2 file. So when rebooting, etc
                 #              nova will recreate the instance libvrit.xml with
@@ -588,7 +588,8 @@ class LibvirtConnection(VmsConnection):
                    image_refs=[],
                    lvm_info={}):
 
-        image_base_path = os.path.join(CONF.instances_path, CONF.base_dir_name)
+        image_base_path = os.path.join(CONF.instances_path,
+                                       CONF.image_cache_subdirectory_name)
         if not os.path.exists(image_base_path):
             LOG.debug('Base path %s does not exist. It will be created now.', image_base_path)
             mkdir_as(image_base_path, self.openstack_uid)
@@ -649,7 +650,7 @@ class LibvirtConnection(VmsConnection):
         # appears to be the root disk's image metadata. it checks the metadata
         # for the image format (e.g. iso, disk, etc). Right now we are passing
         # in None (default) but we need to double check this.
-        disk_info = blockinfo.get_disk_info(CONF.libvirt_type,
+        disk_info = blockinfo.get_disk_info(CONF.libvirt.virt_type,
                                             new_instance_ref,
                                             block_device_info)
 
@@ -848,7 +849,7 @@ class LibvirtConnection(VmsConnection):
         #              points to the qcow2 file. This symlink does not get
         #              deleted when the instance is destroyed. This cleans up
         #              any broken symlinks.
-        vg_path = os.path.join('/dev', CONF.libvirt_images_volume_group)
+        vg_path = os.path.join('/dev', CONF.libvirt.images_volume_group)
         LOG.debug("Starting to clean symlinks in %s" %(vg_path))
         for filename in os.listdir(vg_path):
             path = os.path.join(vg_path, filename)
@@ -874,7 +875,7 @@ class LibvirtConnection(VmsConnection):
         Performs a periodic cleanup of leftover on the system as a result
         of using cobalt / vms.
         """
-        if CONF.libvirt_images_type == 'lvm':
+        if CONF.libvirt.images_type == 'lvm':
             self._clean_lvm_symlinks()
 
     @_log_call

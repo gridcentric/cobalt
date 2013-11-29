@@ -166,7 +166,7 @@ def _retry_rpc(fn):
 
     return wrapped_fn
 
-class CobaltManager(manager.SchedulerDependentManager):
+class CobaltManager(manager.Manager):
 
     def __init__(self, *args, **kwargs):
 
@@ -738,10 +738,11 @@ class CobaltManager(manager.SchedulerDependentManager):
         instance_ref['host'] = dest
         rpc.call(context, compute_dest_queue,
                  {"method": "pre_live_migration",
-                  "version": "2.2",
+                  "version": "3.0",
                   "args": {'instance': instance_ref,
                            'block_migration': False,
-                           'disk': None}},
+                           'disk': None,
+                           'migrate_data': None}},
                  timeout=CONF.cobalt_compute_timeout)
         instance_ref['host'] = self.host
 
@@ -824,7 +825,7 @@ class CobaltManager(manager.SchedulerDependentManager):
                 self.network_api.setup_networks_on_host(context, instance_ref, host=dest)
                 rpc.call(context, compute_source_queue,
                     {"method": "rollback_live_migration_at_destination",
-                     "version": "2.2",
+                     "version": "3.0",
                      "args": {'instance': instance_ref}})
             except:
                 _log_error("post migration cleanup")
@@ -1138,10 +1139,11 @@ class CobaltManager(manager.SchedulerDependentManager):
                 rpc.call(context,
                     rpc.queue_get_for(context, CONF.compute_topic, self.host),
                     {"method": "pre_live_migration",
-                     "version": "2.2",
+                     "version": "3.0",
                      "args": {'instance': instance_ref,
                               'block_migration': False,
-                              'disk': None}},
+                              'disk': None,
+                              'migrate_data': None}},
                     timeout=CONF.cobalt_compute_timeout)
 
             vms_policy = self._generate_vms_policy_name(context, instance_ref,
