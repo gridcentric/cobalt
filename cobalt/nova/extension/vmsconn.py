@@ -25,6 +25,7 @@ import tempfile
 from glanceclient.exc import HTTPForbidden
 
 from nova import exception
+from nova import utils as nova_utils
 from nova.virt.libvirt import blockinfo
 from nova.virt.libvirt import imagebackend
 from nova.virt.libvirt import imagecache
@@ -32,8 +33,6 @@ from nova.virt.libvirt import utils as libvirt_utils
 from nova.openstack.common import log as logging
 
 from oslo.config import cfg
-
-import vms.utilities as utilities
 
 from . import vmsapi as vms_api
 from .. import image as co_image
@@ -61,8 +60,8 @@ CONF.register_opts(vmsconn_opts)
 
 def run_as(cmd, uid):
     sudo_cmd = ['sudo', '-u', '#%d' % uid]
-    sudo_cmd += cmd
-    utilities.check_command(sudo_cmd)
+    sudo_cmd.extend(cmd)
+    nova_utils.execute(*sudo_cmd, run_as_root=True)
 
 def mkdir_as(path, uid):
     run_as([ 'mkdir', '-p', path], uid)
@@ -74,29 +73,16 @@ def symlink_as(target, link, uid):
     run_as(['ln', '-s', target, link], uid)
 
 def get_vms_connection(virt_driver):
-    # Configure the logger regardless of the type of connection that will be used.
-
-    drivers = {
-        'FakeDriver': 'fake',
-        'LibvirtDriver': 'libvirt',
-        'XenAPIDriver': 'xenapi',
-        'XenApiDriver': 'xenapi'
-    }
     driver_name = virt_driver.__class__.__name__
-    connection_type = drivers.get(driver_name, None)
-    if connection_type == None:
+    if driver_name == 'FakeDriver':
+        return DummyConnection(virt_driver)
+    elif driver_name == 'LibvirtDriver':
+        return LibvirtConnection(virt_driver)
+    elif driver_name in ('XenAPIDriver', 'XenApiDriver'):
+        return XenApiConnection(virt_driver)
+    else:
         raise exception.NovaException(
             'Unsupported compute driver %s being used.' %(driver_name))
-
-    vmsapi = vms_api.get_vmsapi()
-    if connection_type == 'xenapi':
-        return XenApiConnection(vmsapi, virt_driver)
-    elif connection_type == 'libvirt':
-        return LibvirtConnection(vmsapi, virt_driver)
-    elif connection_type == 'fake':
-        return DummyConnection(vmsapi, virt_driver)
-    else:
-        raise exception.NovaException(_('Unsupported connection type "%s"' % connection_type))
 
 def _log_call(fn):
     def wrapped_fn(self, *args, **kwargs):
@@ -113,19 +99,15 @@ def _log_call(fn):
     return wrapped_fn
 
 
-class VmsConnection:
+class VmsConnection(object):
 
-    def __init__(self, vmsapi,virt_driver, image_service=None):
-        self.vmsapi = vmsapi
+    def __init__(self, virt_driver, image_service=None, vmsapi=None):
         self.virt_driver = virt_driver
         self.image_service = image_service if image_service is not None \
                                                     else co_image.ImageService()
-
-    def configure(self, virtapi):
-        """
-        Configures vms for this type of connection.
-        """
-        pass
+        if vmsapi is None:
+            vmsapi = vms_api.get_vmsapi(self._create_vms_driver())
+        self.vmsapi = vmsapi
 
     @_log_call
     def bless(self, context, instance_name, new_instance_ref, migration_url=None):
@@ -369,26 +351,23 @@ class VmsConnection:
 
 
 class DummyConnection(VmsConnection):
-    def configure(self, virtapi):
-        self.vmsapi.configure('dummy')
+    def _create_vms_driver(self):
+        return vms_api.DummyDriver()
 
 class XenApiConnection(VmsConnection):
     """
     VMS connection for XenAPI
     """
-    def configure(self, virtapi):
-        # (dscannell) We need to import this to ensure that the xenapi
-        # flags can be read in.
+    def _create_vms_driver(self):
+        # Import nova.virt.xenapi to make sure flags are defined.
         from nova.virt.xenapi import driver
-
-        self.vmsapi.configure(
-            vms_api.XapiPlugin(
-                self.virt_driver._session,
-                vms_platform='xcp',
-                management_options=
-                      {'connection_url': CONF.xenapi_connection_url,
-                       'connection_username': CONF.xenapi_connection_username,
-                       'connection_password': CONF.xenapi_connection_password}))
+        management_options = {
+            'connection_url':CONF.xenapi_connection_url,
+            'connection_username': CONF.xenapi_connection_username,
+            'connection_password': CONF.xenapi_connection_password
+        }
+        return vms_api.XapiPlugin(self.virt_driver._session,
+                                  'xcp', management_options)
 
     def get_hypervisor_hostname(self):
         return self.virt_driver._hypervisor_hostname
@@ -453,13 +432,9 @@ class LibvirtConnection(VmsConnection):
     VMS connection for Libvirt
     """
 
-    def configure(self, virtapi):
-        # (dscannell) import the libvirt module to ensure that the the
-        # libvirt flags can be read in.
-        from nova.virt.libvirt.driver import LibvirtDriver
-
+    def __init__(self, virt_driver, image_service=None):
+        super(LibvirtConnection, self).__init__(virt_driver, image_service)
         self.determine_openstack_user()
-
         # Two libvirt drivers are created for the two different cases:
         #   migration: When doing a migration we attempt to keep everything
         #              the same as a regular boot. In this case we just use
@@ -469,15 +444,16 @@ class LibvirtConnection(VmsConnection):
         #               images. We need to replace the regular image backend
         #               with the LaunchImageBackend that will force exclusive
         #               use of qcow2.
+        from nova.virt.libvirt import LibvirtDriver
+        virtapi = virt_driver.virtapi
         launch_libvirt_conn = LibvirtDriver(virtapi, read_only=False)
         launch_libvirt_conn.image_backend = LaunchImageBackend(CONF.use_cow_images)
         self.libvirt_connections = {'migration': LibvirtDriver(virtapi, read_only=False),
                                     'launch': launch_libvirt_conn}
 
-        libvirt_uri = launch_libvirt_conn.uri()
-        self.vmsapi.configure(
-                vms_api.Vmsctl(vms_platform='libvirt',
-                            management_options={'connection_url': libvirt_uri}))
+    def _create_vms_driver(self):
+        management_options = {'connection_url': self.virt_driver.uri()}
+        return vms_api.Vmsctl('libvirt', management_options)
 
     @_log_call
     def determine_openstack_user(self):
@@ -761,7 +737,7 @@ class LibvirtConnection(VmsConnection):
         # Make sure that the disk reflects all current state for this VM.
         # It's times like these that I wish there was a way to do this on a
         # per-file basis, but we have no choice here but to sync() globally.
-        utilities.call_command(["sync"])
+        nova_utils.execute("sync", check_exit_code=False)
 
     @_log_call
     def post_migration(self, context, instance_ref, network_info, migration_url):

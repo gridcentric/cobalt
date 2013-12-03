@@ -24,11 +24,6 @@ from nova import utils
 from nova.openstack.common import log as logging
 from nova.openstack.common.gettextutils import _
 
-import vms
-from vms import control
-
-from nova.openstack.common.gettextutils import _
-
 LOG = logging.getLogger('nova.cobalt.vmsapi')
 
 class BlessResult(object):
@@ -75,8 +70,17 @@ class BlessResult(object):
 class VmsDriver(object):
 
     def run_command(self, cmd_list):
-        pass
+        return []
 
+class DummyDriver(object):
+
+    VERSION = '2.7'
+
+    def run_command(self, cmd_list):
+        if cmd_list == ['version']:
+            return [DummyDriver.VERSION]
+        else:
+            return []
 
 class Vmsctl(VmsDriver):
     """
@@ -122,7 +126,6 @@ class XapiPlugin(Vmsctl):
         stdout = self._session.call_plugin('vms', 'vmsctl',
             {'args': json.dumps(args_list)})
 
-        LOG.debug("DRS DEBUG: result=%s", stdout)
         return stdout.split('\n')
 
 class VmsApi(object):
@@ -131,11 +134,7 @@ class VmsApi(object):
     vms interface changes.
     """
 
-    def __init__(self, version='2.5'):
-        self.version = version
-        self.vms_driver = None
-
-    def configure(self, vms_driver):
+    def __init__(self, vms_driver):
         self.vms_driver = vms_driver
 
     def bless(self, instance_name, new_instance_name, mem_url=None,
@@ -169,6 +168,14 @@ class VmsApi(object):
 
     def launch(self, instance_name, new_name, target, path, mem_url=None,
                migration=False, guest_params=None, vms_options=None, **kwargs):
+
+        if target != 0:
+            # The target parameter is no longer supported by VMS. Log a warning
+            # if the user is attempting
+            # to specify it.
+            LOG.warn(_("The target parameter is no long supported and "
+                       "it will be ignored."))
+        target = None
 
         # command: vmsctl launch <name> <newname> [path] [disk_url]
         #                        [mem_url] [migration]
@@ -219,16 +226,9 @@ class VmsApi(object):
         return self.vms_driver.run_command(discard_cmd)
 
     def kill_memservers(self, mem_url):
-        # NOTE(dscannell): The command was only added to the vmsctl command
-        # line in vms2.7. Older versions will revert back to using the control
-        # directly (and as a result will require the process to be executed
-        # as root user).
-        for ctrl in control.probe():
-            try:
-                if ctrl.get("network") in mem_url:
-                    ctrl.kill(timeout=1.0)
-            except control.ControlException:
-                pass
+        # command: vmsctl kill_memservers <url>
+        kill_memservers_cmd = ['kill_memservers', mem_url]
+        return self.vms_driver.run_command(kill_memservers_cmd)
 
     def pause(self, instance_name):
 
@@ -242,62 +242,6 @@ class VmsApi(object):
         unpause_command = ['unpause', instance_name]
         return self.vms_driver.run_command(unpause_command)
 
-    def export(self, *args, **kwargs):
-        raise exception.NovaException(
-            'Export is not supported on this version of VMS')
-
-    def import_(self, *args, **kwargs):
-        raise exception.NovaException(
-            'Import is not supported on this version of VMS')
-
-    def install_policy(self, *args, **kwargs):
-        raise exception.NovaException(
-            'Memory policies are not supported on this version of VMS')
-
-class VmsApi26(VmsApi):
-
-    def __init__(self, version='2.6'):
-        super(VmsApi26, self).__init__(version=version)
-
-    def launch(self, instance_name, new_name, target, path, mem_url=None,
-               migration=False, guest_params=None, vms_options=None, **kwargs):
-
-        if target != 0:
-            # The target parameter is no longer supported by VMS. Log a warning
-            # if the user is attempting
-            # to specify it.
-            LOG.warn(_("The target parameter is no long supported and "
-                       "it will be ignored."))
-        target = None
-        return super(VmsApi26, self).launch(instance_name,
-                                            new_name,
-                                            target,
-                                            path,
-                                            mem_url=mem_url,
-                                            migration=migration,
-                                            guest_params=guest_params,
-                                            vms_options=vms_options,
-                                            **kwargs)
-
-    def install_policy(self, policy_ini_string):
-
-        with tempfile.NamedTemporaryFile() as temp_policy_file:
-            temp_policy_file.write(policy_ini_string)
-            temp_policy_file.flush()
-            # command: installpolicy <policy_path>
-            install_policy_cmd = ['installpolicy', temp_policy_file.name]
-            return self.vms_driver.run_command(install_policy_cmd)
-
-class VmsApi27(VmsApi26):
-
-    def __init__(self, version='2.7'):
-        super(VmsApi27, self).__init__(version=version)
-
-    def kill_memservers(self, mem_url):
-        # command: vmsctl kill_memservers <url>
-        kill_memservers_cmd = ['kill_memservers', mem_url]
-        return self.vms_driver.run_command(kill_memservers_cmd)
-
     def export(self, instance_ref, archive, path):
         # command: vmsctl export <name> <archive> [path] [disk_url] [mem_url]
         export_cmd = ['export', instance_ref['name'], archive, path]
@@ -308,20 +252,26 @@ class VmsApi27(VmsApi26):
         import_cmd = ['import', instance_ref['name'], archive]
         return self.vms_driver.run_command(import_cmd)
 
-def get_vmsapi(version=None):
-    if version == None:
-        version = vms.version.VERSION
+    def install_policy(self, policy_ini_string):
 
-    [major, minor] = [int(value) for value in  version.split('.')]
+        with tempfile.NamedTemporaryFile() as temp_policy_file:
+            temp_policy_file.write(policy_ini_string)
+            temp_policy_file.flush()
+            # command: installpolicy <policy_path>
+            install_policy_cmd = ['installpolicy', temp_policy_file.name]
+            return self.vms_driver.run_command(install_policy_cmd)
 
-    if major >= 2 and minor >= 7:
-        vmsapi = VmsApi27()
-    elif major >= 2 and minor >= 6:
-        vmsapi = VmsApi26()
-    elif major >= 2:
-        vmsapi = VmsApi()
+def get_vmsapi(vms_driver):
+    # Parse dot-separated components of version until the first non-numeric
+    # component.
+    version = []
+    for comp in vms_driver.run_command(['version'])[0].split('.'):
+        try:
+            version.append(int(comp))
+        except ValueError:
+            break
+    if version >= [2, 7]:
+        return VmsApi(vms_driver)
     else:
         raise exception.NovaException(
             _("Unsupported version of vms %s") %(version))
-
-    return vmsapi

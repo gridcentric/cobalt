@@ -191,10 +191,7 @@ class CobaltManager(manager.SchedulerDependentManager):
     def _init_vms(self):
         """ Initializes the hypervisor options depending on the openstack connection type. """
         if self.vms_conn == None:
-            compute_driver = self.compute_manager.driver
-            self.vms_conn = vmsconn.get_vms_connection(compute_driver)
-            self.vms_conn.configure(
-                    compute_manager.ComputeVirtAPI(self.compute_manager))
+            self.vms_conn = vmsconn.get_vms_connection(self.compute_manager.driver)
 
     def _lock_instance(self, instance_uuid):
         self.cond.acquire()

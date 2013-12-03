@@ -16,21 +16,22 @@
 
 
 import unittest
+
+from nova import exception
+
 import cobalt.nova.extension.vmsapi as vms_api
 
-
-class CapturedVmsCtl(object):
+class CapturedVmsctl(vms_api.Vmsctl):
     """
     Instead of actually running the vmsctl command this will just capture
     the command line.
     """
-    def __init__(self, vmsctl):
-        self.vmsctl = vmsctl
-        self.captured_command = None
+
+    captured_command = None
 
     def run_command(self, cmd_list):
-
-        self.captured_command = self.vmsctl.vmsctl_command + cmd_list
+        assert self.captured_command is None
+        self.captured_command = self.vmsctl_command + cmd_list
 
         action = cmd_list[0]
         stdout = []
@@ -50,10 +51,9 @@ class CobaltVmsApiTestCase(unittest.TestCase):
     def setUp(self):
         # TODO(dscannell): We will eventually want to parameterized this test
         #                  to deal with all of the supported vms versions.
-        self.vmsapi = vms_api.get_vmsapi(version='2.6')
+        self.capture = CapturedVmsctl('dummy')
+        self.vmsapi = vms_api.VmsApi(self.capture)
         # Capture the vmsctl output instead of actually running the command.
-        self.capture = CapturedVmsCtl(vms_api.Vmsctl(vms_platform='dummy'))
-        self.vmsapi.configure(self.capture)
 
     def test_bless_nomem_nomigration(self):
         bless_result =  self.vmsapi.bless("testbless", "new-testbless")
@@ -217,3 +217,39 @@ class CobaltVmsApiTestCase(unittest.TestCase):
                            '-p', 'dummy',
                            'unpause', 'testunpause'],
             self.capture.captured_command)
+
+class VersionVmsctl(vms_api.Vmsctl):
+
+    def __init__(self, version):
+        self.version = version
+
+    def run_command(self, cmd_list):
+        if cmd_list == ['version']:
+            return [self.version]
+        else:
+            raise Exception('Unexpected command: %s' % cmd_list)
+
+class CobaltVmsApiVersionTestCase(unittest.TestCase):
+    def _get_vmsapi(self, version):
+        return vms_api.get_vmsapi(VersionVmsctl(version))
+
+    def _assert_too_old(self, version):
+        self.assertRaises(exception.NovaException, self._get_vmsapi, version)
+
+    def _assert_ok(self, version):
+        self._get_vmsapi(version)
+
+    def test_too_old(self):
+        self._assert_too_old('2.6')
+        self._assert_too_old('2.6.9')
+        self._assert_too_old('2')
+        self._assert_too_old('1.7')
+        self._assert_too_old('2.6.devel')
+
+    def test_ok(self):
+        self._assert_ok('2.7')
+        self._assert_ok('2.7.0')
+        self._assert_ok('2.8.0')
+        self._assert_ok('3')
+        self._assert_ok('3.3.3')
+        self._assert_ok('2.7.devel')
