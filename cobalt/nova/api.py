@@ -54,6 +54,7 @@ CAPABILITIES = ['user-data',
                 'import-export',
                 'scheduler-hints',
                 'install-policy',
+                'get-policy',
                 'supports-volumes',
                 ]
 
@@ -106,9 +107,10 @@ class API(base.Base):
         rv = self.db.instance_get_by_uuid(context, instance_uuid)
         return dict(rv.iteritems())
 
-    def _cast_cobalt_message(self, method, context, instance, host=None,
-                              params=None):
-        """Generic handler for RPC casts to cobalt topic. This does not block for a response.
+    def _send_cobalt_message(self, method, context, instance, host=None,
+                              params=None, is_call=False):
+        """Generic handler for RPC casts/calls to cobalt topic.
+           This only blocks for a response with is_call=True.
 
         :param params: Optional dictionary of arguments to be passed to the
                        cobalt worker
@@ -120,14 +122,17 @@ class API(base.Base):
         if not host:
             host = instance['host']
         if not host:
-
             queue = CONF.cobalt_topic
         else:
             queue = rpc.queue_get_for(context, CONF.cobalt_topic, host)
 
         params['instance_uuid'] = instance['uuid']
         kwargs = {'method': method, 'args': params}
-        rpc.cast(context, queue, kwargs)
+
+        if is_call:
+            return rpc.call(context, queue, kwargs)
+        else:
+            rpc.cast(context, queue, kwargs)
 
     def _acquire_addition_reservation(self, context, instance, num_requested=1):
         # Check the quota to see if we can launch a new instance.
@@ -372,7 +377,7 @@ class API(base.Base):
                                                launch=False)
 
             LOG.debug(_("Casting cobalt message for bless_instance") % locals())
-            self._cast_cobalt_message('bless_instance', context, new_instance,
+            self._send_cobalt_message('bless_instance', context, new_instance,
                                        host=instance['host'])
             self._commit_reservation(context, reservations)
         except:
@@ -408,7 +413,7 @@ class API(base.Base):
             # otherwise we can skip it.
             reservations = self._acquire_subtraction_reservation(context, instance)
         try:
-            self._cast_cobalt_message('discard_instance', context, instance)
+            self._send_cobalt_message('discard_instance', context, instance)
             self._commit_reservation(context, reservations)
         except:
             ei = sys.exc_info()
@@ -475,7 +480,7 @@ class API(base.Base):
                                                        filter_properties)
 
             for host, launch_instance in zip(hosts, launch_instances):
-                self._cast_cobalt_message('launch_instance', context,
+                self._send_cobalt_message('launch_instance', context,
                     launch_instance, host,
                     { "params" : params })
 
@@ -560,7 +565,7 @@ class API(base.Base):
 
         self.db.instance_update(context, instance['uuid'], {'task_state':task_states.MIGRATING})
         LOG.debug(_("Casting cobalt message for migrate_instance") % locals())
-        self._cast_cobalt_message('migrate_instance', context,
+        self._send_cobalt_message('migrate_instance', context,
                                        instance, host=instance['host'],
                                        params={"dest" : dest})
 
@@ -621,7 +626,7 @@ class API(base.Base):
         image_name = '%s-export' % instance['display_name']
         image_id = self.image_service.create(context, image_name)
 
-        self._cast_cobalt_message("export_instance", context, instance, params={'image_id': image_id})
+        self._send_cobalt_message("export_instance", context, instance, params={'image_id': image_id})
 
         # Copy these fields directly
         fields = set([
@@ -690,7 +695,7 @@ class API(base.Base):
                                 {'vm_state':vm_states.BUILDING,
                                  'system_metadata': data['system_metadata']})
 
-        self._cast_cobalt_message('import_instance', context,
+        self._send_cobalt_message('import_instance', context,
                  instance, params={'image_id': data['export_image_id']})
 
         return self.get(context, instance['uuid'])
@@ -724,6 +729,17 @@ class API(base.Base):
                     (len(faults), '\n'.join([ host + ": " + str(fault).strip()
                         for host, fault in faults ])))
 
+    def get_applied_policy(self, context, instance_uuid):
+        instance = self.get(context, instance_uuid)
+
+        if not self._is_instance_launched(context, instance):
+            # Blessed and regular instances do not have applied policies.
+            raise exception.NovaException(_(("Instance %s is not a launched instance. " +
+                        "Only launched instances support policies.") % instance_uuid))
+
+        return self._send_cobalt_message('get_applied_policy', context,
+                                         instance, is_call=True)
+
     def _find_boot_host(self, context, metadata):
 
         co_hosts = self._list_cobalt_hosts(context)
@@ -750,7 +766,7 @@ class API(base.Base):
         metadata = kwargs.get('metadata', None)
         target_host = self._find_boot_host(context, metadata)
 
-        # Normally the compute_api would send a message to the sceduler. In this case since
+        # Normally the compute_api would send a message to the scheduler. In this case since
         # we have a target host, we'll just explicity send a message to that compute manager.
         compute_api = compute.API()
         def host_schedule(rpc_method,

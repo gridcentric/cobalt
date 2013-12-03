@@ -204,6 +204,15 @@ class CobaltServerControllerExtension(wsgi.Controller):
         instances = self._view_builder.detail(req, instances)['servers']
         return webob.Response(status_int=200, body=json.dumps(instances))
 
+    @wsgi.action('co_get_policy')
+    @convert_exception
+    @authorize
+    def _get_policy(self, req, id, body):
+        context = req.environ["nova.context"]
+        return webob.Response(
+            status_int=200,
+            body=json.dumps(self.cobalt_api.get_applied_policy(context, id)))
+
     ## Utility methods taken from nova core ##
     def _handle_quota_error(self, error):
         """

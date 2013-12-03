@@ -262,6 +262,20 @@ class VmsApi(object):
             install_policy_cmd = ['installpolicy', temp_policy_file.name]
             return self.vms_driver.run_command(install_policy_cmd)
 
+    def get_applied_policy(self, *args, **kwargs):
+        raise exception.NovaException(
+            'Get policy is not supported on this version of VMS')
+
+class VmsApi28(VmsApi):
+
+    def __init__(self, vms_driver):
+        super(VmsApi28, self).__init__(vms_driver)
+
+    def get_applied_policy(self, instance_name):
+        # command: vmsctl appliedpolicy <name>
+        applied_pol_cmd = ['appliedpolicy', instance_name]
+        return self.vms_driver.run_command(applied_pol_cmd)
+
 def get_vmsapi(vms_driver):
     # Parse dot-separated components of version until the first non-numeric
     # component.
@@ -271,7 +285,9 @@ def get_vmsapi(vms_driver):
             version.append(int(comp))
         except ValueError:
             break
-    if version >= [2, 7]:
+    if version >= [2, 8]:
+        return VmsApi28(vms_driver)
+    elif version >= [2, 7]:
         return VmsApi(vms_driver)
     else:
         raise exception.NovaException(

@@ -336,6 +336,13 @@ class VmsConnection(object):
         """
         return self.vmsapi.install_policy(raw_ini_policy)
 
+    @_log_call
+    def get_applied_policy(self, instance_name):
+        """
+        Get the current policy applied to the domain by vmspolicyd.
+        """
+        return self.vmsapi.get_applied_policy(instance_name)
+
     def get_hypervisor_hostname(self):
         raise NotImplementedError()
 
