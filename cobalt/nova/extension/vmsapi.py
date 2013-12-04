@@ -314,12 +314,8 @@ def get_vmsapi(version=None):
 
     [major, minor] = [int(value) for value in  version.split('.')]
 
-    if major >= 2 and minor >= 7:
+    if major > 2 or (major == 2 and minor >= 7):
         vmsapi = VmsApi27()
-    elif major >= 2 and minor >= 6:
-        vmsapi = VmsApi26()
-    elif major >= 2:
-        vmsapi = VmsApi()
     else:
         raise exception.NovaException(
             _("Unsupported version of vms %s") %(version))

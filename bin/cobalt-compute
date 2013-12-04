@@ -25,7 +25,7 @@
 # threads (hence we use the tpool() functionality provided by eventlet), we 
 # skip monkey_patching the thread libraries.
 import eventlet
-eventlet.monkey_patch(thread=False)
+eventlet.monkey_patch()
 
 import gettext
 import os
