@@ -50,7 +50,7 @@ class CobaltVmsApiTestCase(unittest.TestCase):
     def setUp(self):
         # TODO(dscannell): We will eventually want to parameterized this test
         #                  to deal with all of the supported vms versions.
-        self.vmsapi = vms_api.get_vmsapi(version='2.6')
+        self.vmsapi = vms_api.get_vmsapi(version='2.7')
         # Capture the vmsctl output instead of actually running the command.
         self.capture = CapturedVmsCtl(vms_api.Vmsctl(vms_platform='dummy'))
         self.vmsapi.configure(self.capture)
