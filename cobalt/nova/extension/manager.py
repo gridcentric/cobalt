@@ -879,9 +879,7 @@ class CobaltManager(manager.SchedulerDependentManager):
             is_vpn = False
             try:
                 self._instance_update(context, instance_ref['uuid'],
-                          task_state=task_states.NETWORKING,
-                          host=self.host)
-                instance_ref['host'] = self.host
+                          task_state=task_states.NETWORKING)
                 LOG.debug(_("Making call to network for launching instance=%s"), \
                       instance_ref['name'])
                 # In a contested host, this function can block behind locks for
@@ -1035,6 +1033,25 @@ class CobaltManager(manager.SchedulerDependentManager):
             source_instance_ref = self._get_source_instance(context,
                                                             instance_ref)
 
+        if not(migration_url):
+            try:
+                # We need to set the instance's node and host before we call
+                # into self.compute_manager because the compute manager looks at
+                # these properties. If we're migrating, then we leave host and
+                # node until launch succeeds because the instance will have the
+                # source host's host & node values.
+                self._instance_update(context, instance_uuid,
+                                      host=self.host,
+                                      node=self.nodename)
+                instance_ref['host'] = self.host
+                instance_ref['node'] = self.nodename
+            except:
+                self._instance_update(context, instance_uuid,
+                                      host=None, node=None,
+                                      vm_state=vm_states.ERROR,
+                                      task_state=None)
+                raise
+
         try:
             # NOTE(dscannell): This will construct the block_device_info object
             # that gets passed to build/attached the volumes to the launched
@@ -1051,6 +1068,7 @@ class CobaltManager(manager.SchedulerDependentManager):
             _log_error("setting up block device mapping")
             if not(migration_url):
                 self._instance_update(context, instance_ref['uuid'],
+                                      host=None, node=None,
                                       vm_state=vm_states.ERROR,
                                       task_state=None)
             raise
@@ -1127,8 +1145,6 @@ class CobaltManager(manager.SchedulerDependentManager):
                 self._instance_update(context,
                                       instance_uuid,
                                       vm_state=vm_states.ERROR,
-                                      host=self.host,
-                                      node=self.nodename,
                                       task_state=None)
             raise e
 
@@ -1137,11 +1153,12 @@ class CobaltManager(manager.SchedulerDependentManager):
             power_state = self.compute_manager._get_power_state(context, instance_ref)
             update_params = {'power_state': power_state,
                              'vm_state': vm_states.ACTIVE,
-                             'host': self.host,
-                             'node': self.nodename,
                              'task_state': None}
             if not(migration_url):
                 update_params['launched_at'] = timeutils.utcnow()
+            else:
+                update_params['host'] = self.host
+                update_params['node'] = self.nodename
             self._instance_update(context,
                                   instance_uuid,
                                   **update_params)
