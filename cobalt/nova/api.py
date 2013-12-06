@@ -30,8 +30,10 @@ from nova.compute import power_state
 from nova.compute import task_states
 from nova.compute import vm_states
 from nova.db import base
+from nova.network import model as network_model
 from nova.network.security_group import openstack_driver as sg_driver
 from nova.objects import instance as instance_obj
+from nova.objects import instance_info_cache
 from nova.openstack.common import jsonutils
 from nova.openstack.common import log as logging
 from nova.openstack.common import rpc
@@ -269,13 +271,15 @@ class API(base.Base):
 
         new_instance = instance_obj.Instance()
         new_instance.update(instance_params)
+        info_cache = instance_info_cache.InstanceInfoCache()
+        new_instance.info_cache = info_cache
+        info_cache.network_info = network_model.NetworkInfo.hydrate(
+            instance['info_cache'].get('network_info', '[]'))
+
         if security_groups != None:
             self.sg_api.populate_security_groups(new_instance,
                                                  security_groups)
         new_instance.create(context)
-        nw_info = instance['info_cache'].get('network_info')
-        self.db.instance_info_cache_update(context, new_instance['uuid'],
-                                           {'network_info': nw_info})
 
         # (dscannell) We need to reload the instance reference in order for it to be associated with
         # the database session of lazy-loading.
