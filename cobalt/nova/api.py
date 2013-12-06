@@ -179,7 +179,7 @@ class API(base.Base):
 
     def _copy_instance(self, context, instance, new_name, launch=False,
                        new_user_data=None, security_groups=None, key_name=None,
-                       launch_index=0, availability_zone=None):
+                       launch_index=0, availability_zone=None, task_state=None):
         # (OmgLag): Basically we want to copy all of the information from
         # instance with provided instance into a new instance. This is because
         # we are basically "cloning" the vm as far as all the properties are
@@ -260,6 +260,7 @@ class API(base.Base):
            # Set disable_terminate on bless so terminate in nova-api barfs on a
            # blessed instance.
            'disable_terminate': not launch,
+           'task_state': task_state,
         }
 
         if security_groups != None:
@@ -472,7 +473,8 @@ class API(base.Base):
                     key_name=instance_params.pop('key_name', None),
                     launch_index=i,
                     # Note this is after groking by handle_az above
-                    availability_zone=availability_zone))
+                    availability_zone=availability_zone,
+                    task_state=task_states.SCHEDULING))
 
             request_spec = self._create_request_spec(context, launch_instances,
                                                      security_groups)
