@@ -1191,3 +1191,8 @@ class CobaltManager(manager.SchedulerDependentManager):
         except Exception, ex:
             LOG.error(_("Policy install failed: %s"), ex)
             raise ex
+
+    @_lock_call
+    def get_applied_policy(self, context, instance_uuid=None, instance_ref=None):
+        """ Get the applied domain policy from vmspolicyd. """
+        return self.vms_conn.get_applied_policy(instance_ref['name'])

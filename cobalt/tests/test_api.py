@@ -741,3 +741,31 @@ class CobaltApiTestCase(unittest.TestCase):
         self.assertEquals(6, len(self.mock_rpc.call_log['install_policy']))
 
         self.assertFalse('install_policy' in self.mock_rpc.cast_log)
+
+    def test_get_policy_blessed(self):
+        blessed_instance_uuid = utils.create_blessed_instance(self.context)
+
+        try:
+            self.cobalt_api.get_applied_policy(self.context, blessed_instance_uuid)
+            self.fail('Should not be able to get policy for blessed instance.')
+        except exception.NovaException:
+            pass # success
+
+    def test_get_policy_regular(self):
+        instance_uuid = utils.create_instance(self.context)
+
+        try:
+            self.cobalt_api.get_applied_policy(self.context, instance_uuid)
+            self.fail('Should not be able to get policy for regular instance.')
+        except exception.NovaException:
+            pass # success
+
+    def test_get_policy_launched(self):
+        launched_uuid = utils.create_launched_instance(self.context)
+        self.cobalt_api.get_applied_policy(self.context, launched_uuid)
+
+        self.assertTrue('get_applied_policy' in self.mock_rpc.call_log)
+        self.assertEquals(1, len(self.mock_rpc.call_log))
+        instance = db.instance_get_by_uuid(self.context, launched_uuid)
+        self.assertTrue(('cobalt.%s' % instance['host'])
+                        in self.mock_rpc.call_log['get_applied_policy'])
