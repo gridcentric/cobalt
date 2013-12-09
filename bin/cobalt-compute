@@ -51,6 +51,8 @@ if os.path.exists(os.path.join(possible_topdir, 'nova', '__init__.py')):
     sys.path.insert(0, possible_topdir)
 
 from nova import config
+import nova.db.api
+from nova import exception
 from nova import service
 from nova.openstack.common import log as logging
 from oslo.config import cfg
@@ -74,6 +76,22 @@ def print_threads():
 def sig_usr2_handler(signum, frame):
     print_threads()
 
+def block_db_access():
+    class NoDB(object):
+        def __getattr__(self, attr):
+            return self
+
+        def __call__(self, *args, **kwargs):
+            stacktrace = "".join(traceback.format_stack())
+            LOG.error('No db access allowed in cobalt-compute: %s' % stacktrace)
+            raise exception.DBNotAllowed('cobalt-compute')
+
+    nova.db.api.IMPL = NoDB()
+
+def setup_conductor():
+    if not cfg.CONF.conductor.use_local:
+        block_db_access()
+
 if __name__ == '__main__':
     config.parse_args(sys.argv)
     cobalt_opts = [
@@ -84,6 +102,7 @@ if __name__ == '__main__':
 
     logging.setup('nova')
     signal.signal(signal.SIGUSR2, sig_usr2_handler)
+    setup_conductor()
     server = service.Service.create(binary='cobalt',
                                     db_allowed=False)
     service.serve(server)
