@@ -104,6 +104,7 @@ class CobaltApiTestCase(unittest.TestCase):
                           copy_instance['root_device_name'])
         self.assertEquals(power_state.NOSTATE, copy_instance['power_state'])
         self.assertEquals(True, copy_instance['disable_terminate'])
+        self.assertEquals(None, copy_instance['task_state'])
 
         def _dictify_metadata(metadata):
             return dict( ( i['key'], i['value']) for i in metadata )
@@ -151,6 +152,7 @@ class CobaltApiTestCase(unittest.TestCase):
         blessed_instance = self.cobalt_api.bless_instance(self.context, instance_uuid)
 
         self.assertEquals(vm_states.BUILDING, blessed_instance['vm_state'])
+        self.assertEquals(None, blessed_instance['task_state'])
         # Ensure that we have a 2nd instance in the database that is a "clone"
         # of our original instance.
         instances = db.instance_get_all(self.context)
@@ -364,6 +366,8 @@ class CobaltApiTestCase(unittest.TestCase):
         blessed_instance_uuid = blessed_instance['uuid']
 
         launched_instance = self.cobalt_api.launch_instance(self.context, blessed_instance_uuid)
+
+        self.assertEqual(task_states.SCHEDULING, launched_instance['task_state'])
 
         launched_instance_uuid = launched_instance['uuid']
         metadata = db.instance_metadata_get(self.context, launched_instance['uuid'])

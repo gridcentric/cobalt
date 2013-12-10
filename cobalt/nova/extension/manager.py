@@ -1044,7 +1044,8 @@ class CobaltManager(manager.SchedulerDependentManager):
                 # source host's host & node values.
                 self._instance_update(context, instance_uuid,
                                       host=self.host,
-                                      node=self.nodename)
+                                      node=self.nodename,
+                                      task_state=task_states.BLOCK_DEVICE_MAPPING)
                 instance_ref['host'] = self.host
                 instance_ref['node'] = self.nodename
             except:
