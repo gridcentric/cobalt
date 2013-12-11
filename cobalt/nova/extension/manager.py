@@ -551,6 +551,14 @@ class CobaltManager(manager.SchedulerDependentManager):
                 _log_error("snapshot volumes")
                 raise
 
+        # NOTE(dscannell): This can fail if the instance_type used to create
+        #                  the master has since been deleted. Due to this
+        #                  this should be called before anything real happens
+        #                  because without the instance_type its hard to relaunch
+        #                  the instance (roll back the bless).
+        vms_policy_template = self._generate_vms_policy_template(context,
+                instance_ref)
+
         source_locked = False
         try:
             # Lock the source instance if blessing
@@ -585,8 +593,7 @@ class CobaltManager(manager.SchedulerDependentManager):
             # We set the image_refs to an empty array first in case the
             # post_bless() fails and we need to cleanup artifacts.
             image_refs = []
-            vms_policy_template = self._generate_vms_policy_template(context,
-                                                            instance_ref)
+
             image_refs = self.vms_conn.post_bless(context,
                                     instance_ref,
                                     blessed_files,

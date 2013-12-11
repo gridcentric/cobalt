@@ -550,6 +550,12 @@ class API(base.Base):
         elif instance_ref['vm_state'] != vm_states.ACTIVE:
             raise exception.NovaException(_("Unable to migrate instance %s because it is not active") %
                                   instance_uuid)
+
+        # NOTE(dscannell): Ensure that the instance type associated with the
+        #                  instance still exists within the database. This will
+        #                  raise an InstanceTypeNotFoundError if it does not
+        #                  exist.
+        self.db.instance_type_get(context, instance_ref['instance_type_id'])
         dest = self._find_migration_target(context, instance_ref['host'], dest)
 
         self.db.instance_update(context, instance_ref['uuid'], {'task_state':task_states.MIGRATING})
