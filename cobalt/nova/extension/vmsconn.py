@@ -59,6 +59,12 @@ vmsconn_opts = [
                     'are discovered to be unused.')]
 CONF.register_opts(vmsconn_opts)
 
+def dict_without(d, key):
+    '''Returns a copy of d without d[key].'''
+    d = dict(d)
+    d.pop(key, None)
+    return d
+
 def run_as(cmd, uid):
     sudo_cmd = ['sudo', '-u', '#%d' % uid]
     sudo_cmd.extend(cmd)
@@ -681,47 +687,23 @@ class LibvirtConnection(VmsConnection):
         for network_ref, mapping in network_info:
             network_ref['injected'] = False
 
-        # Stub out an image in the _base directory so libvirt_conn._create_image
-        # doesn't try to download the base image that the master was booted
-        # from, which isn't necessary because a clone's thin-provisioned disk is
-        # overlaid on a disk image accessible via VMS_DISK_URL. Note that we
-        # can't just touch the image's file in _base because master instances
-        # will need the real _base data. So we trick _create_image into using
-        # some bogus id for the image id that'll never be the id of a real
-        # image; the new instance's uuid suffices.
-        disk_images = {'image_id': new_instance_ref['uuid'],
-                       'kernel_id': new_instance_ref['kernel_id'],
-                       'ramdisk_id': new_instance_ref['ramdisk_id']}
-        touch_as(os.path.join(image_base_path,
-                        imagecache.get_cache_fname(disk_images, 'image_id')),
-                 self.openstack_uid)
-
+        # We use the libvirt driver to create the instance's console log and
+        # libvirt XML. The driver's _create_image and to_xml methods do all of
+        # this; unfortunately, _create_image also downloads the root disk's base
+        # image (i.e., the image the master was booted from) since
+        # instance_dict['image_ref'] refers to it. However, because VMS provides
+        # the backing storage for clone's root disk, downloading the base image
+        # is unnecessary. Fortunately, we can trick _create_image into not
+        # downloading the base image by removing 'disk' from the disk mapping.
+        less_disks = dict_without(disk_info['mapping'], 'disk')
         # (dscannell): We need to also stub out the ephemeral base disk. If this
         #              is using LVM, then the actual ephemeral base does not
         #              matter because it is ignored. Otherwise we need to create
         #              the ephemeral disk correctly because it will be used to
         #              create ephemeral disks for other instances.
-        if 'disk.local' in disk_info['mapping']:
-            os_type_with_default = new_instance_ref['os_type']
-            if not os_type_with_default:
-                os_type_with_default = 'default'
-            ephemeral_gb = new_instance_ref['ephemeral_gb']
-            fname = 'ephemeral_%s_%s' % (ephemeral_gb, os_type_with_default)
-            base_ephemeral_path = os.path.join(image_base_path, fname)
-
-            if CONF.libvirt_images_type == "lvm":
-                touch_as(base_ephemeral_path, self.openstack_uid)
-            else:
-                libvirt_conn._create_ephemeral(base_ephemeral_path,
-                        ephemeral_gb * 1024 * 1024 * 1024,
-                        fs_label='ephemeral0',
-                        os_type=new_instance_ref['os_type'])
-                os.chown(base_ephemeral_path, self.openstack_uid,
-                        self.openstack_gid)
-
-        # (dscannell) This was taken from the core nova project as part of the
-        # boot path for normal instances. We basically want to mimic this
-        # functionality.
+        # (alc): And rather than worrying about the type, we remove the ephemeral
+        # disk also from the set of disks to be downloaded.
+        less_disks = dict_without(less_disks, 'disk.local')
         # (rui-lin) libvirt_xml parameter was removed from 2013.1 to 2013.1.1
         # Check if the parameter is in argument list of _create_image to
         # decide which method signature to use, and whether to write the xml
@@ -730,16 +712,14 @@ class LibvirtConnection(VmsConnection):
             xml = libvirt_conn.to_xml(instance_dict, network_info, disk_info,
                                       block_device_info=block_device_info)
             libvirt_conn._create_image(context, instance_dict, xml,
-                                       disk_info['mapping'],
+                                       less_disks,
                                        network_info=network_info,
-                                       block_device_info=block_device_info,
-                                       disk_images=disk_images)
+                                       block_device_info=block_device_info)
         else:
             libvirt_conn._create_image(context, instance_dict,
-                                       disk_info['mapping'],
+                                       less_disks,
                                        network_info=network_info,
-                                       block_device_info=block_device_info,
-                                       disk_images=disk_images)
+                                       block_device_info=block_device_info)
             xml = libvirt_conn.to_xml(instance_dict, network_info, disk_info,
                                       block_device_info=block_device_info,
                                       write_to_disk=True)
