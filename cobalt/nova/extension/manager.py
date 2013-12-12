@@ -870,7 +870,8 @@ class CobaltManager(manager.SchedulerDependentManager):
         return self.network_api.get_instance_nw_info(context, instance_ref,
                 conductor_api=self.conductor_api)
 
-    def _instance_network_info(self, context, instance_ref, already_allocated, requested_networks=None):
+    def _instance_network_info(self, context, instance_ref, already_allocated,
+                               requested_networks=None):
         """
         Retrieve the network info for the instance. If the info is already_allocated then
         this will simply query for the information. Otherwise, it will ask for new network info
@@ -890,6 +891,8 @@ class CobaltManager(manager.SchedulerDependentManager):
             # This information might come from the instance, or the user might
             # have to specify it. Also, we might be able to convert this to a
             # cast because we are not waiting on any return value.
+            #
+            # NOTE(dscannell): the is_vpn will come from the instance's image
 
             is_vpn = False
             try:
@@ -897,7 +900,8 @@ class CobaltManager(manager.SchedulerDependentManager):
                           task_state=task_states.NETWORKING,
                           host=self.host)
                 instance_ref['host'] = self.host
-                LOG.debug(_("Making call to network for launching instance=%s"), \
+                LOG.debug(
+                      _("Making call to network for launching instance=%s"), \
                       instance_ref['name'])
                 # In a contested host, this function can block behind locks for
                 # a good while. Use our compute_timeout as an upper wait bound
@@ -910,7 +914,8 @@ class CobaltManager(manager.SchedulerDependentManager):
                     LOG.debug(_("Allocate network for instance=%s timed out"),
                                 instance_ref['name'])
                     network_info = self._retry_get_nw_info(context, instance_ref)
-                LOG.debug(_("Made call to network for launching instance=%s, network_info=%s"),
+                LOG.debug(_("Made call to network for launching instance=%s, "
+                            "network_info=%s"),
                       instance_ref['name'], network_info)
             except:
                 _log_error("network allocation")
@@ -1073,7 +1078,12 @@ class CobaltManager(manager.SchedulerDependentManager):
         # Extract the image ids from the source instance.
         image_refs = self._extract_image_refs(source_instance_ref)
         lvm_info = self._extract_lvm_info(source_instance_ref)
-        requested_networks = self._extract_requested_networks(source_instance_ref)
+        requested_networks = params.get('networks')
+        if requested_networks == None:
+            # (dscannell): Use the networks that were stored in the live-image
+            requested_networks = \
+                    self._extract_requested_networks(source_instance_ref)
+
 
         if migration_network_info != None:
             # (dscannell): Since this migration_network_info came over the wire we need
