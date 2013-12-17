@@ -13,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from openstack_dashboard.api import base
 from openstack_dashboard.api import nova as api
 
 from novaclient import shell
@@ -25,16 +26,16 @@ from novaclient.v1_1 import client
 def novaclient(request):
     insecure = getattr(api.settings, 'OPENSTACK_SSL_NO_VERIFY', False)
     api.LOG.debug('novaclient connection created using token "%s" and url "%s"' %
-                  (request.user.token.id, api.url_for(request, 'compute')))
+                  (request.user.token.id, base.url_for(request, 'compute')))
     extensions = shell.OpenStackComputeShell()._discover_extensions("1.1")
     c = client.Client(request.user.username,
                       request.user.token.id,
                       extensions=extensions,
                       project_id=request.user.tenant_id,
-                      auth_url=api.url_for(request, 'compute'),
+                      auth_url=base.url_for(request, 'compute'),
                       insecure=insecure)
     c.client.auth_token = request.user.token.id
-    c.client.management_url = api.url_for(request, 'compute')
+    c.client.management_url = base.url_for(request, 'compute')
     return c
 
 def server_bless(request, instance_id, **kwargs):

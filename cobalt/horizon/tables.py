@@ -16,6 +16,7 @@
 from django.utils.translation import ugettext_lazy as _
 
 from horizon import tables
+from horizon.utils import filters
 from openstack_dashboard.api import nova as api
 from openstack_dashboard.dashboards.project.instances import tables as proj_tables
 from openstack_dashboard.dashboards.admin.instances import tables as adm_tables
@@ -105,7 +106,7 @@ class InstancesTable(proj_tables.InstancesTable):
     STATUS_CHOICES = proj_tables.InstancesTable.STATUS_CHOICES + (('blessed', True),)
 
     status = tables.Column("status",
-                           filters=(proj_tables.title, proj_tables.replace_underscores),
+                           filters=(proj_tables.title, filters.replace_underscores),
                            verbose_name=_("Status"),
                            status=True,
                            status_choices=STATUS_CHOICES,
@@ -119,7 +120,7 @@ class AdminInstancesTable(adm_tables.AdminInstancesTable):
     STATUS_CHOICES = adm_tables.AdminInstancesTable.STATUS_CHOICES + (('blessed', True),)
 
     status = tables.Column("status",
-                           filters=(adm_tables.title, adm_tables.replace_underscores),
+                           filters=(adm_tables.title, filters.replace_underscores),
                            verbose_name=_("Status"),
                            status=True,
                            status_choices=STATUS_CHOICES,
