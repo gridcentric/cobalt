@@ -86,6 +86,8 @@ class CobaltServerControllerExtension(wsgi.Controller):
     def __init__(self):
         super(CobaltServerControllerExtension, self).__init__()
         self.cobalt_api = API()
+        self.nova_servers = servers.Controller()
+
         # Add the gridcentric-specific states to the state map
         common._STATE_MAP['blessed'] = {'default': 'BLESSED'}
 
@@ -121,6 +123,14 @@ class CobaltServerControllerExtension(wsgi.Controller):
         context = req.environ["nova.context"]
         try:
             params = body.get('co_launch', body.get('gc_launch', {}))
+
+            # (dscannell): Parse the network parameter and replace it in the
+            #              parameter dictionary before passing it into the
+            #              API.
+            networks = params.get('networks')
+            if networks != None:
+                networks = self.nova_servers._get_requested_networks(networks)
+                params['networks'] = networks
             result = self.cobalt_api.launch_instance(context, id,
                                                           params=params)
             return self._build_instance_list(req, [result])
