@@ -668,7 +668,7 @@ class CobaltApiTestCase(unittest.TestCase):
                                                  params={'num_instances': num})
             launched = self.cobalt_api.list_launched_instances(
                                             self.context, blessed_instance_uuid)
-            launched.sort(key=lambda inst: inst['launch_index'])
+            launched = sorted(launched, key=lambda inst: inst['launch_index'])
             self.assertEqual(len(launched), num)
             for i in range(num):
                 self.assertEqual(launched[i]['launch_index'], i)

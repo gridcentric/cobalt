@@ -106,8 +106,12 @@ class API(base.Base):
     def get_info(self):
         return {'capabilities': self.CAPABILITIES}
 
-    def get(self, context, instance_uuid):
+    def get(self, context, instance_uuid, want_object=False):
         """Get a single instance with the given instance_uuid."""
+        if want_object:
+            instance = instance_obj.Instance.get_by_uuid(context, instance_uuid)
+            return instance
+
         rv = self.db.instance_get_by_uuid(context, instance_uuid)
         return dict(rv.iteritems())
 
@@ -407,7 +411,7 @@ class API(base.Base):
 
         # We reload the instance because the manager may have change its state (most likely it
         # did).
-        return self.get(context, new_instance['uuid'])
+        return self.get(context, new_instance['uuid'], want_object=True)
 
     def discard_instance(self, context, instance_uuid):
         LOG.debug(_("Casting cobalt message for discard_instance") % locals())
@@ -511,7 +515,7 @@ class API(base.Base):
             self._rollback_reservation(context, reservations)
             raise ei[0], ei[1], ei[2]
 
-        return self.get(context, launch_instances[0]['uuid'])
+        return self.get(context, launch_instances[0]['uuid'], want_object=True)
 
     def _create_request_spec(self, context, instances, security_groups):
         """ Creates a scheduler request spec for the launch instances."""
@@ -597,7 +601,8 @@ class API(base.Base):
                   'metadata':{'launched_from':'%s' % instance_uuid},
                   'deleted':False
                   }
-        launched_instances = self.compute_api.get_all(context, filter)
+        launched_instances = self.compute_api.get_all(context, filter,
+                                                      want_objects=True)
         return launched_instances
 
     def list_blessed_instances(self, context, instance_uuid):
@@ -607,7 +612,8 @@ class API(base.Base):
                   'metadata':{'blessed_from':'%s' % instance_uuid},
                   'deleted':False
                   }
-        blessed_instances = self.compute_api.get_all(context, filter)
+        blessed_instances = self.compute_api.get_all(context, filter,
+                                                     want_objects=True)
         return blessed_instances
 
     def check_delete(self, context, instance_uuid):
