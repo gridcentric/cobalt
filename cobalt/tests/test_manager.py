@@ -427,3 +427,46 @@ class CobaltManagerTestCase(unittest.TestCase):
         expected_policy = ';blessed=%s;;flavor=%s;;tenant=%s;;uuid=%s;' \
                           %(instance['uuid'], flavor['name'], self.context.project_id, instance['uuid'])
         self.assertEquals(expected_policy, vms_policy)
+
+    def test_check_neutron_with_nova_network(self):
+        CONF.import_opt('network_api_class', 'nova.network')
+        previous_api_class = CONF.network_api_class
+        CONF.network_api_class = 'nova.network.api.API'
+
+        cobalt_manager = co_manager.CobaltManager(vmsconn=self.vmsconn)
+
+        try:
+            self.assertFalse(cobalt_manager._is_neutron_v2())
+        finally:
+            # Global state requires us to set it back
+            CONF.network_api_class = previous_api_class
+
+
+    def test_check_neutron_with_neutron(self):
+        CONF.import_opt('network_api_class', 'nova.network')
+        previous_api_class = CONF.network_api_class
+        CONF.network_api_class = 'nova.network.neutronv2.api.API'
+
+        cobalt_manager = co_manager.CobaltManager(vmsconn=self.vmsconn)
+
+        try:
+            self.assertTrue(cobalt_manager._is_neutron_v2())
+        finally:
+            # Global state requires us to set it back
+            CONF.network_api_class = previous_api_class
+
+    def test_check_neutron_with_quantum(self):
+        # (dscannell): Needed because the legacy configuration value is
+        #              still valid.
+        CONF.import_opt('network_api_class', 'nova.network')
+        previous_api_class = CONF.network_api_class
+        CONF.network_api_class = 'nova.network.quantumv2.api.API'
+
+        cobalt_manager = co_manager.CobaltManager(vmsconn=self.vmsconn)
+
+        try:
+            self.assertTrue(cobalt_manager._is_neutron_v2())
+        finally:
+            # Global state requires us to set it back
+            CONF.network_api_class = previous_api_class
+

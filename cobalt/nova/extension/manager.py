@@ -170,7 +170,7 @@ class CobaltManager(manager.SchedulerDependentManager):
 
     def __init__(self, *args, **kwargs):
 
-        self.quantum_attempted = False
+        self.neutron_attempted = False
         self.network_api = network.API()
         self.compute_manager = compute_manager.ComputeManager()
         self.volume_api = volume.API()
@@ -376,27 +376,28 @@ class CobaltManager(manager.SchedulerDependentManager):
                                       'attached_networks')
         if len(networks) == 0:
             return None
-        if self._is_quantum_v2():
+        if self._is_neutron_v2():
             return [[id, None, None] for id in networks]
         else:
             return [[id, None] for id in networks]
 
-    def _is_quantum_v2(self):
+    def _is_neutron_v2(self):
         # This has been stolen from the latest nova API code.
-        # It is necessary because some of the quantum types are
+        # It is necessary because some of the neutron types are
         # different for later APIs.
-        if self.quantum_attempted:
-            return self.have_quantum
+        if self.neutron_attempted:
+            return self.have_neutron
         try:
-            self.quantum_attempted = True
-            from nova.network.quantumv2 import api as quantum_api
-            self.have_quantum = issubclass(
-            importutils.import_class(CONF.network_api_class),
-               quantum_api.API)
-        except ImportError:
-            self.have_quantum = False
+            self.neutron_attempted = True
+            from nova.network.neutronv2 import api as neutron_api
 
-        return self.have_quantum
+            self.have_neutron = issubclass(
+                self.compute_manager.network_api.__class__,
+               neutron_api.API)
+        except ImportError:
+            self.have_neutron = False
+
+        return self.have_neutron
 
     def _get_source_instance(self, context, instance_ref):
         """
