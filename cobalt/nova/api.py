@@ -630,6 +630,7 @@ class API(base.Base):
         #                  raise an InstanceTypeNotFoundError if it does not
         #                  exist.
         self.db.flavor_get(context, instance['instance_type_id'])
+
         dest = self._find_migration_target(context, instance['host'], dest)
 
         self.db.instance_update(context, instance['uuid'], {'task_state':task_states.MIGRATING})
