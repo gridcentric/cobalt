@@ -279,8 +279,7 @@ class API(base.Base):
         new_instance.update(instance_params)
         info_cache = instance_info_cache.InstanceInfoCache()
         new_instance.info_cache = info_cache
-        info_cache.network_info = network_model.NetworkInfo.hydrate(
-            instance['info_cache'].get('network_info', '[]'))
+        info_cache.network_info = network_model.NetworkInfo.hydrate('[]')
 
         if security_groups != None:
             self.sg_api.populate_security_groups(new_instance,
