@@ -56,6 +56,7 @@ CAPABILITIES = ['user-data',
                 'install-policy',
                 'get-policy',
                 'supports-volumes',
+                'launch-nics'
                 ]
 
 LOG = logging.getLogger('nova.cobalt.api')
@@ -286,6 +287,15 @@ class API(base.Base):
 
         return new_instance
 
+    def _instance_system_metadata(self, instance):
+        """ Returns the instance metadata as a {key:value} dict """
+
+        result = {}
+        for record in instance.get('system_metadata', []):
+            # record is of type nova.db.models.InstanceSystemMetadata
+            result[record.key] = record.value
+        return result
+
     def _instance_metadata(self, context, instance):
         """ Returns the instance metadata as a {key:value} dict """
 
@@ -421,6 +431,30 @@ class API(base.Base):
             self._rollback_reservation(context, reservations)
             raise ei[0], ei[1], ei[2]
 
+    def _check_requested_networks(self, context, requested_networks, bless_instance):
+        # Ensure the data is correct
+        self.compute_api._check_requested_networks(context,
+            requested_networks)
+
+        # (dscannell): We only support replacement of ALL of the networks
+        #              that were attached to the blessed instance. Ensure
+        #              that the correct number of requested_networks is
+        #              specified.
+        # TODO(dscannell): Logic for parsing attached_networks is shared
+        #                  with the manager. There should be a place for
+        #                  this type of cross-sectional logic.
+        system_metadata = self._instance_system_metadata(bless_instance)
+        blessed_networks = system_metadata.get('attached_networks', '')
+        blessed_networks = [network for network in blessed_networks.split(',')
+                                    if network != '']
+
+        if len(blessed_networks) != len(requested_networks):
+            raise exception.NovaException(
+                    "All networks need to be specified for the new instance. "
+                    "Expected %s but only %s specified."
+                    % (len(blessed_networks), len(requested_networks)))
+
+
     def launch_instance(self, context, instance_uuid, params={}):
         pid = context.project_id
         uid = context.user_id
@@ -437,6 +471,11 @@ class API(base.Base):
         if security_groups is None or len(security_groups) == 0:
             security_groups = ['default']
         self.compute_api._check_requested_secgroups(context, security_groups)
+
+        requested_networks = params.get('networks', None)
+        if requested_networks != None:
+            self._check_requested_networks(context, requested_networks,
+                    instance)
 
         num_instances = params.pop('num_instances', 1)
 
@@ -457,6 +496,14 @@ class API(base.Base):
                                                 params.get('availability_zone'))
             filter_properties = { 'scheduler_hints' :
                                     params.pop('scheduler_hints', {}) }
+
+            # (dscannell): Ensure that the user is capable of creating instances
+            #              and the networks.
+            #              TODO: We should also validate that the user can
+            #              create the block devices. For now None is passed.
+            self.compute_api._check_create_policies(context, availability_zone,
+                    requested_networks, None)
+
             if forced_host:
                 policy.enforce(context, 'compute:create:forced', {})
                 filter_properties['force_hosts'] = [forced_host]
