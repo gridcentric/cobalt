@@ -695,6 +695,29 @@ class LibvirtConnection(VmsConnection):
                         imagecache.get_cache_fname(disk_images, 'image_id')),
                  self.openstack_uid)
 
+        # (dscannell): We need to also stub out the ephemeral base disk. If this
+        #              is using LVM, then the actual ephemeral base does not
+        #              matter because it is ignored. Otherwise we need to create
+        #              the ephemeral disk correctly because it will be used to
+        #              create ephemeral disks for other instances.
+        if 'disk.local' in disk_info['mapping']:
+            os_type_with_default = new_instance_ref['os_type']
+            if not os_type_with_default:
+                os_type_with_default = 'default'
+            ephemeral_gb = new_instance_ref['ephemeral_gb']
+            fname = 'ephemeral_%s_%s' % (ephemeral_gb, os_type_with_default)
+            base_ephemeral_path = os.path.join(image_base_path, fname)
+
+            if CONF.libvirt_images_type == "lvm":
+                touch_as(base_ephemeral_path, self.openstack_uid)
+            else:
+                libvirt_conn._create_ephemeral(base_ephemeral_path,
+                        ephemeral_gb * 1024 * 1024 * 1024,
+                        fs_label='ephemeral0',
+                        os_type=new_instance_ref['os_type'])
+                os.chown(base_ephemeral_path, self.openstack_uid,
+                        self.openstack_gid)
+
         # (dscannell) This was taken from the core nova project as part of the
         # boot path for normal instances. We basically want to mimic this
         # functionality.
