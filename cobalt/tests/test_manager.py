@@ -233,6 +233,39 @@ class CobaltManagerTestCase(unittest.TestCase):
         # Ensure that image1 was passed to vmsconn.launch
         self.assertEquals(['image1'], self.vmsconn.params_passed[0]['kwargs']['image_refs'])
 
+    def test_launch_instance_blessed_networks(self):
+
+        self.vmsconn.set_return_val("launch", None)
+
+        blessed_uuid = utils.create_blessed_instance(self.context,
+                instance={'system_metadata':
+                              {'attached_networks': 'blessed_network'}})
+        launched_uuid = utils.create_pre_launched_instance(self.context,
+                source_uuid=blessed_uuid)
+
+        self.cobalt.launch_instance(self.context, instance_uuid=launched_uuid)
+
+        network_info = self.vmsconn.params_passed[0]['args'][3]
+        self.assertTrue(len(network_info) == 1)
+        self.assertEquals('blessed_network', network_info[0]['network'])
+
+    def test_launch_instance_requested_networks(self):
+
+        self.vmsconn.set_return_val("launch", None)
+
+        blessed_uuid = utils.create_blessed_instance(self.context,
+                instance={'system_metadata':
+                      {'attached_networks': 'blessed_network'}})
+        launched_uuid = utils.create_pre_launched_instance(self.context,
+                source_uuid=blessed_uuid)
+        requested_networks = [('launch_network', None)]
+        self.cobalt.launch_instance(self.context, instance_uuid=launched_uuid,
+                                    params={'networks': requested_networks})
+
+        network_info = self.vmsconn.params_passed[0]['args'][3]
+        self.assertTrue(len(network_info) == 1)
+        self.assertEquals('launch_network', network_info[0]['network'])
+
     def test_launch_instance_exception(self):
 
         self.vmsconn.set_return_val("launch", utils.TestInducedException())

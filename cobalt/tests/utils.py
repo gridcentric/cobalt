@@ -393,7 +393,13 @@ def create_launched_instance(context, instance=None, source_uuid=None):
     return create_pre_launched_instance(context, instance=instance, source_uuid=source_uuid)
 
 def fake_networkinfo(*args, **kwargs):
-    return network_model.NetworkInfo()
+    requested_networks = kwargs.get('requested_networks')
+    networks = network_model.NetworkInfo()
+    if requested_networks:
+        for requested_network in requested_networks:
+            networks.append(network_model.VIF(network=requested_network[0]))
+
+    return networks
 
 def create_cobalt_service(context):
     service = {'name': 'cobalt-test-service',

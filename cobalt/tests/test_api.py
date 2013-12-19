@@ -504,6 +504,109 @@ class CobaltApiTestCase(unittest.TestCase):
         user_data = launched_instance['user_data']
         self.assertEqual(user_data, '')
 
+    def test_launch_valid_requested_networks(self):
+        instance_uuid = utils.create_blessed_instance(self.context,
+            instance={'system_metadata':
+                          {'attached_networks': 'net1'}})
+
+        def validate_networks(context, requested_networks):
+            # The requested networks are valid.
+            pass
+        self.cobalt_api.compute_api.network_api.validate_networks = \
+                    validate_networks
+
+        params = {'networks': [('network-id', None)]}
+        self.cobalt_api.launch_instance(self.context, instance_uuid,
+            params=params)
+
+    def test_launch_invalid_requested_networks(self):
+        instance_uuid = utils.create_blessed_instance(self.context,
+            instance={'system_metadata':
+                          {'attached_networks': 'net1'}})
+
+        def validate_networks(context, requested_networks):
+            # The requested networks are invalid.
+            raise  utils.TestInducedException()
+        self.cobalt_api.compute_api.network_api.validate_networks =\
+                validate_networks
+
+        params = {'networks': [('network-id', None)]}
+        try:
+            self.cobalt_api.launch_instance(self.context, instance_uuid,
+                    params=params)
+            self.fail("The networks are invalid. This should fail.")
+        except utils.TestInducedException:
+            pass
+
+    def test_launch_less_requested_networks(self):
+        # Cobalt only supports requesting the same number of networks that were
+        # present at bless time.
+
+        instance_uuid = utils.create_blessed_instance(self.context,
+                instance={'system_metadata':
+                              {'attached_networks': 'net1,net2'}})
+
+        def validate_networks(context, requested_networks):
+            # The requested networks are valid.
+            pass
+        self.cobalt_api.compute_api.network_api.validate_networks =\
+                validate_networks
+        params = {'networks': [('net-id', None)]}
+
+        try:
+            self.cobalt_api.launch_instance(self.context, instance_uuid,
+                    params=params)
+            self.fail("Only 1 network was specified in the params but 2 "
+                      "networks are specified for the blessed instance")
+        except exception.NovaException:
+            pass
+
+    def test_launch_more_requested_networks(self):
+        # Cobalt only supports requesting the same number of networks that were
+        # present at bless time.
+
+        instance_uuid = utils.create_blessed_instance(self.context,
+            instance={'system_metadata':
+                          {'attached_networks': 'net1,net2'}})
+
+        def validate_networks(context, requested_networks):
+            # The requested networks are valid.
+            pass
+        self.cobalt_api.compute_api.network_api.validate_networks =\
+        validate_networks
+        params = {'networks': [('net-id0', None),
+                               ('net-id1', None),
+                               ('net-id2', None)]}
+
+        try:
+            self.cobalt_api.launch_instance(self.context, instance_uuid,
+                params=params)
+            self.fail("3 network was specified in the params but only 2 "
+                      "networks are specified for the blessed instance")
+        except exception.NovaException:
+            pass
+
+
+    def test_launch_equal_requested_networks(self):
+        # Cobalt only supports requesting the same number of networks that were
+        # present at bless time.
+
+        instance_uuid = utils.create_blessed_instance(self.context,
+            instance={'system_metadata':
+                          {'attached_networks': 'net1,net2'}})
+
+        def validate_networks(context, requested_networks):
+            # The requested networks are valid.
+            pass
+        self.cobalt_api.compute_api.network_api.validate_networks =\
+        validate_networks
+        params = {'networks': [('net-id0', None),
+                               ('net-id1', None)]}
+
+        self.cobalt_api.launch_instance(self.context, instance_uuid,
+            params=params)
+
+
     def test_list_blessed_nonexistent_uuid(self):
         try:
             # Use a random UUID that doesn't exist.
