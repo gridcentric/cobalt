@@ -35,6 +35,7 @@ from nova import conductor
 from nova import context as nova_context
 from nova import block_device
 from nova import exception
+from nova.objects import base as base_obj
 from nova.objects import instance as instance_obj
 from nova.openstack.common import log as logging
 from nova.openstack.common import timeutils
@@ -102,22 +103,26 @@ def _lock_call(fn):
 
     def wrapped_fn(self, context, **kwargs):
         instance_uuid = kwargs.get('instance_uuid', None)
-        instance_ref = kwargs.get('instance_ref', None)
+        instance = kwargs.get('instance', None)
 
         # Ensure we've got exactly one of uuid or ref.
-        if instance_uuid and not(instance_ref):
-            instance_ref = instance_obj.Instance.get_by_uuid(context,
-                                                             instance_uuid)
-            kwargs['instance_ref'] = instance_ref
-            assert instance_ref is not None
-        elif instance_ref and not(instance_uuid):
-            instance_uuid = instance_ref['uuid']
-            kwargs['instance_uuid'] = instance_ref['uuid']
+        if instance_uuid and not(instance):
+            # NOTE(dscannell): Load all of the instance default fields to ensure
+            #                  all of the data is available in case we need to
+            #                  send the instance_ref over an RPC call.
+            instance = instance_obj.Instance.get_by_uuid(context,
+                    instance_uuid,
+                    expected_attrs=instance_obj.INSTANCE_DEFAULT_FIELDS)
+            kwargs['instance'] = instance
+            assert instance is not None
+        elif instance and not(instance_uuid):
+            # Deserialized the instance_ref
+            instance = \
+                    self.object_serializer.deserialize_entity(context, instance)
+            instance_uuid = instance['uuid']
+            kwargs['instance_uuid'] = instance['uuid']
 
         LOG.debug(_("%s called: %s"), fn.__name__, str(kwargs))
-        if type(instance_ref) == dict:
-            # Cover for the case where we don't have a proper object.
-            instance_ref['name'] = CONF.instance_name_template % instance_ref['id']
 
         LOG.debug("Locking instance %s (fn:%s)" % (instance_uuid, fn.__name__))
         self._lock_instance(instance_uuid)
@@ -183,6 +188,7 @@ class CobaltManager(manager.SchedulerDependentManager):
         self.compute_manager = compute_manager.ComputeManager()
         self.volume_api = volume.API()
         self.conductor_api = conductor.API()
+        self.object_serializer = base_obj.NovaObjectSerializer()
 
         self.vms_conn = kwargs.pop('vmsconn', None)
         self._init_vms()
@@ -240,16 +246,14 @@ class CobaltManager(manager.SchedulerDependentManager):
         finally:
             self.cond.release()
 
-    def _instance_update(self, context, instance_uuid, **kwargs):
+    def _instance_update(self, context, instance, **kwargs):
         """Update an instance in the database using kwargs as value."""
         retries = 0
         while True:
             try:
-                # Database updates are idempotent, so we can retry this when
-                # we encounter transient failures. We retry up to 10 seconds.
-                return self.conductor_api.instance_update(context,
-                                                          instance_uuid,
-                                                          **kwargs)
+                instance.update(kwargs)
+                instance.save(context)
+                return instance
             except:
                 # We retry the database update up to 60 seconds. This gives
                 # us a decent window for avoiding database restarts, etc.
@@ -331,7 +335,7 @@ class CobaltManager(manager.SchedulerDependentManager):
                             task = None
 
                     if state:
-                        self._instance_update(context, instance['uuid'], vm_state=state,
+                        self._instance_update(context, instance, vm_state=state,
                                               task_state=task, host=host)
 
         finally:
@@ -410,14 +414,17 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         return self.have_neutron
 
-    def _get_source_instance(self, context, instance_ref):
+    def _get_source_instance(self, context, instance):
         """
-        Returns an instance reference for the source instance of instance_ref. In other words:
-        if instance_ref is a BLESSED instance, it returns the instance that was blessed
-        if instance_ref is a LAUNCH instance, it returns the blessed instance.
-        if instance_ref is neither, it returns NONE.
+        Returns an instance reference for the source instance of instance_ref.
+        In other words:
+            * if instance_ref is a BLESSED instance, it returns the instance
+              that was blessed
+            * if instance_ref is a LAUNCH instance, it returns the blessed
+              instance.
+            * if instance_ref is neither, it returns NONE.
         """
-        system_metadata = self._system_metadata_get(instance_ref)
+        system_metadata = self._system_metadata_get(instance)
         if "launched_from" in system_metadata:
             source_instance_uuid = system_metadata["launched_from"]
         elif "blessed_from" in system_metadata:
@@ -430,11 +437,11 @@ class CobaltManager(manager.SchedulerDependentManager):
                                                      source_instance_uuid)
         return None
 
-    def _notify(self, context, instance_ref, operation, network_info=None):
+    def _notify(self, context, instance, operation, network_info=None):
         try:
-            usage_info = notifications.info_from_instance(context, instance_ref,
-                                                          network_info=network_info,
-                                                          system_metadata=None)
+            usage_info = notifications.info_from_instance(context, instance,
+                                                    network_info=network_info,
+                                                    system_metadata=None)
             notifier.notify(context, 'cobalt.%s' % self.host,
                             'cobalt.instance.%s' % operation,
                             notifier.INFO, usage_info)
@@ -519,7 +526,7 @@ class CobaltManager(manager.SchedulerDependentManager):
                     LOG.warn(_("Failed to remove blessed snapshot %s") %(snapshot_id))
 
     @_lock_call
-    def bless_instance(self, context, instance_uuid=None, instance_ref=None,
+    def bless_instance(self, context, instance_uuid=None, instance=None,
                        migration_url=None, migration_network_info=None):
         """
         Construct the blessed instance, with the uuid instance_uuid. If migration_url is specified then
@@ -528,24 +535,24 @@ class CobaltManager(manager.SchedulerDependentManager):
         context = context.elevated()
         if migration_url:
             # Tweak only this instance directly.
-            source_instance_ref = instance_ref
+            source_instance = instance
             migration = True
         else:
-            self._notify(context, instance_ref, "bless.start")
+            self._notify(context, instance, "bless.start")
             # We require the parent instance.
-            source_instance_ref = self._get_source_instance(context, instance_ref)
-            assert source_instance_ref is not None
+            source_instance = self._get_source_instance(context, instance)
+            assert source_instance is not None
             migration = False
 
         # (dscannell) Determine if the instance is already paused.
-        instance_info = self.vms_conn.get_instance_info(source_instance_ref)
+        instance_info = self.vms_conn.get_instance_info(source_instance)
         is_paused = instance_info['state'] == power_state.PAUSED
 
         if not(migration):
             try:
                 self._snapshot_attached_volumes(context,
-                                                source_instance_ref,
-                                                instance_ref,
+                                                source_instance,
+                                                instance,
                                                 is_paused=is_paused)
             except:
                 _log_error("snapshot volumes")
@@ -557,13 +564,13 @@ class CobaltManager(manager.SchedulerDependentManager):
         #                  because without the instance_type its hard to relaunch
         #                  the instance (roll back the bless).
         vms_policy_template = self._generate_vms_policy_template(context,
-                instance_ref)
+                instance)
 
         source_locked = False
         try:
             # Lock the source instance if blessing
             if not(migration):
-                self._instance_update(context, source_instance_ref['uuid'],
+                self._instance_update(context, source_instance,
                                       task_state='blessing')
 
             # Create a new 'blessed' VM with the given name.
@@ -571,8 +578,8 @@ class CobaltManager(manager.SchedulerDependentManager):
             # the VM no longer exists. This requires us to *relaunch* it below in
             # the case of a rollback later on.
             name, migration_url, blessed_files, lvms = self.vms_conn.bless(context,
-                                                source_instance_ref['name'],
-                                                instance_ref,
+                                                source_instance['name'],
+                                                instance,
                                                 migration_url=migration_url)
         except Exception, e:
             _log_error("bless")
@@ -581,16 +588,16 @@ class CobaltManager(manager.SchedulerDependentManager):
                 #              command was called. Depending on how bless failed
                 #              the instance may remain in a paused state. It
                 #              needs to return back to an unpaused state.
-                self.vms_conn.unpause_instance(source_instance_ref)
+                self.vms_conn.unpause_instance(source_instance)
             if not(migration):
-                self._instance_update(context, instance_uuid,
+                self._instance_update(context, instance,
                                       vm_state=vm_states.ERROR, task_state=None)
             raise e
 
         finally:
             # Unlock source instance
             if not(migration):
-                self._instance_update(context, source_instance_ref['uuid'],
+                self._instance_update(context, source_instance,
                                       task_state=None)
 
         try:
@@ -600,7 +607,7 @@ class CobaltManager(manager.SchedulerDependentManager):
             image_refs = []
 
             image_refs = self.vms_conn.post_bless(context,
-                                    instance_ref,
+                                    instance,
                                     blessed_files,
                                     vms_policy_template=vms_policy_template)
             LOG.debug("image_refs = %s" % image_refs)
@@ -609,31 +616,31 @@ class CobaltManager(manager.SchedulerDependentManager):
             # we simply clean up all system_metadata and attempt to mark the VM
             # as in the ERROR state. This may fail also, but at least we
             # attempt to leave as little around as possible.
-            system_metadata = self._system_metadata_get(instance_ref)
+            system_metadata = self._system_metadata_get(instance)
             system_metadata['images'] = ','.join(image_refs)
             system_metadata['logical_volumes'] = ','.join(lvms)
             if not(migration):
                 # Record the networks that we attached to this instance so that when launching
                 # only these networks will be attached,
                 network_info = self._instance_network_info(context,
-                                                           source_instance_ref,
+                                                           source_instance,
                                                            True)
                 system_metadata['attached_networks'] = ','.join(
                                 [vif['network']['id'] for vif in network_info])
 
             if not(migration):
-                self._notify(context, instance_ref, "bless.end")
-                instance_ref = self._instance_update(
-                                            context, instance_uuid,
+                self._notify(context, instance, "bless.end")
+                instance = self._instance_update(
+                                            context, instance,
                                             vm_state="blessed",
                                             task_state=None,
                                             launched_at=timeutils.utcnow(),
                                             system_metadata=system_metadata)
             else:
-                instance_ref = self._instance_update(
-                                            context, instance_uuid,
+                instance = self._instance_update(
+                                            context, instance,
                                             system_metadata=system_metadata)
-                self._detach_volumes(context, instance_ref)
+                self._detach_volumes(context, instance)
 
         except:
             _log_error("post_bless")
@@ -643,15 +650,15 @@ class CobaltManager(manager.SchedulerDependentManager):
                 # NOTE(dscannell): We need ensure that the volumes are detached before setting up
                 # the block_device_info, which will reattach the volumes. Doing a double detach
                 # does not seem to create any issues.
-                self._detach_volumes(context, instance_ref)
+                self._detach_volumes(context, instance)
                 bdms = self.conductor_api.\
                     block_device_mapping_get_all_by_instance(context,
-                                                             instance_ref)
+                                                             instance)
                 block_device_info = self.compute_manager._setup_block_device_mapping(context,
-                    instance_ref, bdms)
+                    instance, bdms)
                 self.vms_conn.launch(context,
-                                     source_instance_ref['name'],
-                                     instance_ref,
+                                     source_instance['name'],
+                                     instance,
                                      migration_network_info,
                                      target=0,
                                      migration_url=migration_url,
@@ -662,10 +669,10 @@ class CobaltManager(manager.SchedulerDependentManager):
 
             # Ensure that no data is left over here, since we were not
             # able to update the metadata service to save the locations.
-            self.vms_conn.discard(context, instance_ref['name'], image_refs=image_refs)
+            self.vms_conn.discard(context, instance['name'], image_refs=image_refs)
 
             if not(migration):
-                self._instance_update(context, instance_uuid,
+                self._instance_update(context, instance,
                                       vm_state=vm_states.ERROR, task_state=None)
 
         try:
@@ -676,7 +683,7 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         # Return the memory URL (will be None for a normal bless) and the
         # updated instance_ref.
-        return migration_url, instance_ref
+        return migration_url, instance
 
     def _migrate_floating_ips(self, context, instance, src, dest):
 
@@ -699,7 +706,8 @@ class CobaltManager(manager.SchedulerDependentManager):
         instance['host'] = orig_host
 
     @_lock_call
-    def migrate_instance(self, context, instance_uuid=None, instance_ref=None, dest=None):
+    def migrate_instance(self, context, instance_uuid=None, instance=None,
+                         dest=None):
         """
         Migrates an instance, dealing with special streaming cases as necessary.
         """
@@ -712,7 +720,7 @@ class CobaltManager(manager.SchedulerDependentManager):
         # only real difference is that the migration must not go through
         # libvirt, instead we drive it via our bless, launch routines.
 
-        src = instance_ref['host']
+        src = instance['host']
 
         if src != self.host:
             # This can happen if two migration requests come in at the same time. We lock the
@@ -730,14 +738,13 @@ class CobaltManager(manager.SchedulerDependentManager):
         migration_address = self._get_migration_address(dest)
 
         # Grab the network info.
-        network_info = self.network_api.get_instance_nw_info(context,
-                instance_ref)
+        network_info = self.network_api.get_instance_nw_info(context, instance)
 
         # Update the system_metadata for migration.
-        system_metadata = self._system_metadata_get(instance_ref)
+        system_metadata = self._system_metadata_get(instance)
         system_metadata['gc_src_host'] = self.host
         system_metadata['gc_dst_host'] = dest
-        self._instance_update(context, instance_uuid,
+        self._instance_update(context, instance,
                               system_metadata=system_metadata)
 
         # Prepare the destination for live migration.
@@ -746,28 +753,30 @@ class CobaltManager(manager.SchedulerDependentManager):
         # to allow the destination host to respond to the instance. Its set back to the
         # source after this call. Also note, that this does not update the database so
         # no other processes should be affected.
-        instance_ref['host'] = dest
+        instance['host'] = dest
         rpc.call(context, compute_dest_queue,
                  {"method": "pre_live_migration",
                   "version": "2.2",
-                  "args": {'instance': instance_ref,
+                  "args": {'instance': instance,
                            'block_migration': False,
                            'disk': None}},
                  timeout=CONF.cobalt_compute_timeout)
-        instance_ref['host'] = self.host
+        instance['host'] = self.host
 
         # Bless this instance for migration.
-        migration_url, instance_ref = self.bless_instance(context,
-                                            instance_ref=instance_ref,
-                                            migration_url="mcdist://%s" % migration_address,
-                                            migration_network_info=network_info)
+        migration_url, instance = self.bless_instance(context,
+                                        instance=instance,
+                                        migration_url="mcdist://%s"
+                                                      % migration_address,
+                                        migration_network_info=network_info)
 
         # Run our premigration hook.
-        self.vms_conn.pre_migration(context, instance_ref, network_info, migration_url)
+        self.vms_conn.pre_migration(context, instance, network_info,
+                migration_url)
 
         # Migrate floating ips
         try:
-            self._migrate_floating_ips(context, instance_ref, self.host, dest)
+            self._migrate_floating_ips(context, instance, self.host, dest)
         except:
             _log_error("migrating floating ips.")
             raise
@@ -784,7 +793,9 @@ class CobaltManager(manager.SchedulerDependentManager):
             # really just the machine dying or the service dying unexpectedly.
             rpc.call(context, co_dest_queue,
                     {"method": "launch_instance",
-                     "args": {'instance_ref': instance_ref,
+                     "args": {'instance':
+                                  self.object_serializer.serialize_entity(
+                                        context, instance),
                               'migration_url': migration_url,
                               'migration_network_info': network_info}},
                     timeout=1800)
@@ -800,13 +811,13 @@ class CobaltManager(manager.SchedulerDependentManager):
             # remotely... that would be bad. But that VM wouldn't really have any
             # network connectivity).
             self.launch_instance(context,
-                                 instance_ref=instance_ref,
+                                 instance=instance,
                                  migration_url=migration_url,
                                  migration_network_info=network_info)
 
             # Try two re-assign the floating ips back to the source host.
             try:
-                self._migrate_floating_ips(context, instance_ref, dest, self.host)
+                self._migrate_floating_ips(context, instance, dest, self.host)
             except:
                 _log_error("undo migration of floating ips")
             changed_hosts = False
@@ -818,7 +829,7 @@ class CobaltManager(manager.SchedulerDependentManager):
         # and we were probably migrating off this machine for
         # maintenance reasons anyways.
         try:
-            self.vms_conn.post_migration(context, instance_ref, network_info, migration_url)
+            self.vms_conn.post_migration(context, instance, network_info, migration_url)
         except:
             _log_error("post migration")
 
@@ -832,11 +843,11 @@ class CobaltManager(manager.SchedulerDependentManager):
             # instead of the destination.
             try:
                 # Ensure that the networks have been configured on the destination host.
-                self.network_api.setup_networks_on_host(context, instance_ref, host=dest)
+                self.network_api.setup_networks_on_host(context, instance, host=dest)
                 rpc.call(context, compute_source_queue,
                     {"method": "rollback_live_migration_at_destination",
                      "version": "2.2",
-                     "args": {'instance': instance_ref}})
+                     "args": {'instance': instance}})
             except:
                 _log_error("post migration cleanup")
 
@@ -846,37 +857,37 @@ class CobaltManager(manager.SchedulerDependentManager):
         # There is not much point in changing the state past here.
         # Or catching any thrown exceptions (after all, it is still
         # an error -- just not one that should kill the VM).
-        image_refs = self._extract_image_refs(instance_ref)
+        image_refs = self._extract_image_refs(instance)
 
-        self.vms_conn.discard(context, instance_ref["name"], image_refs=image_refs)
+        self.vms_conn.discard(context, instance["name"], image_refs=image_refs)
 
     @_lock_call
-    def discard_instance(self, context, instance_uuid=None, instance_ref=None):
+    def discard_instance(self, context, instance_uuid=None, instance=None):
         """ Discards an instance so that no further instances maybe be launched from it. """
 
         context = context.elevated()
-        self._notify(context, instance_ref, "discard.start")
+        self._notify(context, instance, "discard.start")
 
         # Try to discard the created snapshots
-        self._discard_blessed_snapshots(context, instance_ref)
+        self._discard_blessed_snapshots(context, instance)
         # Call discard in the backend.
-        self.vms_conn.discard(context, instance_ref['name'],
-                              image_refs=self._extract_image_refs(instance_ref))
+        self.vms_conn.discard(context, instance['name'],
+                              image_refs=self._extract_image_refs(instance))
 
         # Remove the instance.
         self._instance_update(context,
-                              instance_uuid,
+                              instance,
                               vm_state=vm_states.DELETED,
                               task_state=None,
                               terminated_at=timeutils.utcnow())
-        self.conductor_api.instance_destroy(context, instance_ref)
-        self._notify(context, instance_ref, "discard.end")
+        self.conductor_api.instance_destroy(context, instance)
+        self._notify(context, instance, "discard.end")
 
     @_retry_rpc
-    def _retry_get_nw_info(self, context, instance_ref):
-        return self.network_api.get_instance_nw_info(context, instance_ref)
+    def _retry_get_nw_info(self, context, instance):
+        return self.network_api.get_instance_nw_info(context, instance)
 
-    def _instance_network_info(self, context, instance_ref, already_allocated,
+    def _instance_network_info(self, context, instance, already_allocated,
                                requested_networks=None):
         """
         Retrieve the network info for the instance. If the info is already_allocated then
@@ -888,7 +899,7 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         if already_allocated:
             network_info = self.network_api.get_instance_nw_info(context,
-                    instance_ref)
+                    instance)
 
         else:
             # We need to allocate a new network info for the instance.
@@ -902,27 +913,27 @@ class CobaltManager(manager.SchedulerDependentManager):
 
             is_vpn = False
             try:
-                self._instance_update(context, instance_ref['uuid'],
+                self._instance_update(context, instance,
                           task_state=task_states.NETWORKING,
                           host=self.host)
-                instance_ref['host'] = self.host
+                instance['host'] = self.host
                 LOG.debug(
                       _("Making call to network for launching instance=%s"), \
-                      instance_ref['name'])
+                      instance['name'])
                 # In a contested host, this function can block behind locks for
                 # a good while. Use our compute_timeout as an upper wait bound
                 try:
                     network_info = self.network_api.allocate_for_instance(
-                                    context, instance_ref, vpn=is_vpn,
+                                    context, instance, vpn=is_vpn,
                                     requested_networks=requested_networks,
                                     conductor_api=self.conductor_api)
                 except Timeout:
                     LOG.debug(_("Allocate network for instance=%s timed out"),
-                                instance_ref['name'])
-                    network_info = self._retry_get_nw_info(context, instance_ref)
+                                instance['name'])
+                    network_info = self._retry_get_nw_info(context, instance)
                 LOG.debug(_("Made call to network for launching instance=%s, "
                             "network_info=%s"),
-                      instance_ref['name'], network_info)
+                      instance['name'], network_info)
             except:
                 _log_error("network allocation")
 
@@ -1027,11 +1038,13 @@ class CobaltManager(manager.SchedulerDependentManager):
         return block_device_info
 
     @_lock_call
-    def launch_instance(self, context, instance_uuid=None, instance_ref=None,
-                        params=None, migration_url=None, migration_network_info=None):
+    def launch_instance(self, context, instance_uuid=None, instance=None,
+                        params=None, migration_url=None,
+                        migration_network_info=None):
         """
-        Construct the launched instance, with uuid instance_uuid. If migration_url is not none then
-        the instance will be launched using the memory server at the migration_url
+        Construct the launched instance, with uuid instance_uuid. If
+        migration_url is not none then the instance will be launched using the
+        memory server at the migration_url
         """
 
         context = context.elevated()
@@ -1052,14 +1065,13 @@ class CobaltManager(manager.SchedulerDependentManager):
             # Update the instance state to be migrating. This will be set to
             # active again once it is completed in do_launch() as per all
             # normal launched instances.
-            source_instance_ref = instance_ref
+            source_instance = instance
 
         else:
-            self._notify(context, instance_ref, "launch.start")
+            self._notify(context, instance, "launch.start")
 
             # Create a new launched instance.
-            source_instance_ref = self._get_source_instance(context,
-                                                            instance_ref)
+            source_instance = self._get_source_instance(context, instance)
 
         try:
             # NOTE(dscannell): This will construct the block_device_info object
@@ -1067,28 +1079,28 @@ class CobaltManager(manager.SchedulerDependentManager):
             # instance. Note that this method will also create full volumes our
             # of any snapshot referenced by the instance's block_device_mapping.
             bdms = self.conductor_api.\
-                block_device_mapping_get_all_by_instance(context, instance_ref)
+                block_device_mapping_get_all_by_instance(context, instance)
             block_device_info = self.compute_manager._prep_block_device(context,
-                                                                        instance_ref,
-                                                                        bdms)
+                                                                    instance,
+                                                                    bdms)
         except:
             # Since this creates volumes there are host of issues that can go wrong
             # (e.g. cinder is down, quotas have been reached, snapshot deleted, etc).
             _log_error("setting up block device mapping")
             if not(migration_url):
-                self._instance_update(context, instance_ref['uuid'],
+                self._instance_update(context, instance,
                                       vm_state=vm_states.ERROR,
                                       task_state=None)
             raise
 
         # Extract the image ids from the source instance.
-        image_refs = self._extract_image_refs(source_instance_ref)
-        lvm_info = self._extract_lvm_info(source_instance_ref)
+        image_refs = self._extract_image_refs(source_instance)
+        lvm_info = self._extract_lvm_info(source_instance)
         requested_networks = params.get('networks')
         if requested_networks == None:
             # (dscannell): Use the networks that were stored in the live-image
             requested_networks = \
-                    self._extract_requested_networks(source_instance_ref)
+                    self._extract_requested_networks(source_instance)
 
 
         if migration_network_info != None:
@@ -1096,19 +1108,20 @@ class CobaltManager(manager.SchedulerDependentManager):
             # to hydrate it back into a full NetworkInfo object.
             network_info = network_model.NetworkInfo.hydrate(migration_network_info)
         else:
-            network_info = self._instance_network_info(context, instance_ref,
-                                                       migration_url != None,
-                                                       requested_networks=requested_networks)
+            network_info = self._instance_network_info(context, instance,
+                                        migration_url != None,
+                                        requested_networks=requested_networks)
             if network_info == None:
-                # An error would have occured acquiring the instance network info. We should
-                # mark the instances as error and return because there is nothing else we can do.
-                self._instance_update(context, instance_ref['uuid'],
+                # An error would have occurred acquiring the instance network
+                # info. We should mark the instances as error and return because
+                # there is nothing else we can do.
+                self._instance_update(context, instance,
                                       vm_state=vm_states.ERROR,
                                       task_state=None)
                 return
 
             # Update the task state to spawning from networking.
-            self._instance_update(context, instance_ref['uuid'],
+            self._instance_update(context, instance,
                                   task_state=task_states.SPAWNING)
 
         try:
@@ -1131,16 +1144,16 @@ class CobaltManager(manager.SchedulerDependentManager):
                     rpc.queue_get_for(context, CONF.compute_topic, self.host),
                     {"method": "pre_live_migration",
                      "version": "2.2",
-                     "args": {'instance': instance_ref,
+                     "args": {'instance': instance,
                               'block_migration': False,
                               'disk': None}},
                     timeout=CONF.cobalt_compute_timeout)
 
-            vms_policy = self._generate_vms_policy_name(context, instance_ref,
-                                                        source_instance_ref)
+            vms_policy = self._generate_vms_policy_name(context, instance,
+                                                        source_instance)
             self.vms_conn.launch(context,
-                                 source_instance_ref['name'],
-                                 instance_ref,
+                                 source_instance['name'],
+                                 instance,
                                  network_info,
                                  target=target,
                                  migration_url=migration_url,
@@ -1151,12 +1164,13 @@ class CobaltManager(manager.SchedulerDependentManager):
                                  lvm_info=lvm_info)
 
             if not(migration_url):
-                self._notify(context, instance_ref, "launch.end", network_info=network_info)
+                self._notify(context, instance, "launch.end",
+                        network_info=network_info)
         except Exception, e:
             _log_error("launch")
             if not(migration_url):
                 self._instance_update(context,
-                                      instance_uuid,
+                                      instance,
                                       vm_state=vm_states.ERROR,
                                       host=self.host,
                                       node=self.nodename,
@@ -1165,7 +1179,8 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         try:
             # Perform our database update.
-            power_state = self.compute_manager._get_power_state(context, instance_ref)
+            power_state = self.compute_manager._get_power_state(context,
+                    instance)
             update_params = {'power_state': power_state,
                              'vm_state': vm_states.ACTIVE,
                              'host': self.host,
@@ -1174,7 +1189,7 @@ class CobaltManager(manager.SchedulerDependentManager):
             if not(migration_url):
                 update_params['launched_at'] = timeutils.utcnow()
             self._instance_update(context,
-                                  instance_uuid,
+                                  instance,
                                   **update_params)
 
         except:
@@ -1187,16 +1202,18 @@ class CobaltManager(manager.SchedulerDependentManager):
             _log_error("post launch update")
 
     @_lock_call
-    def export_instance(self, context, instance_uuid=None, instance_ref=None, image_id=None):
+    def export_instance(self, context, instance_uuid=None, instance=None,
+                        image_id=None):
         """
          Fills in the the image record with the blessed artifacts of the object
         """
         # Basically just make a call out to vmsconn (proper version, etc) to fill in the image
-        self.vms_conn.export_instance(context, instance_ref, image_id,
-                                      self._extract_image_refs(instance_ref))
+        self.vms_conn.export_instance(context, instance, image_id,
+                                      self._extract_image_refs(instance))
 
     @_lock_call
-    def import_instance(self, context, instance_uuid=None, instance_ref=None, image_id=None):
+    def import_instance(self, context, instance_uuid=None, instance=None,
+                        image_id=None):
         """
         Import the instance
         """
@@ -1204,11 +1221,11 @@ class CobaltManager(manager.SchedulerDependentManager):
         # Download the image_id, load it into vmsconn (the archive). Vmsconn will spit out the blessed
         # artifacts and we need to then upload them to the image service if that is what we are
         # using.
-        image_ids = self.vms_conn.import_instance(context, instance_ref, image_id)
+        image_ids = self.vms_conn.import_instance(context, instance, image_id)
         image_ids_str = ','.join(image_ids)
-        system_metadata = self._system_metadata_get(instance_ref)
+        system_metadata = self._system_metadata_get(instance)
         system_metadata['images'] = image_ids_str
-        self._instance_update(context, instance_uuid, vm_state='blessed',
+        self._instance_update(context, instance, vm_state='blessed',
                               system_metadata=system_metadata)
 
     def install_policy(self, context, policy_ini_string=None):
