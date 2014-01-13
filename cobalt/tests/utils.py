@@ -282,7 +282,11 @@ def create_instance(context, instance=None, driver=None):
         instance = {}
 
     system_metadata = instance.get('system_metadata', {})
-    instance_type = instance_types.get_instance_type_by_name('m1.tiny')
+    if 'instance_type_id' in instance:
+        instance_type = instance_types.get_instance_type(
+                instance['instance_type_id'])
+    else:
+        instance_type = instance_types.get_instance_type_by_name('m1.tiny')
     system_metadata.update(instance_types.save_instance_type_info(dict(), instance_type))
 
     instance.setdefault('user_id', context.user_id)
