@@ -146,10 +146,9 @@ class API(base.Base):
         metadata = self.db.instance_metadata_get(context, instance['uuid'])
         self.compute_api._check_metadata_properties_quota(context, metadata)
         # Grab a reservation for a single instance
-        max_count, reservations = self.compute_api._check_num_instances_quota(context,
-                                                                              instance_type,
-                                                                              num_requested,
-                                                                              num_requested)
+        max_count, reservations = \
+                self.compute_api._check_num_instances_quota(context,
+                    instance_type, num_requested, num_requested)
         return reservations
 
     def _acquire_subtraction_reservation(self, context, instance):
@@ -560,8 +559,8 @@ class API(base.Base):
         # Use the first instance as a representation for the entire group of
         # instances in the request.
         instance = instances[0]
-        instance_type = self.db.flavor_get(context,
-                                           instance['instance_type_id'])
+
+        instance_type = flavors.extract_flavor(instance)
         image_ref = instance['image_ref']
         if image_ref:
             image = self.image_service.show(context, instance['image_ref'])
@@ -624,12 +623,6 @@ class API(base.Base):
         elif instance['vm_state'] != vm_states.ACTIVE:
             raise exception.NovaException(_("Unable to migrate instance %s because it is not active") %
                                   instance_uuid)
-
-        # NOTE(dscannell): Ensure that the instance type associated with the
-        #                  instance still exists within the database. This will
-        #                  raise an InstanceTypeNotFoundError if it does not
-        #                  exist.
-        self.db.flavor_get(context, instance['instance_type_id'])
 
         dest = self._find_migration_target(context, instance['host'], dest)
 
@@ -728,8 +721,8 @@ class API(base.Base):
                                 for entry in instance['metadata']),
             'system_metadata': dict((entry.key, entry.value)
                                 for entry in instance['system_metadata']),
-            'flavor_name': self.compute_api.db.flavor_get(context,
-                                          instance['instance_type_id'])['name'],
+            'flavor_name':
+                    flavors.extract_flavor(instance)['name'],
             'export_image_id': image_id,
         }
 
@@ -753,11 +746,11 @@ class API(base.Base):
         try:
             inst_type = self.compute_api.db.\
                                  flavor_get_by_name(context, flavor_name)
+            fields['instance_type_id'] = inst_type['id']
         except exception.InstanceTypeNotFoundByName:
-            raise exception.NovaException(_('Flavor could not be found: %s' \
-                                                                 % flavor_name))
-
-        fields['instance_type_id'] = inst_type['id']
+            LOG.warn("Unable to find flavor %s for instance being imported. "
+                     "Will not set the instance_type_id for instance.",
+                flavor_name)
 
         instance = self.db.instance_create(context, data['fields'])
         LOG.debug(_("Imported new instance %s" % (instance)))

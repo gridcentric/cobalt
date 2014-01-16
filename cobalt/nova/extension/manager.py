@@ -83,6 +83,7 @@ from nova import volume
 # this module is loaded so that we can have access to those flags.
 from nova.network import manager as network_manager
 from nova.network import model as network_model
+from nova.compute import flavors
 from nova.compute import power_state
 from nova.compute import task_states
 from nova.compute import vm_states
@@ -558,11 +559,6 @@ class CobaltManager(manager.SchedulerDependentManager):
                 _log_error("snapshot volumes")
                 raise
 
-        # NOTE(dscannell): This can fail if the instance_type used to create
-        #                  the master has since been deleted. Due to this
-        #                  this should be called before anything real happens
-        #                  because without the instance_type its hard to relaunch
-        #                  the instance (roll back the bless).
         vms_policy_template = self._generate_vms_policy_template(context,
                 instance)
 
@@ -940,8 +936,9 @@ class CobaltManager(manager.SchedulerDependentManager):
         return network_info
 
     def _generate_vms_policy_template(self, context, instance):
-        instance_type = self.conductor_api.\
-            instance_type_get(context, instance['instance_type_id'])
+
+        instance_type = flavors.extract_flavor(instance)
+
         policy_attrs = (('blessed', instance['uuid']),
                         ('flavor', instance_type['name']),
                         ('tenant', '%(tenant)s'),
