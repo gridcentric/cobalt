@@ -19,6 +19,7 @@ from horizon import workflows, forms
 from . import api
 from horizon import exceptions
 from openstack_dashboard.api import nova
+from openstack_dashboard.dashboards.project.instances.workflows import create_instance
 
 def bless_instance_workflow(request):
     client = api.novaclient(request)
@@ -154,7 +155,11 @@ def launch_blessed_workflow(request):
         success_message = _('Launched "{name}".')
         failure_message = _('Unable to launch "{name}".')
         success_url = "."
-        default_steps = (LaunchBlessedStep,)
+        if client.cobalt.satisfies(['launch-nics']):
+            default_steps = (LaunchBlessedStep,
+                             create_instance.SetNetwork,)
+        else:
+            default_steps = (LaunchBlessedStep,)
 
         def format_status_message(self, message):
             return message.format(name=self.context['name'])
@@ -164,6 +169,15 @@ def launch_blessed_workflow(request):
                 kwargs = {}
                 for param in feature_params:
                     kwargs[param] = context[param]
+
+                # The networks come from create_instance.SetNetwork, a main
+                # Horizon component that is being re-used.
+                netids = context.get('network_id', None)
+                if netids != None:
+                    nics = [{"net-id": netid, "v4-fixed-ip": ""}
+                            for netid in netids]
+                    kwargs['networks'] = nics
+
                 api.server_launch(request, context['blessed_id'], **kwargs)
                 return True
             except:
