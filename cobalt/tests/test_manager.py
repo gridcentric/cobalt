@@ -503,3 +503,18 @@ class CobaltManagerTestCase(unittest.TestCase):
             # Global state requires us to set it back
             CONF.network_api_class = previous_api_class
 
+    def test_vms_policy_deleted_flavor(self):
+
+        flavor = utils.create_flavor()
+        instance_uuid = utils.create_instance(self.context,
+                {'instance_type_id': flavor['id']})
+        instance = db.instance_get_by_uuid(self.context, instance_uuid)
+        db.instance_type_destroy(self.context, flavor['name'])
+
+        vms_policy = self.cobalt._generate_vms_policy_name(self.context,
+                instance, instance)
+        expected_policy = ';blessed=%s;;flavor=%s;;tenant=%s;;uuid=%s;' % \
+                          (instance['uuid'], flavor['name'],
+                           self.context.project_id, instance['uuid'])
+
+        self.assertEquals(expected_policy, vms_policy)
