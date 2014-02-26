@@ -1,73 +1,97 @@
 #!/bin/sh
-
-# Note that the basis of the script was taken from the openSUSE 12.2 nova-compute package. It has
-# been modified to run the nova-gc process instead of the nova-compute one.
+#
+# nova-gc Gridcentric Openstack Nova Compute Extension
+#
 
 ### BEGIN INIT INFO
-# Provides:          openstack-nova-gc
-# Required-Start:    $remote_fs $syslog
-# Required-Stop:     $remote_fs $syslog
-# Default-Start:     3 5
-# Default-Stop:      0 1 2 6
+# Provides:
+# Required-Start: $remote_fs $network $syslog
+# Required-Stop: $remote_fs $syslog
+# Default-Stop: 0 1 6
 # Short-Description: Nova Gridcentric Manager
-# Description:       Nova Gridcentric Manager.
+# Description: Nova Gridcentric Manager
 ### END INIT INFO
 
-name="gc"
-USER="root"
-GROUP="root"
-LOGFILE="/var/log/nova/$name.log"
-CONFIGDIR="/etc/nova"
+. /etc/rc.d/init.d/functions
+prog=nova-gc
+user="root"
+exec="/usr/bin/$prog"
+configdir="/etc/nova"
+logfile="/var/log/nova/nova-gc.log"
+pidfile="/var/run/nova/$prog.pid"
 
-[ -e "/etc/sysconfig/openstack-nova-$name" ] && . "/etc/sysconfig/openstack-nova-$name"
+[ -e "/etc/sysconfig/$prog" ] && . "/etc/sysconfig/$prog"
 
-DAEMON_OPTIONS="--config-dir=$CONFIGDIR --logfile=$LOGFILE"
-OPTIONS="${OPTIONS} $DAEMON_OPTIONS"
+lockfile="/var/lock/subsys/$prog"
 
-# Shell functions sourced from /etc/rc.status:
-#      rc_check         check and set local and overall rc status
-#      rc_status        check and set local and overall rc status
-#      rc_status -v     be verbose in local rc status and clear it afterwards
-#      rc_status -v -r  ditto and clear both the local and overall rc status
-#      rc_status -s     display "skipped" and exit with status 3
-#      rc_status -u     display "unused" and exit with status 3
-#      rc_failed        set local and overall rc status to failed
-#      rc_failed <num>  set local and overall rc status to <num>
-#      rc_reset         clear both the local and overall rc status
-#      rc_exit          exit appropriate to overall rc status
-#      rc_active        checks whether a service is activated by symlinks
-. /etc/rc.status
+start() {
+    [ -x $exec ] || exit 5
+    echo -n $"STARTING $prog: "
+    daemon --user $user --pidfile $pidfile "$exec --config-dir=$configdir --logfile=$logfile &>/dev/null & echo \$! > $pidfile"
+    retval=$?
+    echo
+    [ $retval -eq 0 ] && touch $lockfile
+    return $retval
+}
 
-FULLNAME="OpenStack::nova-gc server"
+stop() {
+    echo -n $"Stopping $prog: "
+    killproc -p $pidfile $prog
+    retval=$?
+    echo
+    [ $retval -eq 0 ] && rm -f $lockfile
+    return $retval
+}
+
+restart() {
+    stop
+    start
+}
+
+reload() {
+    restart
+}
+
+force_reload() {
+    restart
+}
+
+rh_status() {
+    status -p $pidfile $prog
+}
+
+rh_status_q() {
+    rh_status >/dev/null 2>&1
+}
 
 case "$1" in
     start)
-    echo -n "Starting $FULLNAME"
-    startproc -t ${STARTUP_TIMEOUT:-5} -q /usr/bin/nova-$name $OPTIONS
-        rc_status -v
+        rh_status_q && exit 0
+        $1
         ;;
     stop)
-    echo -n "Shutting down $FULLNAME"
-    killproc /usr/bin/nova-$name
-        rc_status -v
+        rh_status_q || exit 0
+        $1
         ;;
     restart)
-        $0 stop
-    $0 start
-    rc_status
+        $1
         ;;
     reload)
+        rh_status_q || exit 7
+        $1
+        ;;
+    force-reload)
+        force_reload
         ;;
     status)
-        echo -n "Checking $FULLNAME"
-    /sbin/checkproc /usr/bin/nova-$name
-    rc_status -v
+        rh_status
         ;;
     condrestart|try-restart)
-        $0 restart
+        rh_status_q || exit 0
+        restart
         ;;
     *)
-        echo $"Usage: $0 {start|stop|status|restart|condrestart|try-restart}"
+        echo $"Usage: $0 {start|stop|status|restart|condrestart|try-restart|reload|force-reload}"
         exit 2
 esac
 exit $?
