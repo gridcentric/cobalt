@@ -53,6 +53,7 @@ from nova.network import model as network_model
 
 from oslo.config import cfg
 
+from cobalt.nova.extension import hooks
 from cobalt.nova.extension import vmsconn
 
 LOG = logging.getLogger('nova.cobalt.manager')
@@ -511,6 +512,13 @@ class CobaltManager(manager.SchedulerDependentManager):
         Construct the blessed instance, with the uuid instance_uuid. If migration_url is specified then
         bless will ensure a memory server is available at the given migration url.
         """
+        hooks.call_hooks_pre_bless([instance_ref.get('uuid', ''),
+                                    instance_ref.get('name', ''),
+                                    migration_url and 'migration' or 'bless'])
+        # migration_url gets set after this, so remember the input in order
+        # to correctly set the 'migration' last param of the post bless hook.
+        _migration_url = migration_url
+
         context = context.elevated()
         if migration_url:
             # Tweak only this instance directly.
@@ -655,6 +663,11 @@ class CobaltManager(manager.SchedulerDependentManager):
         except:
             _log_error("bless cleanup")
 
+        hooks.call_hooks_post_bless([instance_ref.get('uuid', ''),
+                                     instance_ref.get('name', ''),
+                                     migration_url,
+                                     _migration_url and 'migration' or 'bless'])
+
         # Return the memory URL (will be None for a normal bless) and the
         # updated instance_ref.
         return migration_url, instance_ref
@@ -684,6 +697,9 @@ class CobaltManager(manager.SchedulerDependentManager):
         """
         Migrates an instance, dealing with special streaming cases as necessary.
         """
+        hooks.call_hooks_pre_migrate([instance_ref.get('uuid', ''),
+                                      instance_ref.get('name', ''),
+                                      dest or 'unknown'])
 
         context = context.elevated()
         # FIXME: This live migration code does not currently support volumes,
@@ -851,9 +867,16 @@ class CobaltManager(manager.SchedulerDependentManager):
                                   vm_state=vm_states.ERROR,
                                   task_state=None)
 
+        hooks.call_hooks_post_migrate([instance_ref.get('uuid', ''),
+                                       instance_ref.get('name', ''),
+                                       changed_host and 'pass' or 'fail',
+                                       rollback_error and 'failed_rollback' or 'rollback'])
+
     @_lock_call
     def discard_instance(self, context, instance_uuid=None, instance_ref=None):
         """ Discards an instance so that no further instances maybe be launched from it. """
+        hooks.call_hooks_pre_discard([instance_ref.get('uuid', ''),
+                                      instance_ref.get('name', '')])
 
         context = context.elevated()
         self._notify(context, instance_ref, "discard.start")
@@ -872,6 +895,9 @@ class CobaltManager(manager.SchedulerDependentManager):
                               terminated_at=timeutils.utcnow())
         self.conductor_api.instance_destroy(context, instance_ref)
         self._notify(context, instance_ref, "discard.end")
+
+        hooks.call_hooks_post_discard([instance_ref.get('uuid', ''),
+                                       instance_ref.get('name', '')])
 
     @_retry_rpc
     def _retry_get_nw_info(self, context, instance_ref):
@@ -1062,6 +1088,14 @@ class CobaltManager(manager.SchedulerDependentManager):
             source_instance_ref = self._get_source_instance(context,
                                                             instance_ref)
 
+        hooks.call_hooks_pre_launch([instance_ref.get('uuid', ''),
+                                     instance_ref.get('name', ''),
+                                     source_instance_ref.get('uuid', ''),
+                                     source_instance_ref.get('name', ''),
+                                     params and jsonutils.dumps(params) or '',
+                                     migration_url and migration_url or '',
+                                     migration_url and 'migration' or 'launch'])
+
         if not(migration_url):
             try:
                 # We need to set the instance's node and host before we call
@@ -1206,6 +1240,14 @@ class CobaltManager(manager.SchedulerDependentManager):
             # the VM at this point, we simply need to make sure the database
             # is updated at some point with the correct state.
             _log_error("post launch update")
+
+        hooks.call_hooks_post_launch([instance_ref.get('uuid', ''),
+                                      instance_ref.get('name', ''),
+                                      source_instance_ref.get('uuid', ''),
+                                      source_instance_ref.get('name', ''),
+                                      params and jsonutils.dumps(params) or '',
+                                      migration_url and migration_url or '',
+                                      migration_url and 'migration' or 'launch'])
 
     @_lock_call
     def export_instance(self, context, instance_uuid=None, instance_ref=None, image_id=None):
