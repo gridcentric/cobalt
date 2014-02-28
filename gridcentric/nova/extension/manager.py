@@ -662,6 +662,15 @@ class GridCentricManager(manager.SchedulerDependentManager):
                           'interface': floating_ip['interface']}})
 
 
+    def _create_sanitized_instance(self, instance_ref):
+        sanitized = dict(instance_ref.iteritems())
+        sanitized['instance_type'] = dict(sanitized['instance_type'].iteritems())
+        del sanitized['metadata']
+        del sanitized['security_groups']
+        del sanitized['info_cache']
+
+        return sanitized
+
     @_lock_call
     def migrate_instance(self, context, instance_uuid=None, instance_ref=None, dest=None):
         """
@@ -711,7 +720,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
         rpc.call(context, compute_dest_queue,
                  {"method": "pre_live_migration",
                   "version": "2.2",
-                  "args": {'instance': instance_ref,
+                  "args": {'instance': self._create_sanitized_instance(instance_ref),
                            'block_migration': False,
                            'disk': None}},
                  timeout=FLAGS.gridcentric_compute_timeout)
@@ -746,7 +755,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
             # really just the machine dying or the service dying unexpectedly.
             rpc.call(context, gc_dest_queue,
                     {"method": "launch_instance",
-                     "args": {'instance_ref': instance_ref,
+                     "args": {'instance_ref': self._create_sanitized_instance(instance_ref),
                               'migration_url': migration_url,
                               'migration_network_info': network_info}},
                     timeout=1800.0)
@@ -798,7 +807,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                 rpc.call(context, compute_source_queue,
                     {"method": "rollback_live_migration_at_destination",
                      "version": "2.2",
-                     "args": {'instance': instance_ref}})
+                     "args": {'instance': self._create_sanitized_instance(instance_ref)}})
             except:
                 _log_error("post migration cleanup")
 
@@ -1003,7 +1012,7 @@ class GridCentricManager(manager.SchedulerDependentManager):
                     rpc.queue_get_for(context, FLAGS.compute_topic, self.host),
                     {"method": "pre_live_migration",
                      "version": "2.2",
-                     "args": {'instance': instance_ref,
+                     "args": {'instance': self._create_sanitized_instance(instance_ref),
                               'block_migration': False,
                               'disk': None}},
                     timeout=FLAGS.gridcentric_compute_timeout)
