@@ -663,9 +663,11 @@ class CobaltManager(manager.SchedulerDependentManager):
         except:
             _log_error("bless cleanup")
 
-        hooks.call_hooks_post_bless([instance_ref.get('uuid', ''),
+        hooks.call_hooks_post_bless([source_instance_ref.get('uuid', ''),
+                                     source_instance_ref.get('name', ''),
+                                     instance_ref.get('uuid', ''),
                                      instance_ref.get('name', ''),
-                                     migration_url,
+                                     migration_url or '',
                                      _migration_url and 'migration' or 'bless'])
 
         # Return the memory URL (will be None for a normal bless) and the
