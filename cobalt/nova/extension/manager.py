@@ -60,6 +60,7 @@ from nova.openstack.common.rpc import common as rpc_common
 
 from oslo.config import cfg
 
+from cobalt.nova.extension import hooks
 from cobalt.nova.extension import vmsconn
 
 LOG = logging.getLogger('nova.cobalt.manager')
@@ -530,6 +531,13 @@ class CobaltManager(manager.SchedulerDependentManager):
         Construct the blessed instance, with the uuid instance_uuid. If migration_url is specified then
         bless will ensure a memory server is available at the given migration url.
         """
+        hooks.call_hooks_pre_bless([instance.get('uuid', ''),
+                                    instance.get('name', ''),
+                                    migration_url and 'migration' or 'bless'])
+        # migration_url gets set after this, so remember the input in order
+        # to correctly set the 'migration' last param of the post bless hook.
+        _migration_url = migration_url
+
         context = context.elevated()
         if migration_url:
             # Tweak only this instance directly.
@@ -674,6 +682,11 @@ class CobaltManager(manager.SchedulerDependentManager):
         except:
             _log_error("bless cleanup")
 
+        hooks.call_hooks_post_bless([instance.get('uuid', ''),
+                                     instance.get('name', ''),
+                                     migration_url,
+                                     _migration_url and 'migration' or 'bless'])
+
         # Return the memory URL (will be None for a normal bless) and the
         # updated instance_ref.
         return migration_url, instance
@@ -704,6 +717,9 @@ class CobaltManager(manager.SchedulerDependentManager):
         """
         Migrates an instance, dealing with special streaming cases as necessary.
         """
+        hooks.call_hooks_pre_migrate([instance.get('uuid', ''),
+                                      instance.get('name', ''),
+                                      dest or 'unknown'])
 
         context = context.elevated()
         # FIXME: This live migration code does not currently support volumes,
@@ -793,9 +809,12 @@ class CobaltManager(manager.SchedulerDependentManager):
                               'migration_network_info': network_info}},
                     timeout=1800)
             changed_hosts = True
+            rollback_error = False
 
         except:
             _log_error("remote launch")
+            changed_hosts = False
+            rollback_error = False
 
             # Try relaunching on the local host. Everything should still be setup
             # for this to happen smoothly, and the _launch_instance function will
@@ -803,17 +822,20 @@ class CobaltManager(manager.SchedulerDependentManager):
             # it is possible that is what caused the failure of launch_instance()
             # remotely... that would be bad. But that VM wouldn't really have any
             # network connectivity).
-            self.launch_instance(context,
-                                 instance=instance,
-                                 migration_url=migration_url,
-                                 migration_network_info=network_info)
+            try:
+                self.launch_instance(context,
+                                     instance=instance,
+                                     migration_url=migration_url,
+                                     migration_network_info=network_info)
+            except:
+                _log_error("migration rollback launch")
+                rollback_error = True
 
             # Try two re-assign the floating ips back to the source host.
             try:
                 self._migrate_floating_ips(context, instance, dest, self.host)
             except:
-                _log_error("undo migration of floating ips")
-            changed_hosts = False
+                _log_error("migration of floating ips failed, no undo")
 
         # Teardown any specific migration state on this host.
         # If this does not succeed, we may be left with some
@@ -853,12 +875,42 @@ class CobaltManager(manager.SchedulerDependentManager):
         image_refs = self._extract_image_refs(instance)
 
         self.vms_conn.discard(context, instance["name"], image_refs=image_refs)
+        try:
+            # Discard the migration artifacts.
+            # Note that if this fails, we may leave around bits of data
+            # (descriptor in glance) but at least we had a functional VM.
+            # There is not much point in changing the state past here.
+            # Or catching any thrown exceptions (after all, it is still
+            # an error -- just not one that should kill the VM).
+            image_refs = self._extract_image_refs(instance)
+
+            self.vms_conn.discard(context, instance["name"], image_refs=image_refs)
+        except:
+            _log_error("discard of migration bless artifacts")
+
+        if rollback_error:
+            # Since the rollback failed, the instance isn't running
+            # anywhere. So we put it in ERROR state. Note that we only do
+            # this _after_ we've cleaned up the migration artifacts because
+            # we want to leave the instance in the MIGRATING state as long
+            # as we're doing migration-related work.
+            self._instance_update(context,
+                                  instance_uuid,
+                                  vm_state=vm_states.ERROR,
+                                  task_state=None)
+
+        hooks.call_hooks_post_migrate([instance.get('uuid', ''),
+                                       instance.get('name', ''),
+                                       changed_host and 'pass' or 'fail',
+                                       rollback_error and 'failed_rollback' or 'rollback'])
 
         self._instance_update(context, instance_uuid, task_state=None)
 
     @_lock_call
     def discard_instance(self, context, instance_uuid=None, instance=None):
         """ Discards an instance so that no further instances maybe be launched from it. """
+        hooks.call_hooks_pre_discard([instance.get('uuid', ''),
+                                      instance.get('name', '')])
 
         context = context.elevated()
         self._notify(context, instance, "discard.start")
@@ -877,6 +929,9 @@ class CobaltManager(manager.SchedulerDependentManager):
                               terminated_at=timeutils.utcnow())
         self.conductor_api.instance_destroy(context, instance)
         self._notify(context, instance, "discard.end")
+
+        hooks.call_hooks_post_discard([instance.get('uuid', ''),
+                                       instance.get('name', '')])
 
     @_retry_rpc
     def _retry_get_nw_info(self, context, instance):
@@ -985,6 +1040,14 @@ class CobaltManager(manager.SchedulerDependentManager):
 
             # Create a new launched instance.
             source_instance = self._get_source_instance(context, instance)
+
+        hooks.call_hooks_pre_launch([instance.get('uuid', ''),
+                                     instance.get('name', ''),
+                                     source_instance.get('uuid', ''),
+                                     source_instance.get('name', ''),
+                                     params and jsonutils.dumps(params) or '',
+                                     migration_url and migration_url or '',
+                                     migration_url and 'migration' or 'launch'])
 
         if not(migration_url):
             try:
@@ -1140,6 +1203,14 @@ class CobaltManager(manager.SchedulerDependentManager):
             # the VM at this point, we simply need to make sure the database
             # is updated at some point with the correct state.
             _log_error("post launch update")
+
+        hooks.call_hooks_post_launch([instance.get('uuid', ''),
+                                      instance.get('name', ''),
+                                      source_instance.get('uuid', ''),
+                                      source_instance.get('name', ''),
+                                      params and jsonutils.dumps(params) or '',
+                                      migration_url and migration_url or '',
+                                      migration_url and 'migration' or 'launch'])
 
     @_lock_call
     def export_instance(self, context, instance_uuid=None, instance=None,
