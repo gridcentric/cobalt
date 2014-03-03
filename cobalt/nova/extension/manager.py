@@ -178,8 +178,12 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         self.neutron_attempted = False
         self.network_api = network.API()
+        self.volume_api = kwargs.pop('volume_api', volume.API())
+        # Initialze a local compute manager and ensure that it uses the same
+        # APIs as Cobalt.
         self.compute_manager = compute_manager.ComputeManager()
-        self.volume_api = volume.API()
+        self.compute_manager.volume_api = self.volume_api
+
         self.conductor_api = conductor.API()
         self.object_serializer = base_obj.NovaObjectSerializer()
 
@@ -238,6 +242,7 @@ class CobaltManager(manager.SchedulerDependentManager):
 
     def _instance_update(self, context, instance, **kwargs):
         """Update an instance in the database using kwargs as value."""
+
         retries = 0
         while True:
             try:
@@ -452,34 +457,38 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         block_device_mappings = self.conductor_api.\
                 block_device_mapping_get_all_by_instance(context, instance)
-        root_device_name = source_instance['root_device_name']
-        snapshots = []
 
-        paused = is_paused
+        if len(block_device_mappings) > 0:
+            if not is_paused:
+                self.vms_conn.pause_instance(source_instance)
+            self._snapshot_volumes(context, block_device_mappings,
+                    _('snapshot for %s') % instance['display_name'])
+
+    def _snapshot_volumes(self, context, block_device_mappings, display_name):
+        """
+        Snapshot all the volumes in the block_device_mappings and update
+        the mapping to use the snapshot instead of the volume.
+        """
+
         for bdm in block_device_mappings:
             if bdm['no_device']:
                 continue
 
-            if not paused:
-                self.vms_conn.pause_instance(source_instance)
-                paused = True
-
             volume_id = bdm.get('volume_id')
             if volume_id:
-                # create snapshot based on volume_id
-                volume = self.volume_api.get(context, volume_id)
 
-                name = _('snapshot for %s') % instance['display_name']
                 snapshot = self.volume_api.create_snapshot_force(
-                    context, volume, name, volume['display_description'])
+                    context, volume_id, display_name,
+                    "snapshot of volume %s" % (volume_id))
 
-                # Update the blessed device mapping to include the snapshot id.
+                # Update the device mapping to include the snapshot id.
                 # We also mark it for deletion and this will cascade to the
                 # volume booted when launching.
                 self.conductor_api.\
                     block_device_mapping_update(context.elevated(),
                                                 bdm['id'],
                                                 {'snapshot_id': snapshot['id'],
+                                                 'source_type': 'snapshot',
                                                  'delete_on_termination': True,
                                                  'volume_id': None})
 
@@ -488,10 +497,10 @@ class CobaltManager(manager.SchedulerDependentManager):
             block_device_mapping_get_all_by_instance(context, instance)
         for bdm in block_device_mappings:
             try:
-                volume = self.volume_api.get(context, bdm['volume_id'])
+                volume_id = bdm['volume_id']
                 connector = self.compute_manager.driver.get_volume_connector(instance)
-                self.volume_api.terminate_connection(context, volume, connector)
-                self.volume_api.detach(context, volume)
+                self.volume_api.terminate_connection(context, volume_id, connector)
+                self.volume_api.detach(context, volume_id)
             except exception.DiskNotFound as exc:
                 LOG.warn(_('Ignoring DiskNotFound: %s') % exc, instance=instance)
             except exception.VolumeNotFound as exc:
@@ -510,8 +519,7 @@ class CobaltManager(manager.SchedulerDependentManager):
             if snapshot_id:
                 # Remove the snapshot
                 try:
-                    snapshot = self.volume_api.get_snapshot(context, snapshot_id)
-                    self.volume_api.delete_snapshot(context, snapshot)
+                    self.volume_api.delete_snapshot(context, snapshot_id)
                 except:
                     LOG.warn(_("Failed to remove blessed snapshot %s") %(snapshot_id))
 
@@ -846,6 +854,8 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         self.vms_conn.discard(context, instance["name"], image_refs=image_refs)
 
+        self._instance_update(context, instance_uuid, task_state=None)
+
     @_lock_call
     def discard_instance(self, context, instance_uuid=None, instance=None):
         """ Discards an instance so that no further instances maybe be launched from it. """
@@ -940,87 +950,6 @@ class CobaltManager(manager.SchedulerDependentManager):
                            'tenant':instance['project_id']})
 
 
-    def _setup_block_device_mapping(self, context, instance, bdms):
-        """setup volumes for block device mapping."""
-        block_device_mapping = []
-        swap = None
-        ephemerals = []
-        for bdm in bdms:
-            LOG.debug(_('Setting up bdm %s'), bdm, instance=instance)
-
-            if bdm['no_device']:
-                continue
-            if bdm['virtual_name']:
-                virtual_name = bdm['virtual_name']
-                device_name = bdm['device_name']
-                assert block_device.is_swap_or_ephemeral(virtual_name)
-                if virtual_name == 'swap':
-                    swap = {'device_name': device_name,
-                            'swap_size': bdm['volume_size']}
-                elif block_device.is_ephemeral(virtual_name):
-                    eph = {'num': block_device.ephemeral_num(virtual_name),
-                           'virtual_name': virtual_name,
-                           'device_name': device_name,
-                           'size': bdm['volume_size']}
-                    ephemerals.append(eph)
-                continue
-
-            if ((bdm['snapshot_id'] is not None) and
-                (bdm['volume_id'] is None)):
-                snapshot = self.volume_api.get_snapshot(context,
-                                                        bdm['snapshot_id'])
-
-                from_vol = self.volume_api.get(context,
-                                               snapshot['volume_id'])
-                new_volume_name = (_('%s@%s') % \
-                    (from_vol['display_name'], bdm['snapshot_id']))
-                new_volume_description = from_vol.get('display_description', '')
-
-                vol = self.volume_api.create(context,
-                                             bdm['volume_size'],
-                                             new_volume_name,
-                                             new_volume_description,
-                                             snapshot)
-
-                # TODO(yamahata): creating volume simultaneously
-                #                 reduces creation time?
-                # TODO(yamahata): eliminate dumb polling
-                while True:
-                    volume = self.volume_api.get(context, vol['id'])
-                    if volume['status'] != 'creating':
-                        break
-                    greenthread.sleep(1)
-                self.conductor_api.block_device_mapping_update(
-                    context, bdm['id'], {'volume_id': vol['id']})
-                bdm['volume_id'] = vol['id']
-
-            if bdm['volume_id'] is not None:
-                volume = self.volume_api.get(context, bdm['volume_id'])
-                self.volume_api.check_attach(context, volume,
-                                                      instance=instance)
-                cinfo = self.compute_manager._attach_volume_boot(context,
-                                                                 instance,
-                                                                 volume,
-                                                                 bdm['device_name'])
-                if 'serial' not in cinfo:
-                    cinfo['serial'] = bdm['volume_id']
-                self.conductor_api.block_device_mapping_update(
-                        context, bdm['id'],
-                        {'connection_info': jsonutils.dumps(cinfo)})
-                bdmap = {'connection_info': cinfo,
-                         'mount_device': bdm['device_name'],
-                         'delete_on_termination': bdm['delete_on_termination']}
-                block_device_mapping.append(bdmap)
-
-        block_device_info = {
-            'root_device_name': instance['root_device_name'],
-            'swap': swap,
-            'ephemerals': ephemerals,
-            'block_device_mapping': block_device_mapping
-        }
-
-        return block_device_info
-
     @_lock_call
     def launch_instance(self, context, instance_uuid=None, instance=None,
                         params=None, migration_url=None,
@@ -1083,7 +1012,8 @@ class CobaltManager(manager.SchedulerDependentManager):
             # instance. Note that this method will also create full volumes our
             # of any snapshot referenced by the instance's block_device_mapping.
             bdms = self.conductor_api.\
-                block_device_mapping_get_all_by_instance(context, instance)
+                block_device_mapping_get_all_by_instance(context, instance,
+                                                         legacy=False)
             block_device_info = self.compute_manager._prep_block_device(context,
                                                                     instance,
                                                                     bdms)
@@ -1097,7 +1027,6 @@ class CobaltManager(manager.SchedulerDependentManager):
                                       vm_state=vm_states.ERROR,
                                       task_state=None)
             raise
-
         # Extract the image ids from the source instance.
         image_refs = self._extract_image_refs(source_instance)
         lvm_info = self._extract_lvm_info(source_instance)
@@ -1184,9 +1113,16 @@ class CobaltManager(manager.SchedulerDependentManager):
             # Perform our database update.
             power_state = self.compute_manager._get_power_state(context,
                     instance)
+
+            # Update the task state if the instance is not migrating. Otherwise
+            # let the migration workflow finish things up and update the
+            # task state when appropriate.
+            task_state = None
+            if instance['task_state'] == task_states.MIGRATING:
+                task_state = task_states.MIGRATING
             update_params = {'power_state': power_state,
                              'vm_state': vm_states.ACTIVE,
-                             'task_state': None}
+                             'task_state': task_state}
             if not(migration_url):
                 update_params['launched_at'] = timeutils.utcnow()
             else:
