@@ -283,7 +283,11 @@ def create_instance(context, instance=None, driver=None):
         instance = {}
 
     system_metadata = instance.get('system_metadata', {})
-    instance_type = flavors.get_flavor_by_name('m1.tiny')
+    if 'instance_type_id' in instance:
+        instance_type = flavors.get_flavor(
+                instance['instance_type_id'])
+    else:
+        instance_type = flavors.get_flavor_by_name('m1.tiny')
     system_metadata.update(flavors.save_flavor_info(dict(), instance_type))
 
     instance.setdefault('user_id', context.user_id)

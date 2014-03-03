@@ -32,6 +32,8 @@ from oslo.config import cfg
 import cobalt.nova.extension.manager as co_manager
 import cobalt.tests.utils as utils
 import cobalt.nova.extension.vmsconn as vmsconn
+from cobalt.tests.mocks.instances import Instance
+from cobalt.tests.mocks.volumes import MockVolumeApi, Volume
 
 CONF = cfg.CONF
 
@@ -51,7 +53,8 @@ class CobaltManagerTestCase(unittest.TestCase):
         self.mock_rpc = utils.mock_rpc
 
         self.vmsconn = utils.MockVmsConn()
-        self.cobalt = co_manager.CobaltManager(vmsconn=self.vmsconn)
+        self.cobalt = co_manager.CobaltManager(vmsconn=self.vmsconn,
+            volume_api=MockVolumeApi())
         self.cobalt._instance_network_info = utils.fake_networkinfo
 
         self.context = nova_context.RequestContext('fake', 'fake', True)
@@ -502,4 +505,82 @@ class CobaltManagerTestCase(unittest.TestCase):
         finally:
             # Global state requires us to set it back
             CONF.network_api_class = previous_api_class
+
+    def test_vms_policy_deleted_flavor(self):
+
+        flavor = utils.create_flavor()
+        instance_uuid = utils.create_instance(self.context,
+                {'instance_type_id': flavor['id']})
+        instance = db.instance_get_by_uuid(self.context, instance_uuid)
+        db.flavor_destroy(self.context, flavor['name'])
+
+        vms_policy = self.cobalt._generate_vms_policy_name(self.context,
+                instance, instance)
+        expected_policy = ';blessed=%s;;flavor=%s;;tenant=%s;;uuid=%s;' % \
+                          (instance['uuid'], flavor['name'],
+                           self.context.project_id, instance['uuid'])
+
+        self.assertEquals(expected_policy, vms_policy)
+
+    def test_snapshot_volumes(self):
+
+        volume1 = Volume(self.context, self.cobalt.volume_api).create()
+        volume2 = Volume(self.context, self.cobalt.volume_api).create()
+        instance = Instance(self.context).attach(volume1)\
+                        .attach(volume2).create()
+
+        self.cobalt._snapshot_attached_volumes(self.context, instance, instance,
+                is_paused=True)
+
+        for volume in [volume1, volume2]:
+            self.assertEquals(1, len(volume._snapshots))
+            self.assertEquals("snapshot for %s" % (instance['display_name']),
+                        volume._snapshots.values()[0]['display_name'])
+            self.assertEquals("snapshot of volume %s" %
+                              (volume._volume['id']),
+                volume._snapshots.values()[0]['display_description'])
+
+    def test_bless_instance_with_volume(self):
+
+        self.vmsconn.set_return_val("bless",
+            ("newname", "migration_url", ["file1", "file2", "file3"], []))
+        self.vmsconn.set_return_val("post_bless", ["file1_ref", "file2_ref", "file3_ref"])
+        self.vmsconn.set_return_val("bless_cleanup", None)
+        self.vmsconn.set_return_val("get_instance_info",
+        {'state': power_state.RUNNING})
+
+        volume = Volume(self.context, self.cobalt.volume_api).create()
+        instance = Instance(self.context).attach(volume).create()
+
+        self.cobalt.bless_instance(self.context, instance_uuid=instance['uuid'],
+                migration_url="mcdist://migrate_addr")
+
+        # Ensure that the volume is detached from the instance.
+        self.assertFalse('instance_uuid' in volume._volume)
+
+    def test_launch_instance_with_volume(self):
+
+        self.vmsconn.set_return_val("launch", None)
+
+        volume = Volume(self.context, self.cobalt.volume_api).create()
+
+        instance = Instance(self.context).attach(volume).create()
+        blessed = Instance(self.context).isBlessed(instance=instance).create()
+        pre_launch = Instance(self.context).isPrelaunched(
+                    instance=blessed).create()
+
+        self.cobalt.launch_instance(self.context,
+            instance_uuid=pre_launch['uuid'])
+
+        # Ensure a new volume was created and attached to the instance.
+        bdm = db.block_device_mapping_get_all_by_instance(self.context,
+            pre_launch['uuid'])
+
+        # Ensure that a volume was created from the snapshot
+        self.assertEquals(2, len(self.cobalt.volume_api.list_volumes()))
+        self.assertEquals(1, len(bdm))
+        self.assertTrue(bdm[0]['snapshot_id'] is not None)
+        self.assertTrue(bdm[0]['volume_id'] is not None)
+        self.assertNotEqual(volume._volume['id'], bdm[0]['volume_id'])
+
 

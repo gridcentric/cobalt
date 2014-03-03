@@ -1,0 +1,70 @@
+Cobalt Action Hooks
+===================
+
+Cobalt can be extended to call user-defined hooks before and after carrying out
+certain actions.
+
+To date, the hook points defined are prior and after each of these four actions
+* Bless
+* Launch
+* Migrate
+* Discard
+
+To insert a hook, drop a executable file (script, compiled C, up to you) on this
+directory. The name of the file must contain the sub-string for the desired
+action. The sub-string need not be a prefix or a suffix, as long as it is found
+anywhere in the file name it will be good enough. Valid sub-string for actions
+are pre_bless, post_discard, etc.
+
+You can "hotplug" hooks by dropping them on this directory with no need to
+restart cobalt for the hook to become active.
+
+Hooks only execute in the local compute host.
+
+The boolean configuration option cobalt_enable_action_hooks can be used to
+enable or disable hooks, on a per-compute host basis. The default is to have
+hooks enabled.
+
+Hook failure will not abort the hooked action.
+
+Hook output will be logged to cobalt.log. If the hook succeeds the stdout will
+be logged at debug level. If the hook fails, both stdout and stderr will be
+logged at warn level.
+
+For all hooks, the first two arguments are the instance UUID and instance name
+(e.g. "instance-00000001"), for the target of the action.
+
+Further input arguments:
+pre_bless:
++ 3rd argument: 'migration' or 'bless'.
+
+post_bless:
++ 3rd argument: the memsrv URL.
++ 4th argument: 'migration' or 'bless'.
+
+pre_migrate:
++ 3rd argument: destination host, or 'unknown'.
+
+post_migrate:
++ 3rd argument: 'pass' or 'fail'.
++ 4th argument: 'failed_rollback' or 'rollback' (ignore if 3rd arg is pass).
+
+pre_discard:
+No further arguments.
+
+post_discard:
+No further arguments.
+
+pre_launch:
++ 3rd argument: blessed instance UUID.
++ 4th argument: blessed instance name.
++ 5th argument: JSON encoding of guest params.
++ 6th argument: migration source url, might be ''.
++ 7th argument: 'migration' or 'launch'.
+
+post_launch:
++ 3rd argument: blessed instance UUID.
++ 4th argument: blessed instance name.
++ 5th argument: JSON encoding of guest params.
++ 6th argument: migration source url, might be ''.
++ 7th argument: 'migration' or 'launch'.

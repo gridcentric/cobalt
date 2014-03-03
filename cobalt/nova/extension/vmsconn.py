@@ -17,6 +17,7 @@
 Interfaces that configure vms and perform hypervisor specific operations.
 """
 
+import errno
 import inspect
 import os
 import pwd
@@ -851,7 +852,17 @@ class LibvirtConnection(VmsConnection):
         #              any broken symlinks.
         vg_path = os.path.join('/dev', CONF.libvirt.images_volume_group)
         LOG.debug("Starting to clean symlinks in %s" %(vg_path))
-        for filename in os.listdir(vg_path):
+
+        try:
+            lvs = os.listdir(vg_path)
+        except OSError, e:
+            # If there aren't any logical volumes in the volume group, then
+            # /dev/<volume group name> doesn't exist.
+            if e.errno == errno.ENOENT:
+                return
+            raise
+
+        for filename in lvs:
             path = os.path.join(vg_path, filename)
             try:
                 os.lstat(path)
