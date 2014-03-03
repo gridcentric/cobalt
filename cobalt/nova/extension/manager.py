@@ -872,6 +872,8 @@ class CobaltManager(manager.SchedulerDependentManager):
                                        changed_host and 'pass' or 'fail',
                                        rollback_error and 'failed_rollback' or 'rollback'])
 
+        self._instance_update(context, instance_uuid, task_state=None)
+
     @_lock_call
     def discard_instance(self, context, instance_uuid=None, instance_ref=None):
         """ Discards an instance so that no further instances maybe be launched from it. """
@@ -1219,10 +1221,18 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         try:
             # Perform our database update.
-            power_state = self.compute_manager._get_power_state(context, instance_ref)
+            power_state = self.compute_manager._get_power_state(context,
+                    instance_ref)
+
+            # Update the task state if the instance is not migrating. Otherwise
+            # let the migration workflow finish things up and update the
+            # task state when appropriate.
+            task_state = None
+            if instance_ref['task_state'] == task_states.MIGRATING:
+                task_state = task_states.MIGRATING
             update_params = {'power_state': power_state,
                              'vm_state': vm_states.ACTIVE,
-                             'task_state': None}
+                             'task_state': task_state}
             if not(migration_url):
                 update_params['launched_at'] = timeutils.utcnow()
             else:
