@@ -39,8 +39,10 @@ pre_bless:
 + 3rd argument: 'migration' or 'bless'.
 
 post_bless:
-+ 3rd argument: the memsrv URL.
-+ 4th argument: 'migration' or 'bless'.
++ 3rd argument: the blessed instance UUID.
++ 4th argument: the blessed instance name,
++ 5th argument: the memsrv URL.
++ 6th argument: 'migration' or 'bless'.
 
 pre_migrate:
 + 3rd argument: destination host, or 'unknown'.
