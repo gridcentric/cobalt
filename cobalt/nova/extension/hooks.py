@@ -60,7 +60,7 @@ class Hook(object):
         return self.name
 
     def call(self, args, noraise = True):
-        args = [self.name] + args
+        args = [self.name] + [ str(arg) for arg in args]
         p = subprocess.Popen(args, stdout = subprocess.PIPE,
                              stderr = subprocess.PIPE, close_fds = True,
                              cwd = "/")
