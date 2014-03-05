@@ -904,7 +904,7 @@ class CobaltManager(manager.Manager):
 
         hooks.call_hooks_post_migrate([instance.get('uuid', ''),
                                        instance.get('name', ''),
-                                       changed_host and 'pass' or 'fail',
+                                       changed_hosts and 'pass' or 'fail',
                                        rollback_error and 'failed_rollback' or 'rollback'])
 
         self._instance_update(context, instance_uuid, task_state=None)
