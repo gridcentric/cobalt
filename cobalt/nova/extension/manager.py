@@ -178,7 +178,7 @@ class CobaltManager(manager.SchedulerDependentManager):
     def __init__(self, *args, **kwargs):
 
         self.neutron_attempted = False
-        self.network_api = network.API()
+        self.network_api = kwargs.pop('network_api', network.API())
         self.volume_api = kwargs.pop('volume_api', volume.API())
         # Initialze a local compute manager and ensure that it uses the same
         # APIs as Cobalt.
@@ -965,7 +965,7 @@ class CobaltManager(manager.SchedulerDependentManager):
 
             is_vpn = False
             try:
-                self._instance_update(context, instance['uuid'],
+                self._instance_update(context, instance,
                           task_state=task_states.NETWORKING)
                 LOG.debug(
                       _("Making call to network for launching instance=%s"), \
