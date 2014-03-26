@@ -920,8 +920,14 @@ class CobaltManager(manager.SchedulerDependentManager):
         # Try to discard the created snapshots
         self._discard_blessed_snapshots(context, instance)
         # Call discard in the backend.
-        self.vms_conn.discard(context, instance['name'],
-                              image_refs=self._extract_image_refs(instance))
+        try:
+            self.vms_conn.discard(context, instance['name'],
+                           image_refs=self._extract_image_refs(instance))
+        except:
+            _log_error("discard instance")
+            self._instance_update(context, instance,
+                    vm_state=vm_states.ERROR, task_state=None)
+            raise
 
         # Remove the instance.
         self._instance_update(context,
