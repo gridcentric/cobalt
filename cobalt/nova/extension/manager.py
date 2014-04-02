@@ -69,6 +69,11 @@ cobalt_opts = [
 CONF.register_opts(cobalt_opts)
 CONF.import_opt('cobalt_topic', 'cobalt.nova.api')
 
+# This regular expression is used to match against the output
+# from an "ip route get" command. It is used to determine the
+# correct interface to bind to when performing a migration.
+IP_ROUTE_RE = "\\s*[0-9\\.]+(\\s+via\\s+[0-9\\.]+)?\\s+dev\\s+(\S+)\\s+src\\s+[0-9\\.]+\\s*"
+
 from nova import manager
 from nova import utils
 from nova.openstack.common import rpc
@@ -186,6 +191,7 @@ class CobaltManager(manager.SchedulerDependentManager):
         self.vms_conn = kwargs.pop('vmsconn', None)
         self._init_vms()
         self.nodename = self.vms_conn.get_hypervisor_hostname()
+        self._ip_route_re = re.compile(IP_ROUTE_RE)
 
         # Use an eventlet green thread condition lock instead of the regular threading module. This
         # is required for eventlet threads because they essentially run on a single system thread.
@@ -353,11 +359,14 @@ class CobaltManager(manager.SchedulerDependentManager):
             raise exception.NovaException(_("No route to destination."))
             _log_error("no route to destination")
 
-        try:
-            (destip, devstr, devname, srcstr, srcip) = lines[0].split()
-        except:
+        m = self._ip_route_re.match(lines[0])
+        if not m:
             _log_error("garbled route output: %s" % lines[0])
-            raise
+            raise exception.NovaException(_("Can't determine ip route."))
+
+        # The second group is our interface.
+        # See the IP_ROUTE_RE above.
+        devname = m.group(2)
 
         # Check that this is not local.
         if devname == "lo":
