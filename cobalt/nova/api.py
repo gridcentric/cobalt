@@ -39,7 +39,8 @@ from nova.scheduler import rpcapi as scheduler_rpcapi
 
 from oslo.config import cfg
 
-from . import image
+from cobalt.nova import image
+from cobalt.nova import utils as cobalt_utils
 
 from nova.openstack.common.gettextutils import _
 
@@ -430,7 +431,10 @@ class API(base.Base):
             self._rollback_reservation(context, reservations)
             raise ei[0], ei[1], ei[2]
 
-    def _check_requested_networks(self, context, requested_networks, bless_instance):
+
+
+    def _check_requested_networks(self, context, requested_networks,
+                                  blessed_networks):
         # Ensure the data is correct
         self.compute_api._check_requested_networks(context,
             requested_networks)
@@ -439,14 +443,6 @@ class API(base.Base):
         #              that were attached to the blessed instance. Ensure
         #              that the correct number of requested_networks is
         #              specified.
-        # TODO(dscannell): Logic for parsing attached_networks is shared
-        #                  with the manager. There should be a place for
-        #                  this type of cross-sectional logic.
-        system_metadata = self._instance_system_metadata(bless_instance)
-        blessed_networks = system_metadata.get('attached_networks', '')
-        blessed_networks = [network for network in blessed_networks.split(',')
-                                    if network != '']
-
         if len(blessed_networks) != len(requested_networks):
             raise exception.NovaException(
                     "All networks need to be specified for the new instance. "
@@ -471,10 +467,22 @@ class API(base.Base):
             security_groups = ['default']
         self.compute_api._check_requested_secgroups(context, security_groups)
 
-        requested_networks = params.get('networks', None)
-        if requested_networks != None:
-            self._check_requested_networks(context, requested_networks,
-                    instance)
+        # TODO(dscannell): Logic for parsing attached_networks is shared
+        #                  with the manager. There should be a place for
+        #                  this type of cross-sectional logic.
+        system_metadata = self._instance_system_metadata(instance)
+        blessed_networks = system_metadata.get('attached_networks', '')
+        if cobalt_utils.is_quantum():
+            network_extras = (None, None)
+        else:
+            network_extras = (None,)
+        blessed_networks = [(network,) + network_extras
+                            for network in blessed_networks.split(',')
+                            if network != '']
+        requested_networks = params.get('networks', blessed_networks)
+
+        self._check_requested_networks(context, requested_networks,
+                blessed_networks)
 
         num_instances = params.pop('num_instances', 1)
 

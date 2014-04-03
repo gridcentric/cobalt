@@ -46,7 +46,6 @@ from nova.compute import manager as compute_manager
 from nova.compute import power_state
 from nova.compute import task_states
 from nova.compute import vm_states
-from nova.openstack.common import importutils
 from nova.openstack.common import jsonutils
 from nova.openstack.common import log as logging
 from nova.openstack.common import rpc
@@ -58,6 +57,7 @@ from nova.network import model as network_model
 
 from oslo.config import cfg
 
+from cobalt.nova import utils as cobalt_utils
 from cobalt.nova.extension import hooks
 from cobalt.nova.extension import vmsconn
 
@@ -171,7 +171,6 @@ class CobaltManager(manager.SchedulerDependentManager):
 
     def __init__(self, *args, **kwargs):
 
-        self.quantum_attempted = False
         self.network_api = network.API()
         self.compute_manager = compute_manager.ComputeManager()
         self.volume_api = volume.API()
@@ -384,27 +383,10 @@ class CobaltManager(manager.SchedulerDependentManager):
                                       'attached_networks')
         if len(networks) == 0:
             return None
-        if self._is_quantum_v2():
+        if cobalt_utils.is_quantum():
             return [[id, None, None] for id in networks]
         else:
             return [[id, None] for id in networks]
-
-    def _is_quantum_v2(self):
-        # This has been stolen from the latest nova API code.
-        # It is necessary because some of the quantum types are
-        # different for later APIs.
-        if self.quantum_attempted:
-            return self.have_quantum
-        try:
-            self.quantum_attempted = True
-            from nova.network.quantumv2 import api as quantum_api
-            self.have_quantum = issubclass(
-            importutils.import_class(CONF.network_api_class),
-               quantum_api.API)
-        except ImportError:
-            self.have_quantum = False
-
-        return self.have_quantum
 
     def _get_source_instance(self, context, instance_ref):
         """
