@@ -29,7 +29,7 @@ class CapturedVmsctl(vms_api.Vmsctl):
 
     captured_command = None
 
-    def run_command(self, cmd_list):
+    def run_command(self, cmd_list, attempts=1):
         assert self.captured_command is None
         self.captured_command = self.vmsctl_command + cmd_list
 

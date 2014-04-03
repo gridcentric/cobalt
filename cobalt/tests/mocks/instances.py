@@ -16,7 +16,9 @@
 from nova import db
 from nova import quota
 from nova.compute import flavors
+from nova.network import model as network_model
 from nova.objects import instance as instance_obj
+from nova.objects import instance_info_cache
 
 from cobalt.tests import utils
 
@@ -32,8 +34,10 @@ class Instance(instance_obj.Instance):
         self.instance_type_id = None
         self.system_metadata = {}
         self.metadata = {}
+        self.info_cache = instance_info_cache.InstanceInfoCache()
         self._block_device_mapping = []
         self._volumes = {}
+        self._networks = {}
 
     def with_system_metadata(self, system_metadata):
         self.system_metadata.update(system_metadata)
@@ -49,6 +53,8 @@ class Instance(instance_obj.Instance):
         for metadata in [self.system_metadata, self.metadata]:
             metadata['blessed_from'] = _source_instance['uuid']
         self.system_metadata['files'] = ','.join(_files)
+        self.system_metadata['attached_networks'] = \
+                ','.join(_source_instance._networks.keys())
         self.vm_state = 'blessed'
         self.disable_terminate = True
         if instance.instance_type_id is not None:
@@ -88,6 +94,10 @@ class Instance(instance_obj.Instance):
             bdm_copy['instance_uuid'] = self.uuid
             self._block_device_mapping.append(bdm_copy)
 
+        return self
+
+    def plugged(self, network):
+        self._networks[network._name] = network
         return self
 
     def attach(self, volume, device_name='/dev/vda'):
@@ -132,6 +142,11 @@ class Instance(instance_obj.Instance):
         # for its quota.
         reservations = quota.QUOTAS.reserve(self._context, instances=1,
                 ram=self.memory_mb, cores=self.vcpus)
+
+        network_info = network_model.NetworkInfo()
+        for network in self._networks.values():
+            network_info.append(network.allocate_for_instance())
+        self.info_cache.network_info= network_info
 
         super(Instance, self).create(self._context)
         for bdm in self._block_device_mapping:

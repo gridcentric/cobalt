@@ -29,6 +29,11 @@ import greenlet
 from eventlet import greenthread
 from eventlet.green import threading as gthreading
 
+# This regular expression is used to match against the output
+# from an "ip route get" command. It is used to determine the
+# correct interface to bind to when performing a migration.
+IP_ROUTE_RE = "\\s*[0-9\\.]+(\\s+via\\s+[0-9\\.]+)?\\s+dev\\s+(\S+)\\s+src\\s+[0-9\\.]+\\s*"
+
 from nova import block_device
 from nova import conductor
 from nova import exception
@@ -178,7 +183,7 @@ class CobaltManager(manager.Manager):
     def __init__(self, *args, **kwargs):
 
         self.neutron_attempted = False
-        self.network_api = network.API()
+        self.network_api = kwargs.pop('network_api', network.API())
         self.volume_api = kwargs.pop('volume_api', volume.API())
         # Initialze a local compute manager and ensure that it uses the same
         # APIs as Cobalt.
@@ -191,6 +196,7 @@ class CobaltManager(manager.Manager):
         self.vms_conn = kwargs.pop('vmsconn', None)
         self._init_vms()
         self.nodename = self.vms_conn.get_hypervisor_hostname()
+        self._ip_route_re = re.compile(IP_ROUTE_RE)
 
         # Use an eventlet green thread condition lock instead of the regular threading module. This
         # is required for eventlet threads because they essentially run on a single system thread.
@@ -351,11 +357,14 @@ class CobaltManager(manager.Manager):
             raise exception.NovaException(_("No route to destination."))
             _log_error("no route to destination")
 
-        try:
-            (destip, devstr, devname, srcstr, srcip) = lines[0].split()
-        except:
+        m = self._ip_route_re.match(lines[0])
+        if not m:
             _log_error("garbled route output: %s" % lines[0])
-            raise
+            raise exception.NovaException(_("Can't determine ip route."))
+
+        # The second group is our interface.
+        # See the IP_ROUTE_RE above.
+        devname = m.group(2)
 
         # Check that this is not local.
         if devname == "lo":
@@ -921,8 +930,14 @@ class CobaltManager(manager.Manager):
         # Try to discard the created snapshots
         self._discard_blessed_snapshots(context, instance)
         # Call discard in the backend.
-        self.vms_conn.discard(context, instance['name'],
-                              image_refs=self._extract_image_refs(instance))
+        try:
+            self.vms_conn.discard(context, instance['name'],
+                           image_refs=self._extract_image_refs(instance))
+        except:
+            _log_error("discard instance")
+            self._instance_update(context, instance,
+                    vm_state=vm_states.ERROR, task_state=None)
+            raise
 
         # Remove the instance.
         self._instance_update(context,
@@ -966,7 +981,7 @@ class CobaltManager(manager.Manager):
 
             is_vpn = False
             try:
-                self._instance_update(context, instance['uuid'],
+                self._instance_update(context, instance,
                           task_state=task_states.NETWORKING)
                 LOG.debug(
                       _("Making call to network for launching instance=%s"), \

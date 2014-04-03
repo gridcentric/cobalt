@@ -34,6 +34,7 @@ import cobalt.tests.utils as utils
 import cobalt.nova.extension.vmsconn as vmsconn
 from cobalt.tests.mocks.instances import Instance
 from cobalt.tests.mocks.volumes import MockVolumeApi, Volume
+from cobalt.tests.mocks.networks import MockNetworkApi, Network
 
 CONF = cfg.CONF
 
@@ -54,8 +55,7 @@ class CobaltManagerTestCase(unittest.TestCase):
 
         self.vmsconn = utils.MockVmsConn()
         self.cobalt = co_manager.CobaltManager(vmsconn=self.vmsconn,
-            volume_api=MockVolumeApi())
-        self.cobalt._instance_network_info = utils.fake_networkinfo
+            volume_api=MockVolumeApi(), network_api=MockNetworkApi())
 
         self.context = nova_context.RequestContext('fake', 'fake', True)
 
@@ -119,16 +119,17 @@ class CobaltManagerTestCase(unittest.TestCase):
                                     {'state': power_state.RUNNING})
 
         pre_bless_time = datetime.utcnow()
-        blessed_uuid = utils.create_pre_blessed_instance(self.context)
+        instance = Instance(self.context).create()
+        blessed = Instance(self.context).isBlessed(instance=instance).create()
         migration_url, instance_ref = self.cobalt.bless_instance(
                                                     self.context,
-                                                    instance_uuid=blessed_uuid,
+                                                    instance_uuid=blessed['uuid'],
                                                     migration_url=None)
 
-        blessed_instance = db.instance_get_by_uuid(self.context, blessed_uuid)
+        blessed_instance = db.instance_get_by_uuid(self.context, blessed['uuid'])
         self.assertEquals("blessed", blessed_instance['vm_state'])
         self.assertEquals("migration_url", migration_url)
-        system_metadata = db.instance_system_metadata_get(self.context, blessed_uuid)
+        system_metadata = db.instance_system_metadata_get(self.context, blessed['uuid'])
         self.assertEquals("file1_ref,file2_ref,file3_ref", system_metadata['images'])
 
         self.assertTrue(pre_bless_time <= blessed_instance['launched_at'])
@@ -240,34 +241,48 @@ class CobaltManagerTestCase(unittest.TestCase):
 
         self.vmsconn.set_return_val("launch", None)
 
-        blessed_uuid = utils.create_blessed_instance(self.context,
-                instance={'system_metadata':
-                              {'attached_networks': 'blessed_network'}})
-        launched_uuid = utils.create_pre_launched_instance(self.context,
-                source_uuid=blessed_uuid)
+        network = Network(self.context, self.cobalt.network_api,
+                         name='blessed_network').create()
 
-        self.cobalt.launch_instance(self.context, instance_uuid=launched_uuid)
+        # This is an unsed network associated with the project
+        Network(self.context, self.cobalt.network_api).create()
+
+        instance = Instance(self.context).plugged(network).create()
+        blessed = Instance(self.context).isBlessed(instance=instance).create()
+        pre_launch = Instance(self.context).isPrelaunched(
+                instance=blessed).create()
+
+        self.cobalt.launch_instance(self.context,
+            instance_uuid=pre_launch['uuid'])
 
         network_info = self.vmsconn.params_passed[0]['args'][3]
         self.assertTrue(len(network_info) == 1)
-        self.assertEquals('blessed_network', network_info[0]['network'])
+        self.assertEquals('blessed_network', network_info[0]['network']['label'])
 
     def test_launch_instance_requested_networks(self):
 
         self.vmsconn.set_return_val("launch", None)
 
-        blessed_uuid = utils.create_blessed_instance(self.context,
-                instance={'system_metadata':
-                      {'attached_networks': 'blessed_network'}})
-        launched_uuid = utils.create_pre_launched_instance(self.context,
-                source_uuid=blessed_uuid)
-        requested_networks = [('launch_network', None)]
-        self.cobalt.launch_instance(self.context, instance_uuid=launched_uuid,
+        bless_network = Network(self.context, self.cobalt.network_api,
+            name='blessed_network').create()
+
+        # This is an unsed network associated with the project
+        launch_network = Network(self.context, self.cobalt.network_api).create()
+
+        instance = Instance(self.context).plugged(bless_network).create()
+        blessed = Instance(self.context).isBlessed(instance=instance).create()
+        pre_launch = Instance(self.context).isPrelaunched(
+            instance=blessed).create()
+
+        requested_networks = [(launch_network._name, None)]
+        self.cobalt.launch_instance(self.context,
+                                    instance_uuid=pre_launch['uuid'],
                                     params={'networks': requested_networks})
 
         network_info = self.vmsconn.params_passed[0]['args'][3]
         self.assertTrue(len(network_info) == 1)
-        self.assertEquals('launch_network', network_info[0]['network'])
+        self.assertEquals(launch_network._name,
+                          network_info[0]['network']['label'])
 
     def test_launch_instance_exception(self):
 

@@ -668,8 +668,9 @@ class API(base.Base):
         try:
             instance = self.get(context, instance_uuid)
             if self._is_instance_blessed(context, instance):
-                raise exception.NovaException("Cannot delete a live image. "
-                                              "Please discard it instead.")
+                raise exception.NovaException(
+                    "Cannot delete a live image %s. "
+                    "Please discard it instead." % (instance_uuid))
             if self._is_instance_blessing(context, instance):
                 raise exception.NovaException("Cannot delete while blessing. "
                                               "Please try again later.")

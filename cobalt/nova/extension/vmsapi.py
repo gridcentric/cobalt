@@ -100,11 +100,12 @@ class Vmsctl(VmsDriver):
         for key, value in management_options.iteritems():
             self.vmsctl_command += ['-m', '%s=%s' %(key, value)]
 
-    def run_command(self, cmd_list):
+    def run_command(self, cmd_list, attempts=1):
         cmd = self.vmsctl_command + cmd_list
         LOG.debug(_('Executing vms command %s'), cmd)
 
-        (stdout, stderr) = utils.execute(*cmd, run_as_root=True)
+        (stdout, stderr) = utils.execute(*cmd, run_as_root=True,
+                attempts=attempts)
         # Returns a tuple of (stdout, stderr). Log the information in
         # stderr and return stdout back to the caller.
         for line in stderr.split('\n'):
@@ -117,7 +118,7 @@ class XapiPlugin(Vmsctl):
                                          management_options=management_options)
         self._session = session
 
-    def run_command(self, cmd_list):
+    def run_command(self, cmd_list, attempts=1):
         # TODO(dscannell): need to figure out the plugin function and
         #                  how the cmd_list will be serialized across.
         vmsctl_options = self.vmsctl_command[1:]
@@ -223,7 +224,7 @@ class VmsApi(object):
             #                  disk_url before adding the mem_url.
             discard_cmd += ['', '', mem_url]
 
-        return self.vms_driver.run_command(discard_cmd)
+        return self.vms_driver.run_command(discard_cmd, attempts=10)
 
     def kill_memservers(self, mem_url):
         # command: vmsctl kill_memservers <url>
