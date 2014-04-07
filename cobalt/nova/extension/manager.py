@@ -906,7 +906,7 @@ class CobaltManager(manager.SchedulerDependentManager):
             # we want to leave the instance in the MIGRATING state as long
             # as we're doing migration-related work.
             self._instance_update(context,
-                                  instance_uuid,
+                                  instance,
                                   vm_state=vm_states.ERROR,
                                   task_state=None)
 
@@ -915,7 +915,7 @@ class CobaltManager(manager.SchedulerDependentManager):
                                        changed_hosts and 'pass' or 'fail',
                                        rollback_error and 'failed_rollback' or 'rollback'])
 
-        self._instance_update(context, instance_uuid, task_state=None)
+        self._instance_update(context, instance, task_state=None)
 
     @_lock_call
     def discard_instance(self, context, instance_uuid=None, instance=None):
@@ -1102,7 +1102,7 @@ class CobaltManager(manager.SchedulerDependentManager):
             # (e.g. cinder is down, quotas have been reached, snapshot deleted, etc).
             _log_error("setting up block device mapping")
             if not(migration_url):
-                self._instance_update(context, instance_['uuid'],
+                self._instance_update(context, instance,
                                       host=None, node=None,
                                       vm_state=vm_states.ERROR,
                                       task_state=None)
