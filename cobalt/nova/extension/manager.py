@@ -41,6 +41,7 @@ from nova import manager
 from nova import network
 from nova import notifications
 from nova import volume
+from nova import utils
 from nova.compute import flavors
 from nova.compute import manager as compute_manager
 from nova.compute import power_state
@@ -53,7 +54,6 @@ from nova.network import manager as network_manager
 from nova.network import model as network_model
 from nova.objects import base as base_obj
 from nova.objects import instance as instance_obj
-from nova.openstack.common import importutils
 from nova.openstack.common import jsonutils
 from nova.openstack.common import log as logging
 from nova.openstack.common import periodic_task
@@ -182,7 +182,6 @@ class CobaltManager(manager.SchedulerDependentManager):
 
     def __init__(self, *args, **kwargs):
 
-        self.neutron_attempted = False
         self.network_api = kwargs.pop('network_api', network.API())
         self.volume_api = kwargs.pop('volume_api', volume.API())
         # Initialze a local compute manager and ensure that it uses the same
@@ -396,28 +395,12 @@ class CobaltManager(manager.SchedulerDependentManager):
                                       'attached_networks')
         if len(networks) == 0:
             return None
-        if self._is_neutron_v2():
+
+        if utils.is_neutron():
             return [[id, None, None] for id in networks]
         else:
             return [[id, None] for id in networks]
 
-    def _is_neutron_v2(self):
-        # This has been stolen from the latest nova API code.
-        # It is necessary because some of the neutron types are
-        # different for later APIs.
-        if self.neutron_attempted:
-            return self.have_neutron
-        try:
-            self.neutron_attempted = True
-            from nova.network.neutronv2 import api as neutron_api
-
-            self.have_neutron = issubclass(
-                self.compute_manager.network_api.__class__,
-               neutron_api.API)
-        except ImportError:
-            self.have_neutron = False
-
-        return self.have_neutron
 
     def _get_source_instance(self, context, instance):
         """
