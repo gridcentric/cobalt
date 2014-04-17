@@ -45,6 +45,7 @@ from nova import utils
 from nova.compute import flavors
 from nova.compute import manager as compute_manager
 from nova.compute import power_state
+from nova.compute import rpcapi as compute_rpcapi
 from nova.compute import task_states
 from nova.compute import vm_states
 # We need to import this module because other nova modules use the flags that
@@ -57,14 +58,12 @@ from nova.objects import instance as instance_obj
 from nova.openstack.common import jsonutils
 from nova.openstack.common import log as logging
 from nova.openstack.common import periodic_task
-from nova.openstack.common import rpc
 from nova.openstack.common import timeutils
 from nova.openstack.common.gettextutils import _
-from nova.openstack.common.notifier import api as notifier
-from nova.openstack.common.rpc import common as rpc_common
 
 from oslo.config import cfg
 
+from cobalt.nova import rpcapi as cobalt_rpc
 from cobalt.nova.extension import hooks
 from cobalt.nova.extension import vmsconn
 
@@ -184,11 +183,15 @@ class CobaltManager(manager.Manager):
 
         self.network_api = kwargs.pop('network_api', network.API())
         self.volume_api = kwargs.pop('volume_api', volume.API())
+        self.cobalt_rpcapi = kwargs.pop('cobalt_rpcapi',
+                cobalt_rpc.CobaltRpcApi())
         # Initialze a local compute manager and ensure that it uses the same
         # APIs as Cobalt.
         self.compute_manager = compute_manager.ComputeManager()
         self.compute_manager.volume_api = self.volume_api
 
+        self.compute_rpcapi = kwargs.pop('compute_rpcapi',
+                compute_rpcapi.ComputeAPI())
         self.conductor_api = conductor.API()
         self.object_serializer = base_obj.NovaObjectSerializer()
 
@@ -427,12 +430,9 @@ class CobaltManager(manager.Manager):
 
     def _notify(self, context, instance, operation, network_info=None):
         try:
-            usage_info = notifications.info_from_instance(context, instance,
-                                                    network_info=network_info,
-                                                    system_metadata=None)
-            notifier.notify(context, 'cobalt.%s' % self.host,
-                            'cobalt.instance.%s' % operation,
-                            notifier.INFO, usage_info)
+            self.compute_manager._notify_about_instance_usage(context, instance,
+                    operation, network_info=network_info,
+                    system_metadata=instance['system_metadata'])
         except:
             # (amscanne): We do not put the instance into an error state during a notify exception.
             # It doesn't seem reasonable to do this, as the instance may still be up and running,
@@ -757,14 +757,8 @@ class CobaltManager(manager.Manager):
         # source after this call. Also note, that this does not update the database so
         # no other processes should be affected.
         instance['host'] = dest
-        rpc.call(context, compute_dest_queue,
-                 {"method": "pre_live_migration",
-                  "version": "3.0",
-                  "args": {'instance': instance,
-                           'block_migration': False,
-                           'disk': None,
-                           'migrate_data': None}},
-                 timeout=CONF.cobalt_compute_timeout)
+        self.compute_rpcapi.pre_live_migration(context, instance, False, None,
+                dest, None)
         instance['host'] = self.host
 
         # Bless this instance for migration.
@@ -795,13 +789,9 @@ class CobaltManager(manager.Manager):
             # disk size or some other parameter. But we will get a response if an
             # exception occurs in the remote thread, so the worse case here is
             # really just the machine dying or the service dying unexpectedly.
-            rpc.call(context, co_dest_queue,
-                    {"method": "launch_instance",
-                     "args": {'instance':
-                                  self.object_serializer.serialize_entity(
-                                        context, instance),
-                              'migration_url': migration_url,
-                              'migration_network_info': network_info}},
+            self.cobalt_rpcapi.launch_instance(context, instance, dest,
+                    migration_url=migration_url,
+                    migration_network_info=network_info,
                     timeout=1800)
             changed_hosts = True
             rollback_error = False
@@ -854,10 +844,8 @@ class CobaltManager(manager.Manager):
             try:
                 # Ensure that the networks have been configured on the destination host.
                 self.network_api.setup_networks_on_host(context, instance, host=dest)
-                rpc.call(context, compute_source_queue,
-                    {"method": "rollback_live_migration_at_destination",
-                     "version": "3.0",
-                     "args": {'instance': instance}})
+                self.compute_rpcapi.rollback_live_migration_at_destination(
+                        context, instance, self.host)
             except:
                 _log_error("post migration cleanup")
 
@@ -1138,15 +1126,8 @@ class CobaltManager(manager.Manager):
             # NOTE(amscanne): This will happen prior to launching in the migration code, so
             # we don't need to bother with this call in that case.
             if not(migration_url):
-                rpc.call(context,
-                    rpc.queue_get_for(context, CONF.compute_topic, self.host),
-                    {"method": "pre_live_migration",
-                     "version": "3.0",
-                     "args": {'instance': instance,
-                              'block_migration': False,
-                              'disk': None,
-                              'migrate_data': None}},
-                    timeout=CONF.cobalt_compute_timeout)
+                self.compute_rpcapi.pre_live_migration(context, instance, False,
+                        None, self.host, None)
 
             vms_policy = self._generate_vms_policy_name(context, instance,
                                                         source_instance)

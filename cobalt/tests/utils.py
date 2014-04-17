@@ -19,7 +19,6 @@ import uuid
 from nova import db
 from nova import quota
 from nova import policy
-from nova.openstack.common import rpc
 from nova.compute import flavors
 from nova.compute import vm_states
 from nova.compute import power_state
@@ -34,42 +33,6 @@ class TestInducedException(Exception):
     def __init__(self, *args, **kwargs):
         super(TestInducedException, self).__init__(*args, **kwargs)
     pass
-
-class MockRpc(object):
-    """
-    A simple mock Rpc that used to tests that the proper messages are placed on the queue. In all
-    cases this will return with a None result to ensure that tests do not hang waiting for a 
-    response.
-    """
-
-    def __init__(self):
-        self.reset()
-
-    def __add_to_log(self, log, queue, kwargs):
-        _instance = kwargs['args'].get('instance_uuid', 'unknown')
-        _method   = kwargs['method']
-        if log.get(_method) is None:
-            log[_method] = {}
-        if log[_method].get(queue) is None:
-            log[_method][queue] = {}
-        if log[_method][queue].get(_instance) is None:
-            log[_method][queue][_instance] = []
-        log[_method][queue][_instance] += [kwargs]
-
-    def call(self, context, queue, params, timeout=None):
-        params['timeout'] = timeout
-        self.__add_to_log(self.call_log, queue, params)
-
-    def cast(self, context, queue, kwargs):
-        self.__add_to_log(self.cast_log, queue, kwargs)
-
-    def reset(self):
-        self.call_log = {}
-        self.cast_log = {}
-
-mock_rpc = MockRpc()
-rpc.call = mock_rpc.call
-rpc.cast = mock_rpc.cast
 
 class MockImageService(object):
     """

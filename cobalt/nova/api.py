@@ -36,7 +36,6 @@ from nova.objects import instance as instance_obj
 from nova.objects import instance_info_cache
 from nova.openstack.common import jsonutils
 from nova.openstack.common import log as logging
-from nova.openstack.common import rpc
 from nova.openstack.common import timeutils
 from nova.openstack.common.gettextutils import _
 from nova.scheduler import rpcapi as scheduler_rpcapi
@@ -44,6 +43,7 @@ from nova.scheduler import rpcapi as scheduler_rpcapi
 from oslo.config import cfg
 
 from cobalt.nova import image
+from cobalt.nova import rpcapi
 
 # New API capabilities should be added here
 
@@ -74,8 +74,11 @@ class API(base.Base):
     """API for interacting with the cobalt manager."""
 
     # Allow passing in dummy image_service, but normally use the default
-    def __init__(self, image_service=None, **kwargs):
+    def __init__(self, image_service=None, cobalt_rpcapi=None, **kwargs):
         super(API, self).__init__(**kwargs)
+
+        self.cobalt_rpcapi = cobalt_rpcapi or rpcapi.CobaltRpcApi()
+
         self.compute_api = compute.API()
         self.image_service = image_service if image_service is not None else image.ImageService()
         self.scheduler_rpcapi = scheduler_rpcapi.SchedulerAPI()
@@ -113,33 +116,6 @@ class API(base.Base):
 
         rv = self.db.instance_get_by_uuid(context, instance_uuid)
         return dict(rv.iteritems())
-
-    def _send_cobalt_message(self, method, context, instance, host=None,
-                              params=None, is_call=False):
-        """Generic handler for RPC casts/calls to cobalt topic.
-           This only blocks for a response with is_call=True.
-
-        :param params: Optional dictionary of arguments to be passed to the
-                       cobalt worker
-
-        :returns: None
-        """
-        if not params:
-            params = {}
-        if not host:
-            host = instance['host']
-        if not host:
-            queue = CONF.cobalt_topic
-        else:
-            queue = rpc.queue_get_for(context, CONF.cobalt_topic, host)
-
-        params['instance_uuid'] = instance['uuid']
-        kwargs = {'method': method, 'args': params}
-
-        if is_call:
-            return rpc.call(context, queue, kwargs)
-        else:
-            rpc.cast(context, queue, kwargs)
 
     def _acquire_addition_reservation(self, context, instance, num_requested=1):
         # Check the quota to see if we can launch a new instance.
@@ -407,8 +383,7 @@ class API(base.Base):
                                                launch=False)
 
             LOG.debug(_("Casting cobalt message for bless_instance") % locals())
-            self._send_cobalt_message('bless_instance', context, new_instance,
-                                       host=instance['host'])
+            self.cobalt_rpcapi.bless_instance(context, new_instance)
             self._commit_reservation(context, reservations)
         except:
             ei = sys.exc_info()
@@ -443,7 +418,7 @@ class API(base.Base):
             # otherwise we can skip it.
             reservations = self._acquire_subtraction_reservation(context, instance)
         try:
-            self._send_cobalt_message('discard_instance', context, instance)
+            self.cobalt_rpcapi.discard_instance(context, instance)
             self._commit_reservation(context, reservations)
         except:
             ei = sys.exc_info()
@@ -453,10 +428,19 @@ class API(base.Base):
 
 
     def _check_requested_networks(self, context, requested_networks,
-                                  blessed_networks):
+                                  blessed_networks, num_instances):
         # Ensure the data is correct
-        self.compute_api._check_requested_networks(context,
-            requested_networks)
+        max_net_instances = self.compute_api._check_requested_networks(context,
+            requested_networks, num_instances)
+
+        # (dscannell): If the max_net_instances is less than num instances then
+        #              the user will exceed their network quota and not all
+        #              instances will get a network. In this case, we should
+        #              fail the request.
+        if max_net_instances < num_instances:
+            raise exception.QuotaError(
+                _("Not enough available network allocations to satisify the "
+                  "request."))
 
         # (dscannell): We only support replacement of ALL of the networks
         #              that were attached to the blessed instance. Ensure
@@ -468,6 +452,16 @@ class API(base.Base):
                     "Expected %s but only %s specified."
                     % (len(blessed_networks), len(requested_networks)))
 
+    def _validate_num_instances(self, num_instances):
+        try:
+            i_list = range(num_instances)
+            if len(i_list) == 0:
+                raise exception.NovaException(
+                    _('num_instances must be at least 1'))
+        except TypeError:
+            raise exception.NovaException(_('num_instances must be an integer'))
+
+        return num_instances
 
     def launch_instance(self, context, instance_uuid, params={}):
         pid = context.project_id
@@ -486,6 +480,9 @@ class API(base.Base):
             security_groups = ['default']
         self.compute_api._check_requested_secgroups(context, security_groups)
 
+        num_instances = self._validate_num_instances(
+                params.pop('num_instances', 1))
+
         # TODO(dscannell): Logic for parsing attached_networks is shared
         #                  with the manager. There should be a place for
         #                  this type of cross-sectional logic.
@@ -501,16 +498,8 @@ class API(base.Base):
         requested_networks = params.get('networks', blessed_networks)
 
         self._check_requested_networks(context, requested_networks,
-                blessed_networks)
+                blessed_networks, num_instances)
 
-        num_instances = params.pop('num_instances', 1)
-
-        try:
-            i_list = range(num_instances)
-            if len(i_list) == 0:
-                raise exception.NovaException(_('num_instances must be at least 1'))
-        except TypeError:
-            raise exception.NovaException(_('num_instances must be an integer'))
         reservations = self._acquire_addition_reservation(context, instance, num_instances)
 
         try:
@@ -556,9 +545,8 @@ class API(base.Base):
                                                        filter_properties)
 
             for host, launch_instance in zip(hosts, launch_instances):
-                self._send_cobalt_message('launch_instance', context,
-                    launch_instance, host,
-                    { "params" : params })
+                self.cobalt_rpcapi.launch_instance(context, launch_instance,
+                    host, params)
 
             self._commit_reservation(context, reservations)
         except:
@@ -642,9 +630,7 @@ class API(base.Base):
 
         self.db.instance_update(context, instance['uuid'], {'task_state':task_states.MIGRATING})
         LOG.debug(_("Casting cobalt message for migrate_instance") % locals())
-        self._send_cobalt_message('migrate_instance', context,
-                                       instance, host=instance['host'],
-                                       params={"dest" : dest})
+        self.cobalt_rpcapi.migrate_instance(context, instance, dest)
 
     def list_launched_instances(self, context, instance_uuid):
         # Assert that the instance with the uuid actually exists.
@@ -706,7 +692,7 @@ class API(base.Base):
         image_name = '%s-export' % instance['display_name']
         image_id = self.image_service.create(context, image_name)
 
-        self._send_cobalt_message("export_instance", context, instance, params={'image_id': image_id})
+        self.cobalt_rpcapi.export_instance(context, instance, image_id)
 
         # Copy these fields directly
         fields = set([
@@ -775,8 +761,8 @@ class API(base.Base):
                                 {'vm_state':vm_states.BUILDING,
                                  'system_metadata': data['system_metadata']})
 
-        self._send_cobalt_message('import_instance', context,
-                 instance, params={'image_id': data['export_image_id']})
+        self.cobalt_rpcapi.import_instance(context, instance,
+                data['export_image_id'])
 
         return self.get(context, instance['uuid'])
 
@@ -784,15 +770,11 @@ class API(base.Base):
         validated = False
         faults = []
         for host in self._list_cobalt_hosts(context):
-            queue = rpc.queue_get_for(context, CONF.cobalt_topic, host)
-            args = {
-                "method": "install_policy",
-                "args" : { "policy_ini_string": policy_ini_string },
-            }
 
             if (not validated) or wait:
                 try:
-                    rpc.call(context, queue, args)
+                    self.cobalt_rpcapi.install_policy(context,
+                            policy_ini_string, host, wait_for_response=True)
                     validated = True
                 except Exception, ex:
                     faults.append((host, str(ex)))
@@ -801,7 +783,8 @@ class API(base.Base):
                             _("Failed to install policy on host %s: %s" % \
                                 (host, str(ex))))
             else:
-                rpc.cast(context, queue, args)
+                self.cobalt_rpcapi.install_policy(context, policy_ini_string,
+                        host)
 
         if len(faults) > 0:
             raise exception.NovaException(
@@ -817,8 +800,7 @@ class API(base.Base):
             raise exception.NovaException(_(("Instance %s is not a launched instance. " +
                         "Only launched instances support policies.") % instance_uuid))
 
-        return self._send_cobalt_message('get_applied_policy', context,
-                                         instance, is_call=True)
+        return self.cobalt_rpcapi.get_applied_policy(context, instance)
 
     def _find_boot_host(self, context, metadata):
 

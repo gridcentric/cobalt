@@ -13,14 +13,15 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import unittest
+import base64
 import os
 import shutil
+import unittest
 
 from nova import db
 from nova import context as nova_context
 from nova import exception
-
+from nova import rpc as nova_rpc
 from nova.compute import vm_states, task_states, power_state
 from nova.db.sqlalchemy import api as sqlalchemy_db
 
@@ -29,7 +30,10 @@ from oslo.config import cfg
 import cobalt.nova.api as gc_api
 from cobalt.nova import image
 import cobalt.tests.utils as utils
-import base64
+
+from cobalt.tests.mocks.instances import Instance
+from cobalt.tests.mocks import rpc as mock_rpc
+
 
 CONF = cfg.CONF
 
@@ -42,16 +46,17 @@ class CobaltApiTestCase(unittest.TestCase):
         shutil.copyfile(os.path.join(CONF.state_path, CONF.sqlite_clean_db),
                         os.path.join(CONF.state_path, CONF.sqlite_db))
 
-        self.mock_rpc = utils.mock_rpc
-        self.mock_rpc.reset()
-
+        nova_rpc.init(CONF)
         # Mock out all of the policy enforcement (the tests don't have a defined policy)
         utils.mock_policy()
 
         # Mock quota checking
         utils.mock_quota()
 
-        self.cobalt_api = gc_api.API(image_service=utils.mock_image_service())
+        self.mock_cobalt_rpcapi = mock_rpc.MockCobaltRpcApi()
+        self.cobalt_api = gc_api.API(image_service=utils.mock_image_service(),
+                cobalt_rpcapi=self.mock_cobalt_rpcapi)
+
         utils.mock_scheduler_rpcapi(self.cobalt_api.scheduler_rpcapi)
         self.context = nova_context.RequestContext('fake', 'fake', True)
         self.cobalt_service = utils.create_cobalt_service(self.context)
@@ -393,16 +398,15 @@ class CobaltApiTestCase(unittest.TestCase):
         # all assertions in mocked scheduler
 
     def test_launch_instance_host_az(self):
-        instance_uuid = utils.create_instance(self.context)
-        blessed_instance = self.cobalt_api.bless_instance(self.context, instance_uuid)
-        blessed_instance_uuid = blessed_instance['uuid']
-        launched_instance = self.cobalt_api.launch_instance(self.context,
-                                                            blessed_instance_uuid,
-                                                            params = {
-                                                                'availability_zone' : 'nova:myhost',
-                                                                     })
-        launched_instance_uuid = launched_instance['uuid']
-        self.assertTrue(len(self.mock_rpc.cast_log['launch_instance']['cobalt.myhost'][launched_instance_uuid]) > 0)
+
+        blessed = Instance(self.context).isBlessed().create()
+        self.cobalt_api.launch_instance(self.context, blessed['uuid'],
+                params = {'availability_zone' : 'nova:myhost'})
+
+        self.assertEquals(1, self.mock_cobalt_rpcapi.num_rpc_requests())
+        rpc_request = self.mock_cobalt_rpcapi.rpc_requests()[0]
+        self.assertTrue(rpc_request._is_cast)
+        self.assertEquals('myhost', rpc_request._server)
 
     def test_launch_instance_filter_props(self):
         instance_uuid = utils.create_instance(self.context)
@@ -418,21 +422,21 @@ class CobaltApiTestCase(unittest.TestCase):
 
 
     def test_launch_instance_filter_and_az(self):
-        instance_uuid = utils.create_instance(self.context)
-        blessed_instance = self.cobalt_api.bless_instance(self.context, instance_uuid)
-        blessed_instance_uuid = blessed_instance['uuid']
+        blessed = Instance(self.context).isBlessed().create()
         launched_instance = self.cobalt_api.launch_instance(self.context,
-                                                            blessed_instance_uuid,
-                                                            params = {
-                                                                'availability_zone' : 'nova:filter_host',
-                                                                'scheduler_hints' : {'a':'b','c':'d'},
-                                                                     })
+                blessed['uuid'],
+                params = {'availability_zone' : 'nova:filter_host',
+                          'scheduler_hints' : {'a':'b','c':'d'}})
         launched_instance_uuid = launched_instance['uuid']
         self.assertTrue({'scheduler_hints'      : {'a': 'b', 'c': 'd'},
                          'force_hosts'          : ['filter_host'],
                          'availability_zone'    : 'nova' } in
                             utils.stored_hints[launched_instance_uuid])
-        self.assertTrue(len(self.mock_rpc.cast_log['launch_instance']['cobalt.filter_host'][launched_instance_uuid]) > 0)
+
+        self.assertEquals(1, self.mock_cobalt_rpcapi.num_rpc_requests())
+        rpc_request = self.mock_cobalt_rpcapi.rpc_requests()[0]
+        self.assertTrue(rpc_request._is_cast)
+        self.assertEquals('filter_host', rpc_request._server)
 
     def test_launch_not_blessed_image(self):
 
@@ -509,9 +513,10 @@ class CobaltApiTestCase(unittest.TestCase):
             instance={'system_metadata':
                           {'attached_networks': 'net1'}})
 
-        def validate_networks(context, requested_networks):
+        def validate_networks(context, requested_networks, max_count):
             # The requested networks are valid.
-            pass
+            return max_count
+
         self.cobalt_api.compute_api.network_api.validate_networks = \
                     validate_networks
 
@@ -524,7 +529,7 @@ class CobaltApiTestCase(unittest.TestCase):
             instance={'system_metadata':
                           {'attached_networks': 'net1'}})
 
-        def validate_networks(context, requested_networks):
+        def validate_networks(context, requested_networks, max_count):
             # The requested networks are invalid.
             raise  utils.TestInducedException()
         self.cobalt_api.compute_api.network_api.validate_networks =\
@@ -546,7 +551,7 @@ class CobaltApiTestCase(unittest.TestCase):
                 instance={'system_metadata':
                               {'attached_networks': 'net1,net2'}})
 
-        def validate_networks(context, requested_networks):
+        def validate_networks(context, requested_networks, max_count):
             # The requested networks are valid.
             pass
         self.cobalt_api.compute_api.network_api.validate_networks =\
@@ -569,7 +574,7 @@ class CobaltApiTestCase(unittest.TestCase):
             instance={'system_metadata':
                           {'attached_networks': 'net1,net2'}})
 
-        def validate_networks(context, requested_networks):
+        def validate_networks(context, requested_networks, max_count):
             # The requested networks are valid.
             pass
         self.cobalt_api.compute_api.network_api.validate_networks =\
@@ -595,9 +600,9 @@ class CobaltApiTestCase(unittest.TestCase):
             instance={'system_metadata':
                           {'attached_networks': 'net1,net2'}})
 
-        def validate_networks(context, requested_networks):
+        def validate_networks(context, requested_networks, max_count):
             # The requested networks are valid.
-            pass
+            return max_count
         self.cobalt_api.compute_api.network_api.validate_networks =\
         validate_networks
         params = {'networks': [('net-id0', None),
@@ -829,11 +834,16 @@ class CobaltApiTestCase(unittest.TestCase):
 
         # This should result in six RPC calls (for the 5 created hosts and the
         # default test host). It should be a single call and 5 casts.
-        self.assertTrue('install_policy' in self.mock_rpc.call_log)
-        self.assertEquals(1, len(self.mock_rpc.call_log['install_policy']))
+        self.assertEquals(6, self.mock_cobalt_rpcapi.num_rpc_requests())
 
-        self.assertTrue('install_policy' in self.mock_rpc.cast_log)
-        self.assertEquals(5, len(self.mock_rpc.cast_log['install_policy']))
+        tested_requests = 0
+        for request in self.mock_cobalt_rpcapi.rpc_requests():
+            self.assertEquals('install_policy', request._method)
+            if tested_requests == 0:
+                self.assertTrue(request._is_call)
+            else:
+                self.assertTrue(request._is_cast)
+            tested_requests += 1
 
     def test_install_policy_wait(self):
         # create five cobalt hosts
@@ -844,10 +854,11 @@ class CobaltApiTestCase(unittest.TestCase):
 
         # This should result in six RPC calls (for the 5 created hosts and the
         # default test host). Since we are waiting they should all be calls.
-        self.assertTrue('install_policy' in self.mock_rpc.call_log)
-        self.assertEquals(6, len(self.mock_rpc.call_log['install_policy']))
+        self.assertEquals(6, self.mock_cobalt_rpcapi.num_rpc_requests())
 
-        self.assertFalse('install_policy' in self.mock_rpc.cast_log)
+        for request in self.mock_cobalt_rpcapi.rpc_requests():
+            self.assertEquals('install_policy', request._method)
+            self.assertTrue(request._is_call)
 
     def test_get_policy_blessed(self):
         blessed_instance_uuid = utils.create_blessed_instance(self.context)
@@ -871,8 +882,10 @@ class CobaltApiTestCase(unittest.TestCase):
         launched_uuid = utils.create_launched_instance(self.context)
         self.cobalt_api.get_applied_policy(self.context, launched_uuid)
 
-        self.assertTrue('get_applied_policy' in self.mock_rpc.call_log)
-        self.assertEquals(1, len(self.mock_rpc.call_log))
+        self.assertEquals(1, self.mock_cobalt_rpcapi.num_rpc_requests())
+        rpc_request = self.mock_cobalt_rpcapi.rpc_requests()[0]
         instance = db.instance_get_by_uuid(self.context, launched_uuid)
-        self.assertTrue(('cobalt.%s' % instance['host'])
-                        in self.mock_rpc.call_log['get_applied_policy'])
+
+        self.assertEquals(instance['host'], rpc_request._server)
+        self.assertEquals('get_applied_policy', rpc_request._method)
+        self.assertTrue(rpc_request._is_call)

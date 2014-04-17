@@ -22,6 +22,7 @@ from datetime import datetime
 from nova import db
 from nova import context as nova_context
 from nova import exception
+from nova import rpc as nova_rpc
 
 from nova.compute import vm_states
 from nova.compute import task_states
@@ -33,8 +34,9 @@ import cobalt.nova.extension.manager as co_manager
 import cobalt.tests.utils as utils
 import cobalt.nova.extension.vmsconn as vmsconn
 from cobalt.tests.mocks.instances import Instance
-from cobalt.tests.mocks.volumes import MockVolumeApi, Volume
 from cobalt.tests.mocks.networks import MockNetworkApi, Network
+from cobalt.tests.mocks.rpc import MockComputeRpcApi
+from cobalt.tests.mocks.volumes import MockVolumeApi, Volume
 
 CONF = cfg.CONF
 
@@ -44,6 +46,7 @@ class CobaltManagerTestCase(unittest.TestCase):
         CONF.compute_driver = 'fake.FakeDriver'
         CONF.set_override('use_local', True, group='conductor')
 
+        nova_rpc.init(CONF)
         # Mock out all of the policy enforcement (the tests don't have a defined policy)
         utils.mock_policy()
 
@@ -51,11 +54,10 @@ class CobaltManagerTestCase(unittest.TestCase):
         shutil.copyfile(os.path.join(CONF.state_path, CONF.sqlite_clean_db),
                         os.path.join(CONF.state_path, CONF.sqlite_db))
 
-        self.mock_rpc = utils.mock_rpc
-
         self.vmsconn = utils.MockVmsConn()
         self.cobalt = co_manager.CobaltManager(vmsconn=self.vmsconn,
-            volume_api=MockVolumeApi(), network_api=MockNetworkApi())
+            volume_api=MockVolumeApi(), network_api=MockNetworkApi(),
+            compute_rpcapi=MockComputeRpcApi())
 
         self.context = nova_context.RequestContext('fake', 'fake', True)
 

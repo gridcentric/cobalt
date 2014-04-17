@@ -57,19 +57,20 @@ class Instance(instance_obj.Instance):
                 ','.join(_source_instance._networks.keys())
         self.vm_state = 'blessed'
         self.disable_terminate = True
-        if instance.instance_type_id is not None:
-            self._populate_flavor(flavors.get_flavor(instance.instance_type_id))
+        if _source_instance.instance_type_id is not None:
+            self._populate_flavor(flavors.get_flavor(
+                    _source_instance.instance_type_id))
 
-        self.display_name = 'BLESSED(%s)' % (instance.display_name)
+        self.display_name = 'BLESSED(%s)' % (_source_instance.display_name)
 
         # Transfer over all of the bdm from the original instance. Any volumes
         # encountered need to be converted into a snapshot.
-        for bdm in instance._block_device_mapping:
+        for bdm in _source_instance._block_device_mapping:
             bdm_copy = bdm.copy()
             bdm_copy['instance_uuid'] = self.uuid
             self._block_device_mapping.append(bdm_copy)
             if bdm_copy['source_type'] == 'volume':
-                volume = instance._volumes[bdm_copy['volume_id']]
+                volume = _source_instance._volumes[bdm_copy['volume_id']]
                 snapshot = volume.snapshot()
                 bdm_copy.update({'source_type': 'snapshot',
                                  'volume_id': None,
