@@ -874,7 +874,7 @@ class CobaltManager(manager.SchedulerDependentManager):
 
         self.vms_conn.discard(context, instance["name"], image_refs=image_refs)
 
-        self._instance_update(context, instance_uuid, task_state=None)
+        self._instance_update(context, instance, task_state=None)
 
     @_lock_call
     def discard_instance(self, context, instance_uuid=None, instance=None):
