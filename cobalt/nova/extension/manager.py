@@ -860,15 +860,6 @@ class CobaltManager(manager.SchedulerDependentManager):
             except:
                 _log_error("post migration cleanup")
 
-        # Discard the migration artifacts.
-        # Note that if this fails, we may leave around bits of data
-        # (descriptor in glance) but at least we had a functional VM.
-        # There is not much point in changing the state past here.
-        # Or catching any thrown exceptions (after all, it is still
-        # an error -- just not one that should kill the VM).
-        image_refs = self._extract_image_refs(instance)
-
-        self.vms_conn.discard(context, instance["name"], image_refs=image_refs)
         try:
             # Discard the migration artifacts.
             # Note that if this fails, we may leave around bits of data
