@@ -35,7 +35,7 @@ class CobaltRpcApi(object):
     def _create_client(self):
         target = messaging.Target(topic=CONF.cobalt_topic, version='2.0')
 
-        self.client = rpc.get_client(target,
+        return rpc.get_client(target,
             serializer=object_base.NovaObjectSerializer())
 
     def launch_instance(self, context, instance, host, params=None,
