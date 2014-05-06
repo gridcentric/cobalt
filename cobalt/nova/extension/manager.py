@@ -252,6 +252,12 @@ class CobaltManager(manager.SchedulerDependentManager):
         retries = 0
         while True:
             try:
+                # (dscannell): Reset the change marker on the instance object
+                #              so that only fields we want changed, by calling
+                #              update, are the ones modified in the save. If the
+                #              reset is not called, the unintended modifications
+                #              can be made to the database.
+                instance.obj_reset_changes()
                 instance.update(kwargs)
                 instance.save(context)
                 return instance
