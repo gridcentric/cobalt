@@ -61,6 +61,7 @@ from nova.openstack.common import periodic_task
 from nova.openstack.common import timeutils
 from nova.openstack.common.gettextutils import _
 
+from oslo import messaging
 from oslo.config import cfg
 
 from cobalt.nova import rpcapi as cobalt_rpc
@@ -178,6 +179,8 @@ def _retry_rpc(fn):
     return wrapped_fn
 
 class CobaltManager(manager.Manager):
+
+    target = messaging.Target(version='2.0')
 
     def __init__(self, *args, **kwargs):
 
