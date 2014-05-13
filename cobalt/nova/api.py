@@ -541,8 +541,10 @@ class API(base.Base):
 
             request_spec = self._create_request_spec(context, launch_instances,
                                                      security_groups)
-            hosts = self.scheduler_rpcapi.select_hosts(context,request_spec,
-                                                       filter_properties)
+            hosts = self.scheduler_rpcapi.select_destinations(context,
+                        request_spec, filter_properties)
+
+            hosts = [host for (host, node) in hosts]
 
             for host, launch_instance in zip(hosts, launch_instances):
                 self.cobalt_rpcapi.launch_instance(context, launch_instance,

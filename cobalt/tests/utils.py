@@ -85,7 +85,7 @@ def mock_scheduler_rpcapi(scheduler_rpcapi, hosts=None):
     if hosts == None:
         hosts = [create_uuid()]
 
-    def mock_select_hosts(context, request_spec, filter_properties):
+    def mock_select_destinations(context, request_spec, filter_properties):
         force_host = filter_properties.get('force_hosts', None)
 
         # Enforce BDM properties in request spec
@@ -129,10 +129,12 @@ def mock_scheduler_rpcapi(scheduler_rpcapi, hosts=None):
                 instance_hints.append(filter_properties)
                 stored_hints[uuid] = instance_hints
         if force_host is not None:
-            return [force_host[0]] * len(request_spec['instance_uuids'])
-        return [hosts[i % len(hosts)] for i in range(0, len(request_spec['instance_uuids']))]
+            return [(force_host[0], force_host[0])] * len(request_spec['instance_uuids'])
+        host_list = [hosts[i % len(hosts)]
+                     for i in range(0, len(request_spec['instance_uuids']))]
+        return [(host, host) for host in host_list]
 
-    scheduler_rpcapi.select_hosts = mock_select_hosts
+    scheduler_rpcapi.select_destinations = mock_select_destinations
 
 class MockVmsConn(object):
     """
