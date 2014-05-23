@@ -258,6 +258,12 @@ class CobaltManager(manager.Manager):
         retries = 0
         while True:
             try:
+                # (dscannell): Reset the change marker on the instance object
+                #              so that only fields we want changed, by calling
+                #              update, are the ones modified in the save. If the
+                #              reset is not called, the unintended modifications
+                #              can be made to the database.
+                instance.obj_reset_changes()
                 instance.update(kwargs)
                 instance.save(context)
                 return instance
@@ -852,15 +858,6 @@ class CobaltManager(manager.Manager):
             except:
                 _log_error("post migration cleanup")
 
-        # Discard the migration artifacts.
-        # Note that if this fails, we may leave around bits of data
-        # (descriptor in glance) but at least we had a functional VM.
-        # There is not much point in changing the state past here.
-        # Or catching any thrown exceptions (after all, it is still
-        # an error -- just not one that should kill the VM).
-        image_refs = self._extract_image_refs(instance)
-
-        self.vms_conn.discard(context, instance["name"], image_refs=image_refs)
         try:
             # Discard the migration artifacts.
             # Note that if this fails, we may leave around bits of data
