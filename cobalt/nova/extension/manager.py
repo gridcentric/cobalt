@@ -741,11 +741,6 @@ class CobaltManager(manager.Manager):
             # exception and leave the instance intact.
             raise exception.NovaException(_("Cannot migrate an instance that is on another host."))
 
-        # Get a reference to both the destination and source queues
-        co_dest_queue = rpc.queue_get_for(context, CONF.cobalt_topic, dest)
-        compute_dest_queue = rpc.queue_get_for(context, CONF.compute_topic, dest)
-        compute_source_queue = rpc.queue_get_for(context, CONF.compute_topic, self.host)
-
         # Figure out the migration address.
         migration_address = self._get_migration_address(dest)
 
