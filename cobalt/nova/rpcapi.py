@@ -47,12 +47,15 @@ class CobaltRpcApi(object):
               'migration_network_info': migration_network_info}
         cctxt = self.client.prepare(server=host, version=version,
                 timeout=timeout)
-        cctxt.cast(context, 'launch_instance', **kw)
+        if timeout is None:
+            cctxt.cast(context, 'launch_instance', **kw)
+        else:
+            cctxt.call(context, 'launch_instance', **kw)
 
-    def bless_instance(self, context, instance):
+    def bless_instance(self, context, instance, host):
         version = '2.0'
         kw = {'instance_uuid': instance['uuid']}
-        cctxt = self.client.prepare(server=instance['host'], version=version)
+        cctxt = self.client.prepare(server=host, version=version)
         cctxt.cast(context, 'bless_instance', **kw)
 
     def discard_instance(self, context, instance):

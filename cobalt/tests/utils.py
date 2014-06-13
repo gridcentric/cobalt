@@ -129,10 +129,12 @@ def mock_scheduler_rpcapi(scheduler_rpcapi, hosts=None):
                 instance_hints.append(filter_properties)
                 stored_hints[uuid] = instance_hints
         if force_host is not None:
-            return [(force_host[0], force_host[0])] * len(request_spec['instance_uuids'])
+            return [dict(host=force_host[0], nodename=force_host[0],
+                    limits=None)] * len(request_spec['instance_uuids'])
         host_list = [hosts[i % len(hosts)]
                      for i in range(0, len(request_spec['instance_uuids']))]
-        return [(host, host) for host in host_list]
+        return [dict(host=host, nodename=host, limits=None)
+                for host in host_list]
 
     scheduler_rpcapi.select_destinations = mock_select_destinations
 

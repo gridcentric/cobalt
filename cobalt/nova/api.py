@@ -383,7 +383,8 @@ class API(base.Base):
                                                launch=False)
 
             LOG.debug(_("Casting cobalt message for bless_instance") % locals())
-            self.cobalt_rpcapi.bless_instance(context, new_instance)
+            self.cobalt_rpcapi.bless_instance(context, new_instance,
+                instance['host'])
             self._commit_reservation(context, reservations)
         except:
             ei = sys.exc_info()
@@ -544,7 +545,7 @@ class API(base.Base):
             hosts = self.scheduler_rpcapi.select_destinations(context,
                         request_spec, filter_properties)
 
-            hosts = [host for (host, node) in hosts]
+            hosts = [host_info['host'] for host_info in hosts]
 
             for host, launch_instance in zip(hosts, launch_instances):
                 self.cobalt_rpcapi.launch_instance(context, launch_instance,
@@ -591,7 +592,8 @@ class API(base.Base):
             'instance_type': instance_type,
             'instance_uuids': [i['uuid'] for i in instances],
             'block_device_mapping': bdm,
-            'security_group': security_groups
+            'security_group': security_groups,
+            'num_instances': len(instances)
         }
 
     def _find_migration_target(self, context, instance_host, dest):
