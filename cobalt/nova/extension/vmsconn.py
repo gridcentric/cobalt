@@ -560,10 +560,15 @@ class LibvirtConnection(VmsConnection):
         disk_dir = os.path.dirname(disk_file)
         if source_type == 'file':
             # We need to make sure that the file & directory exists as the
-            # openstack user
+            # openstack user.
             mkdir_as(disk_dir, self.openstack_uid)
+            os.chown(disk_dir, self.openstack_uid, self.openstack_gid)
             touch_as(disk_file, self.openstack_uid)
             os.chown(disk_file, self.openstack_uid, self.openstack_gid)
+            if (nova_disk.disk_info_path is not None
+                    and os.path.exists(nova_disk.disk_info_path)):
+                os.chown(nova_disk.disk_info_path, self.openstack_uid,
+                    self.openstack_gid)
 
         elif source_type == 'block':
             # Note(dscannell) it is a requirement for nova that the volume group already
