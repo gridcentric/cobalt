@@ -165,7 +165,7 @@ def _retry_rpc(fn):
         while True:
             try:
                 return fn(*args, **kwargs)
-            except rpc_common.Timeout:
+            except messaging.MessagingTimeout:
                 elapsed = time.time() - start
                 if elapsed > timeout:
                     raise
@@ -957,9 +957,8 @@ class CobaltManager(manager.Manager):
                 try:
                     network_info = self.network_api.allocate_for_instance(
                                     context, instance, vpn=is_vpn,
-                                    requested_networks=requested_networks,
-                                    conductor_api=self.conductor_api)
-                except rpc_common.Timeout:
+                                    requested_networks=requested_networks)
+                except messaging.MessagingTimeout:
                     LOG.debug(_("Allocate network for instance=%s timed out"),
                                 instance['name'])
                     network_info = self._retry_get_nw_info(context, instance)

@@ -65,9 +65,7 @@ class MockNetworkApi(object):
         return networks
 
     def allocate_for_instance(self, context, instance, vpn=False,
-                              requested_networks=None, conductor_api=None):
-        # Ensure that the conductor_api is passed in.
-        assert conductor_api is not None
+                              requested_networks=None):
 
         project_networks = self._project_networks(context)
         if requested_networks is None:
@@ -83,6 +81,7 @@ class MockNetworkApi(object):
             assert net in project_networks
             network = project_networks[net]
             vif = network.allocate_for_instance()
+
 
             network_info.append(vif)
 
