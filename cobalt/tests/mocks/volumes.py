@@ -36,7 +36,7 @@ class Volume(object):
 
         assert type(self._volume_api) == MockVolumeApi
 
-    def attach(self, instance, mountpoint='/dev/vda'):
+    def attach(self, instance, mountpoint='/dev/vda', mode='rw'):
         self._volume['instance_uuid'] = instance['uuid']
         self._volume['mountpoint'] = mountpoint
         return self
@@ -96,7 +96,7 @@ class MockVolumeApi(object):
             raise exception.InvalidVolume("Wrong availability zone.")
 
 
-    def attach(self, context, volume_id, instance_uuid, mountpoint):
+    def attach(self, context, volume_id, instance_uuid, mountpoint, mode='rw'):
         vol = self._get(volume_id)
         vol._volume.update({'instance_uuid': instance_uuid,
                             'mountpoint': mountpoint})
@@ -129,7 +129,8 @@ class MockVolumeApi(object):
     def initialize_connection(self, context, volume_id, connector):
         vol = self._get(volume_id)
         vol.connector = connector
-        return {'serial': ''}
+        return {'serial': '',
+                'data': {'access_mode': 'rw'}}
 
     def terminate_connection(self, context, volume_id, connector):
         vol = self._get(volume_id)
